@@ -11,11 +11,14 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import {
   deleteFavorite,
   deletePlayRecord,
+  deleteSkipConfig,
   generateStorageKey,
   getAllPlayRecords,
+  getSkipConfig,
   isFavorited,
   saveFavorite,
   savePlayRecord,
+  saveSkipConfig,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
@@ -48,6 +51,26 @@ function PlayPageClient() {
 
   // 收藏状态
   const [favorited, setFavorited] = useState(false);
+
+  // 跳过片头片尾配置
+  const [skipConfig, setSkipConfig] = useState<{
+    enable: boolean;
+    intro_time: number;
+    outro_time: number;
+  }>({
+    enable: false,
+    intro_time: 0,
+    outro_time: 0,
+  });
+  const skipConfigRef = useRef(skipConfig);
+  useEffect(() => {
+    skipConfigRef.current = skipConfig;
+  }, [
+    skipConfig,
+    skipConfig.enable,
+    skipConfig.intro_time,
+    skipConfig.outro_time,
+  ]);
 
   // 去广告开关（从 localStorage 继承，默认 true）
   const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
@@ -428,6 +451,37 @@ function PlayPageClient() {
     return filteredLines.join('\n');
   }
 
+  // 跳过片头片尾配置相关函数
+  const handleSkipConfigChange = async (newConfig: {
+    enable: boolean;
+    intro_time: number;
+    outro_time: number;
+  }) => {
+    if (!currentSourceRef.current || !currentIdRef.current) return;
+
+    try {
+      await saveSkipConfig(
+        currentSourceRef.current,
+        currentIdRef.current,
+        newConfig
+      );
+      setSkipConfig(newConfig);
+      console.log('跳过片头片尾配置已保存:', newConfig);
+    } catch (err) {
+      console.error('保存跳过片头片尾配置失败:', err);
+    }
+  };
+
+  const formatTime = (seconds: number): string => {
+    if (seconds === 0) return '0秒';
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = Math.round(seconds % 60);
+    if (minutes === 0) {
+      return `${remainingSeconds}秒`;
+    }
+    return `${minutes}分${remainingSeconds.toString().padStart(2, '0')}秒`;
+  };
+
   class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
     constructor(config: any) {
       super(config);
@@ -642,6 +696,25 @@ function PlayPageClient() {
     initFromHistory();
   }, []);
 
+  // 跳过片头片尾配置处理
+  useEffect(() => {
+    // 仅在初次挂载时检查跳过片头片尾配置
+    const initSkipConfig = async () => {
+      if (!currentSource || !currentId) return;
+
+      try {
+        const config = await getSkipConfig(currentSource, currentId);
+        if (config) {
+          setSkipConfig(config);
+        }
+      } catch (err) {
+        console.error('读取跳过片头片尾配置失败:', err);
+      }
+    };
+
+    initSkipConfig();
+  }, []);
+
   // 处理换源
   const handleSourceChange = async (
     newSource: string,
@@ -667,6 +740,19 @@ function PlayPageClient() {
           console.log('已清除前一个播放记录');
         } catch (err) {
           console.error('清除播放记录失败:', err);
+        }
+      }
+
+      // 清除并设置下一个跳过片头片尾配置
+      if (currentSourceRef.current && currentIdRef.current) {
+        try {
+          await deleteSkipConfig(
+            currentSourceRef.current,
+            currentIdRef.current
+          );
+          await saveSkipConfig(newSource, newId, skipConfigRef.current);
+        } catch (err) {
+          console.error('清除跳过片头片尾配置失败:', err);
         }
       }
 
@@ -1182,6 +1268,56 @@ function PlayPageClient() {
               return newVal ? '当前开启' : '当前关闭';
             },
           },
+          {
+            html: '跳过片头片尾',
+            switch: skipConfig.enable,
+            onSwitch: function (item) {
+              const newConfig = {
+                ...skipConfigRef.current,
+                enable: !item.switch,
+              };
+              handleSkipConfigChange(newConfig);
+              return !item.switch;
+            },
+          },
+          {
+            html: '设置片头',
+            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="12" r="2" fill="#ffffff"/><path d="M9 12L17 12" stroke="#ffffff" stroke-width="2"/><path d="M17 6L17 18" stroke="#ffffff" stroke-width="2"/></svg>',
+            tooltip:
+              skipConfig.intro_time === 0
+                ? '设置片头时间'
+                : `${formatTime(skipConfig.intro_time)}`,
+            onClick: function () {
+              const currentTime = artPlayerRef.current?.currentTime || 0;
+              if (currentTime > 0) {
+                const newConfig = {
+                  ...skipConfigRef.current,
+                  intro_time: currentTime,
+                };
+                handleSkipConfigChange(newConfig);
+                return `${formatTime(currentTime)}`;
+              }
+            },
+          },
+          {
+            html: '设置片尾',
+            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6L7 18" stroke="#ffffff" stroke-width="2"/><path d="M7 12L15 12" stroke="#ffffff" stroke-width="2"/><circle cx="19" cy="12" r="2" fill="#ffffff"/></svg>',
+            tooltip:
+              skipConfig.outro_time === 0
+                ? '设置片尾时间'
+                : `${formatTime(skipConfig.outro_time)}`,
+            onClick: function () {
+              const currentTime = artPlayerRef.current?.currentTime || 0;
+              if (currentTime > 0) {
+                const newConfig = {
+                  ...skipConfig,
+                  outro_time: currentTime,
+                };
+                handleSkipConfigChange(newConfig);
+                return `${formatTime(currentTime)}`;
+              }
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -1235,6 +1371,44 @@ function PlayPageClient() {
 
         // 隐藏换源加载状态
         setIsVideoLoading(false);
+      });
+
+      // 监听视频时间更新事件，实现跳过片头片尾
+      artPlayerRef.current.on('video:timeupdate', () => {
+        if (!skipConfigRef.current.enable) return;
+
+        const currentTime = artPlayerRef.current.currentTime || 0;
+        const duration = artPlayerRef.current.duration || 0;
+
+        // 跳过片头
+        if (
+          skipConfigRef.current.intro_time > 0 &&
+          currentTime < skipConfigRef.current.intro_time
+        ) {
+          artPlayerRef.current.currentTime = skipConfigRef.current.intro_time;
+          artPlayerRef.current.notice.show = `已跳过片头 (${formatTime(
+            skipConfigRef.current.intro_time
+          )})`;
+        }
+
+        // 跳过片尾
+        if (
+          skipConfigRef.current.outro_time > 0 &&
+          duration > 0 &&
+          currentTime > skipConfigRef.current.outro_time
+        ) {
+          if (
+            currentEpisodeIndexRef.current <
+            (detailRef.current?.episodes?.length || 1) - 1
+          ) {
+            handleNextEpisode();
+          } else {
+            artPlayerRef.current.pause();
+          }
+          artPlayerRef.current.notice.show = `已跳过片尾 (${formatTime(
+            skipConfigRef.current.outro_time
+          )})`;
+        }
       });
 
       artPlayerRef.current.on('error', (err: any) => {

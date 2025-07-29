@@ -3,7 +3,7 @@
 import { Redis } from '@upstash/redis';
 
 import { AdminConfig } from './admin.types';
-import { Favorite, IStorage, PlayRecord } from './types';
+import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
 
 // 搜索历史最大条数
 const SEARCH_HISTORY_LIMIT = 20;
@@ -209,6 +209,15 @@ export class UpstashRedisStorage implements IStorage {
     if (favoriteKeys.length > 0) {
       await withRetry(() => this.client.del(...favoriteKeys));
     }
+
+    // 删除跳过片头片尾配置
+    const skipConfigPattern = `u:${userName}:skip:*`;
+    const skipConfigKeys = await withRetry(() =>
+      this.client.keys(skipConfigPattern)
+    );
+    if (skipConfigKeys.length > 0) {
+      await withRetry(() => this.client.del(...skipConfigKeys));
+    }
   }
 
   // ---------- 搜索历史 ----------
@@ -266,6 +275,43 @@ export class UpstashRedisStorage implements IStorage {
 
   async setAdminConfig(config: AdminConfig): Promise<void> {
     await withRetry(() => this.client.set(this.adminConfigKey(), config));
+  }
+
+  // ---------- 跳过片头片尾配置 ----------
+  private skipConfigKey(user: string, source: string, id: string) {
+    return `u:${user}:skip:${source}+${id}`;
+  }
+
+  async getSkipConfig(
+    userName: string,
+    source: string,
+    id: string
+  ): Promise<SkipConfig | null> {
+    const val = await withRetry(() =>
+      this.client.get(this.skipConfigKey(userName, source, id))
+    );
+    return val ? (val as SkipConfig) : null;
+  }
+
+  async setSkipConfig(
+    userName: string,
+    source: string,
+    id: string,
+    config: SkipConfig
+  ): Promise<void> {
+    await withRetry(() =>
+      this.client.set(this.skipConfigKey(userName, source, id), config)
+    );
+  }
+
+  async deleteSkipConfig(
+    userName: string,
+    source: string,
+    id: string
+  ): Promise<void> {
+    await withRetry(() =>
+      this.client.del(this.skipConfigKey(userName, source, id))
+    );
   }
 }
 

@@ -64,6 +64,20 @@ export interface IStorage {
   // 管理员配置相关
   getAdminConfig(): Promise<AdminConfig | null>;
   setAdminConfig(config: AdminConfig): Promise<void>;
+
+  // 跳过片头片尾配置相关
+  getSkipConfig(
+    userName: string,
+    source: string,
+    id: string
+  ): Promise<SkipConfig | null>;
+  setSkipConfig(
+    userName: string,
+    source: string,
+    id: string,
+    config: SkipConfig
+  ): Promise<void>;
+  deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
 }
 
 // 搜索结果数据结构
@@ -94,4 +108,11 @@ export interface DoubanResult {
   code: number;
   message: string;
   list: DoubanItem[];
+}
+
+// 跳过片头片尾配置数据结构
+export interface SkipConfig {
+  enable: boolean; // 是否启用跳过片头片尾
+  intro_time: number; // 片头时间（秒）
+  outro_time: number; // 片尾时间（秒）
 }
