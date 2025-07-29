@@ -1427,6 +1427,67 @@ export async function saveSkipConfig(
 }
 
 /**
+ * 获取所有跳过片头片尾配置。
+ * 数据库存储模式下使用混合缓存策略：优先返回缓存数据，后台异步同步最新数据。
+ */
+export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
+  // 服务器端渲染阶段直接返回空
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  // 数据库存储模式：使用混合缓存策略（包括 redis、d1、upstash）
+  if (STORAGE_TYPE !== 'localstorage') {
+    // 优先从缓存获取数据
+    const cachedData = cacheManager.getCachedSkipConfigs();
+
+    if (cachedData) {
+      // 返回缓存数据，同时后台异步更新
+      fetchFromApi<Record<string, SkipConfig>>(`/api/skipconfigs`)
+        .then((freshData) => {
+          // 只有数据真正不同时才更新缓存
+          if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
+            cacheManager.cacheSkipConfigs(freshData);
+            // 触发数据更新事件
+            window.dispatchEvent(
+              new CustomEvent('skipConfigsUpdated', {
+                detail: freshData,
+              })
+            );
+          }
+        })
+        .catch((err) => {
+          console.warn('后台同步跳过片头片尾配置失败:', err);
+        });
+
+      return cachedData;
+    } else {
+      // 缓存为空，直接从 API 获取并缓存
+      try {
+        const freshData = await fetchFromApi<Record<string, SkipConfig>>(
+          `/api/skipconfigs`
+        );
+        cacheManager.cacheSkipConfigs(freshData);
+        return freshData;
+      } catch (err) {
+        console.error('获取跳过片头片尾配置失败:', err);
+        return {};
+      }
+    }
+  }
+
+  // localStorage 模式
+  try {
+    const raw = localStorage.getItem('moontv_skip_configs');
+    if (!raw) return {};
+    return JSON.parse(raw) as Record<string, SkipConfig>;
+  } catch (err) {
+    console.error('读取跳过片头片尾配置失败:', err);
+    return {};
+  }
+}
+
+/**
  * 删除跳过片头片尾配置。
  * 数据库存储模式下使用乐观更新：先更新缓存，再异步同步到数据库。
  */

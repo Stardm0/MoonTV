@@ -25,9 +25,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json(config);
     } else {
       // 获取所有配置
-      // 注意：这里需要实现获取所有跳过片头片尾配置的方法
-      // 由于当前接口设计是按source+id获取单个配置，这里返回空对象
-      return NextResponse.json({});
+      const configs = await db.getAllSkipConfigs(authInfo.username);
+      return NextResponse.json(configs);
     }
   } catch (error) {
     console.error('获取跳过片头片尾配置失败:', error);

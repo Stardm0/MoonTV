@@ -554,4 +554,34 @@ export class D1Storage implements IStorage {
       throw err;
     }
   }
+
+  async getAllSkipConfigs(
+    userName: string
+  ): Promise<{ [key: string]: SkipConfig }> {
+    try {
+      const db = await this.getDatabase();
+      const result = await db
+        .prepare(
+          'SELECT source, id_video, enable, intro_time, outro_time FROM skip_configs WHERE username = ?'
+        )
+        .bind(userName)
+        .all<any>();
+
+      const configs: { [key: string]: SkipConfig } = {};
+
+      result.results.forEach((row) => {
+        const key = `${row.source}+${row.id_video}`;
+        configs[key] = {
+          enable: Boolean(row.enable),
+          intro_time: row.intro_time,
+          outro_time: row.outro_time,
+        };
+      });
+
+      return configs;
+    } catch (err) {
+      console.error('Failed to get all skip configs:', err);
+      throw err;
+    }
+  }
 }

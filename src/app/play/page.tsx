@@ -72,6 +72,9 @@ function PlayPageClient() {
     skipConfig.outro_time,
   ]);
 
+  // 跳过检查的时间间隔控制
+  const lastSkipCheckRef = useRef(0);
+
   // 去广告开关（从 localStorage 继承，默认 true）
   const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -473,13 +476,23 @@ function PlayPageClient() {
   };
 
   const formatTime = (seconds: number): string => {
-    if (seconds === 0) return '0秒';
-    const minutes = Math.floor(seconds / 60);
+    if (seconds === 0) return '00:00';
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
     const remainingSeconds = Math.round(seconds % 60);
-    if (minutes === 0) {
-      return `${remainingSeconds}秒`;
+
+    if (hours === 0) {
+      // 不到一小时，格式为 00:00
+      return `${minutes.toString().padStart(2, '0')}:${remainingSeconds
+        .toString()
+        .padStart(2, '0')}`;
+    } else {
+      // 超过一小时，格式为 00:00:00
+      return `${hours.toString().padStart(2, '0')}:${minutes
+        .toString()
+        .padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
     }
-    return `${minutes}分${remainingSeconds.toString().padStart(2, '0')}秒`;
   };
 
   class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
@@ -1379,6 +1392,11 @@ function PlayPageClient() {
 
         const currentTime = artPlayerRef.current.currentTime || 0;
         const duration = artPlayerRef.current.duration || 0;
+        const now = Date.now();
+
+        // 限制跳过检查频率为1.5秒一次
+        if (now - lastSkipCheckRef.current < 1500) return;
+        lastSkipCheckRef.current = now;
 
         // 跳过片头
         if (

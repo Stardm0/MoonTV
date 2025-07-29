@@ -214,6 +214,15 @@ export class DbManager {
       await (this.storage as any).deleteSkipConfig(userName, source, id);
     }
   }
+
+  async getAllSkipConfigs(
+    userName: string
+  ): Promise<{ [key: string]: SkipConfig }> {
+    if (typeof (this.storage as any).getAllSkipConfigs === 'function') {
+      return (this.storage as any).getAllSkipConfigs(userName);
+    }
+    return {};
+  }
 }
 
 // 导出默认实例
