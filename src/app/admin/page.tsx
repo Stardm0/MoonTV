@@ -1222,9 +1222,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       <div className='flex justify-end'>
         <button
           onClick={handleSave}
-          disabled={saving || isD1Storage || isUpstashStorage}
+          disabled={saving}
           className={`px-4 py-2 ${
-            saving || isD1Storage || isUpstashStorage
+            saving
               ? 'bg-gray-400 cursor-not-allowed'
               : 'bg-green-600 hover:bg-green-700'
           } text-white rounded-lg transition-colors`}
