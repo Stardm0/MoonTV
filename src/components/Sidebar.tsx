@@ -1,6 +1,8 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 'use client';
 
-import { Clover, Film, Home, Menu, Search, Tv } from 'lucide-react';
+import { Clover, Film, Home, Menu, Search, Star, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -122,7 +124,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
     isCollapsed,
   };
 
-  const menuItems = [
+  const [menuItems, setMenuItems] = useState([
     {
       icon: Film,
       label: '电影',
@@ -138,7 +140,23 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
       label: '综艺',
       href: '/douban?type=show',
     },
-  ];
+  ]);
+
+  useEffect(() => {
+    const runtimeConfig = (window as any).RUNTIME_CONFIG;
+    if (runtimeConfig?.CUSTOM_CATEGORIES) {
+      setMenuItems((prevItems) => [
+        ...prevItems,
+        ...runtimeConfig.CUSTOM_CATEGORIES.map((category: any) => ({
+          icon: Star,
+          label: category.name || category.query,
+          href: `/douban?type=${category.type}&tag=${category.query}${
+            category.name ? `&name=${category.name}` : ''
+          }&custom=true`,
+        })),
+      ]);
+    }
+  }, []);
 
   return (
     <SidebarContext.Provider value={contextValue}>
