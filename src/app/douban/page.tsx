@@ -1,4 +1,4 @@
-/* eslint-disable no-console,react-hooks/exhaustive-deps */
+/* eslint-disable no-console,react-hooks/exhaustive-deps,@typescript-eslint/no-explicit-any */
 
 'use client';
 
@@ -10,6 +10,7 @@ import { getDoubanCategories, getDoubanList } from '@/lib/douban.client';
 import { DoubanItem, DoubanResult } from '@/lib/types';
 
 import DoubanCardSkeleton from '@/components/DoubanCardSkeleton';
+import DoubanCustomSelector from '@/components/DoubanCustomSelector';
 import DoubanSelector from '@/components/DoubanSelector';
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -27,9 +28,11 @@ function DoubanPageClient() {
   const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const type = searchParams.get('type') || 'movie';
-  const tag = searchParams.get('tag') || '';
-  const custom = searchParams.get('custom') === 'true';
-  const name = searchParams.get('name') || '';
+
+  // 获取 runtimeConfig 中的自定义分类数据
+  const [customCategories, setCustomCategories] = useState<
+    Array<{ name: string; type: 'movie' | 'tv'; query: string }>
+  >([]);
 
   // 选择器状态 - 完全独立，不依赖URL参数
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
@@ -41,6 +44,14 @@ function DoubanPageClient() {
     if (type === 'show') return 'show';
     return '全部';
   });
+
+  // 获取自定义分类数据
+  useEffect(() => {
+    const runtimeConfig = (window as any).RUNTIME_CONFIG;
+    if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
+      setCustomCategories(runtimeConfig.CUSTOM_CATEGORIES);
+    }
+  }, []);
 
   // 初始化时标记选择器为准备好状态
   useEffect(() => {
@@ -56,23 +67,48 @@ function DoubanPageClient() {
   useEffect(() => {
     setSelectorsReady(false);
     setLoading(true); // 立即显示loading状态
-  }, [type, tag]);
+  }, [type]);
 
   // 当type变化时重置选择器状态
   useEffect(() => {
-    // 批量更新选择器状态
-    if (type === 'movie') {
-      setPrimarySelection('热门');
-      setSecondarySelection('全部');
-    } else if (type === 'tv') {
-      setPrimarySelection('');
-      setSecondarySelection('tv');
-    } else if (type === 'show') {
-      setPrimarySelection('');
-      setSecondarySelection('show');
+    if (type === 'custom' && customCategories.length > 0) {
+      // 自定义分类模式：优先选择 movie，如果没有 movie 则选择 tv
+      const types = Array.from(
+        new Set(customCategories.map((cat) => cat.type))
+      );
+      if (types.length > 0) {
+        // 优先选择 movie，如果没有 movie 则选择 tv
+        let selectedType = types[0]; // 默认选择第一个
+        if (types.includes('movie')) {
+          selectedType = 'movie';
+        } else {
+          selectedType = 'tv';
+        }
+        setPrimarySelection(selectedType);
+
+        // 设置选中类型的第一个分类的 query 作为二级选择
+        const firstCategory = customCategories.find(
+          (cat) => cat.type === selectedType
+        );
+        if (firstCategory) {
+          setSecondarySelection(firstCategory.query);
+        }
+      }
     } else {
-      setPrimarySelection('');
-      setSecondarySelection('全部');
+      // 原有逻辑
+      if (type === 'movie') {
+        setPrimarySelection('热门');
+        setSecondarySelection('全部');
+      } else if (type === 'tv') {
+        setPrimarySelection('');
+        setSecondarySelection('tv');
+      } else if (type === 'show') {
+        setPrimarySelection('');
+        setSecondarySelection('show');
+      } else {
+        setPrimarySelection('');
+        setSecondarySelection('全部');
+      }
     }
 
     // 使用短暂延迟确保状态更新完成后标记选择器准备好
@@ -81,7 +117,7 @@ function DoubanPageClient() {
     }, 50);
 
     return () => clearTimeout(timer);
-  }, [type, tag, custom]);
+  }, [type, customCategories]);
 
   // 生成骨架屏数据
   const skeletonData = Array.from({ length: 25 }, (_, index) => index);
@@ -117,13 +153,24 @@ function DoubanPageClient() {
     try {
       setLoading(true);
       let data: DoubanResult;
-      if (custom) {
-        data = await getDoubanList({
-          tag,
-          type,
-          pageLimit: 25,
-          pageStart: 0,
-        });
+
+      if (type === 'custom') {
+        // 自定义分类模式：根据选中的一级和二级选项获取对应的分类
+        const selectedCategory = customCategories.find(
+          (cat) =>
+            cat.type === primarySelection && cat.query === secondarySelection
+        );
+
+        if (selectedCategory) {
+          data = await getDoubanList({
+            tag: selectedCategory.query,
+            type: selectedCategory.type,
+            pageLimit: 25,
+            pageStart: 0,
+          });
+        } else {
+          throw new Error('没有找到对应的分类');
+        }
       } else {
         data = await getDoubanCategories(getRequestParams(0));
       }
@@ -140,17 +187,16 @@ function DoubanPageClient() {
     }
   }, [
     type,
-    tag,
-    custom,
     primarySelection,
     secondarySelection,
     getRequestParams,
+    customCategories,
   ]);
 
   // 只在选择器准备好后才加载数据
   useEffect(() => {
     // 只有在选择器准备好时才开始加载
-    if (!selectorsReady && !custom) {
+    if (!selectorsReady) {
       return;
     }
 
@@ -179,8 +225,6 @@ function DoubanPageClient() {
   }, [
     selectorsReady,
     type,
-    tag,
-    custom,
     primarySelection,
     secondarySelection,
     loadInitialData,
@@ -194,13 +238,24 @@ function DoubanPageClient() {
           setIsLoadingMore(true);
 
           let data: DoubanResult;
-          if (custom) {
-            data = await getDoubanList({
-              tag,
-              type,
-              pageLimit: 25,
-              pageStart: currentPage * 25,
-            });
+          if (type === 'custom') {
+            // 自定义分类模式：根据选中的一级和二级选项获取对应的分类
+            const selectedCategory = customCategories.find(
+              (cat) =>
+                cat.type === primarySelection &&
+                cat.query === secondarySelection
+            );
+
+            if (selectedCategory) {
+              data = await getDoubanList({
+                tag: selectedCategory.query,
+                type: selectedCategory.type,
+                pageLimit: 25,
+                pageStart: currentPage * 25,
+              });
+            } else {
+              throw new Error('没有找到对应的分类');
+            }
           } else {
             data = await getDoubanCategories(
               getRequestParams(currentPage * 25)
@@ -222,7 +277,13 @@ function DoubanPageClient() {
 
       fetchMoreData();
     }
-  }, [currentPage, type, tag, custom, primarySelection, secondarySelection]);
+  }, [
+    currentPage,
+    type,
+    primarySelection,
+    secondarySelection,
+    customCategories,
+  ]);
 
   // 设置滚动监听
   useEffect(() => {
@@ -261,10 +322,25 @@ function DoubanPageClient() {
       // 只有当值真正改变时才设置loading状态
       if (value !== primarySelection) {
         setLoading(true);
-        setPrimarySelection(value);
+
+        // 如果是自定义分类模式，同时更新一级和二级选择器
+        if (type === 'custom' && customCategories.length > 0) {
+          const firstCategory = customCategories.find(
+            (cat) => cat.type === value
+          );
+          if (firstCategory) {
+            // 批量更新状态，避免多次触发数据加载
+            setPrimarySelection(value);
+            setSecondarySelection(firstCategory.query);
+          } else {
+            setPrimarySelection(value);
+          }
+        } else {
+          setPrimarySelection(value);
+        }
       }
     },
-    [primarySelection]
+    [primarySelection, type, customCategories]
   );
 
   const handleSecondaryChange = useCallback(
@@ -280,19 +356,18 @@ function DoubanPageClient() {
 
   const getPageTitle = () => {
     // 根据 type 生成标题
-    if (name) {
-      return name;
-    }
-    if (custom) {
-      return tag;
-    }
-    return type === 'movie' ? '电影' : type === 'tv' ? '电视剧' : '综艺';
+    return type === 'movie'
+      ? '电影'
+      : type === 'tv'
+      ? '电视剧'
+      : type === 'show'
+      ? '综艺'
+      : '自定义';
   };
 
   const getActivePath = () => {
     const params = new URLSearchParams();
     if (type) params.set('type', type);
-    if (tag) params.set('tag', tag);
 
     const queryString = params.toString();
     const activePath = `/douban${queryString ? `?${queryString}` : ''}`;
@@ -314,11 +389,21 @@ function DoubanPageClient() {
             </p>
           </div>
 
-          {/* 选择器组件 - custom 模式下不显示 */}
-          {!custom && (
+          {/* 选择器组件 */}
+          {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
                 type={type as 'movie' | 'tv' | 'show'}
+                primarySelection={primarySelection}
+                secondarySelection={secondarySelection}
+                onPrimaryChange={handlePrimaryChange}
+                onSecondaryChange={handleSecondaryChange}
+              />
+            </div>
+          ) : (
+            <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
+              <DoubanCustomSelector
+                customCategories={customCategories}
                 primarySelection={primarySelection}
                 secondarySelection={secondarySelection}
                 onPrimaryChange={handlePrimaryChange}
@@ -331,8 +416,8 @@ function DoubanPageClient() {
         {/* 内容展示区域 */}
         <div className='max-w-[95%] mx-auto mt-8 overflow-visible'>
           {/* 内容网格 */}
-          <div className='grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fit,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
-            {loading || (!selectorsReady && !custom)
+          <div className='justify-start grid grid-cols-3 gap-x-2 gap-y-12 px-0 sm:px-2 sm:grid-cols-[repeat(auto-fill,minmax(160px,1fr))] sm:gap-x-8 sm:gap-y-20'>
+            {loading || !selectorsReady
               ? // 显示骨架屏
                 skeletonData.map((index) => <DoubanCardSkeleton key={index} />)
               : // 显示实际数据

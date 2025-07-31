@@ -144,16 +144,14 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
 
   useEffect(() => {
     const runtimeConfig = (window as any).RUNTIME_CONFIG;
-    if (runtimeConfig?.CUSTOM_CATEGORIES) {
+    if (runtimeConfig?.CUSTOM_CATEGORIES?.length > 0) {
       setMenuItems((prevItems) => [
         ...prevItems,
-        ...runtimeConfig.CUSTOM_CATEGORIES.map((category: any) => ({
+        {
           icon: Star,
-          label: category.name || category.query,
-          href: `/douban?type=${category.type}&tag=${category.query}${
-            category.name ? `&name=${category.name}` : ''
-          }&custom=true`,
-        })),
+          label: '自定义',
+          href: '/douban?type=custom',
+        },
       ]);
     }
   }, []);
@@ -242,7 +240,6 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                 {menuItems.map((item) => {
                   // 检查当前路径是否匹配这个菜单项
                   const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
-                  const tagMatch = item.href.match(/tag=([^&]+)/)?.[1];
 
                   // 解码URL以进行正确的比较
                   const decodedActive = decodeURIComponent(active);
@@ -251,9 +248,7 @@ const Sidebar = ({ onToggle, activePath = '/' }: SidebarProps) => {
                   const isActive =
                     decodedActive === decodedItemHref ||
                     (decodedActive.startsWith('/douban') &&
-                      decodedActive.includes(`type=${typeMatch}`) &&
-                      tagMatch &&
-                      decodedActive.includes(`tag=${tagMatch}`));
+                      decodedActive.includes(`type=${typeMatch}`));
                   const Icon = item.icon;
                   return (
                     <Link
