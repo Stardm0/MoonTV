@@ -207,20 +207,21 @@ networks:
 
 ## 环境变量
 
-| 变量                        | 说明                                         | 可选值                           | 默认值                                                                                                                     |
-| --------------------------- | -------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| USERNAME                    | 非 localstorage 部署时的管理员账号           | 任意字符串                       | （空）                                                                                                                     |
-| PASSWORD                    | 非 localstorage 部署时为管理员密码           | 任意字符串                       | （空）                                                                                                                     |
-| SITE_NAME                   | 站点名称                                     | 任意字符串                       | MoonTV                                                                                                                     |
-| ANNOUNCEMENT                | 站点公告                                     | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
-| NEXT_PUBLIC_STORAGE_TYPE    | 播放记录/收藏的存储方式                      | localstorage、redis、d1、upstash | localstorage                                                                                                               |
-| REDIS_URL                   | redis 连接 url                               | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_URL                 | upstash redis 连接 url                       | 连接 url                         | 空                                                                                                                         |
-| UPSTASH_TOKEN               | upstash redis 连接 token                     | 连接 token                       | 空                                                                                                                         |
-| NEXT_PUBLIC_ENABLE_REGISTER | 是否开放注册，仅在非 localstorage 部署时生效 | true / false                     | false                                                                                                                      |
-| NEXT_PUBLIC_SEARCH_MAX_PAGE | 搜索接口可拉取的最大页数                     | 1-50                             | 5                                                                                                                          |
-| NEXT_PUBLIC_IMAGE_PROXY     | 默认的浏览器端图片代理                       | url prefix                       | (空)                                                                                                                       |
-| NEXT_PUBLIC_DOUBAN_PROXY    | 默认的浏览器端豆瓣数据代理                   | url prefix                       | (空)                                                                                                                       |
+| 变量                              | 说明                                         | 可选值                           | 默认值                                                                                                                     |
+| --------------------------------- | -------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| USERNAME                          | 非 localstorage 部署时的管理员账号           | 任意字符串                       | （空）                                                                                                                     |
+| PASSWORD                          | 非 localstorage 部署时为管理员密码           | 任意字符串                       | （空）                                                                                                                     |
+| SITE_NAME                         | 站点名称                                     | 任意字符串                       | MoonTV                                                                                                                     |
+| ANNOUNCEMENT                      | 站点公告                                     | 任意字符串                       | 本网站仅提供影视信息搜索服务，所有内容均来自第三方网站。本站不存储任何视频资源，不对任何内容的准确性、合法性、完整性负责。 |
+| NEXT_PUBLIC_STORAGE_TYPE          | 播放记录/收藏的存储方式                      | localstorage、redis、d1、upstash | localstorage                                                                                                               |
+| REDIS_URL                         | redis 连接 url                               | 连接 url                         | 空                                                                                                                         |
+| UPSTASH_URL                       | upstash redis 连接 url                       | 连接 url                         | 空                                                                                                                         |
+| UPSTASH_TOKEN                     | upstash redis 连接 token                     | 连接 token                       | 空                                                                                                                         |
+| NEXT_PUBLIC_ENABLE_REGISTER       | 是否开放注册，仅在非 localstorage 部署时生效 | true / false                     | false                                                                                                                      |
+| NEXT_PUBLIC_SEARCH_MAX_PAGE       | 搜索接口可拉取的最大页数                     | 1-50                             | 5                                                                                                                          |
+| NEXT_PUBLIC_IMAGE_PROXY           | 默认的浏览器端图片代理                       | url prefix                       | (空)                                                                                                                       |
+| NEXT_PUBLIC_DOUBAN_PROXY          | 默认的浏览器端豆瓣数据代理                   | url prefix                       | (空)                                                                                                                       |
+| NEXT_PUBLIC_DISABLE_YELLOW_FILTER | 关闭色情内容过滤                             | true/false                       | false                                                                                                                      |
 
 ## 配置说明
 

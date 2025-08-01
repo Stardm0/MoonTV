@@ -13,6 +13,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
+import { yellowWords } from '@/lib/yellow';
 
 import PageLayout from '@/components/PageLayout';
 import VideoCard from '@/components/VideoCard';
@@ -165,8 +166,18 @@ function SearchPageClient() {
         `/api/search?q=${encodeURIComponent(query.trim())}`
       );
       const data = await response.json();
+      let results = data.results;
+      if (
+        typeof window !== 'undefined' &&
+        !(window as any).RUNTIME_CONFIG?.DISABLE_YELLOW_FILTER
+      ) {
+        results = results.filter((result: SearchResult) => {
+          const typeName = result.type_name || '';
+          return !yellowWords.some((word: string) => typeName.includes(word));
+        });
+      }
       setSearchResults(
-        data.results.sort((a: SearchResult, b: SearchResult) => {
+        results.sort((a: SearchResult, b: SearchResult) => {
           // 优先排序：标题与搜索词完全一致的排在前面
           const aExactMatch = a.title === query.trim();
           const bExactMatch = b.title === query.trim();
@@ -311,7 +322,7 @@ function SearchPageClient() {
                       >
                         <VideoCard
                           id={item.id}
-                          title={item.title}
+                          title={item.title + ' ' + item.type_name}
                           poster={item.poster}
                           episodes={item.episodes.length}
                           source={item.source}

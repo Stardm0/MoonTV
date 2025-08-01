@@ -59,6 +59,7 @@ interface SiteConfig {
   SiteInterfaceCacheTime: number;
   ImageProxy: string;
   DoubanProxy: string;
+  DisableYellowFilter: boolean;
 }
 
 // 视频源数据类型
@@ -1356,6 +1357,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     SiteInterfaceCacheTime: 7200,
     ImageProxy: '',
     DoubanProxy: '',
+    DisableYellowFilter: false,
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
@@ -1374,6 +1376,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         ...config.SiteConfig,
         ImageProxy: config.SiteConfig.ImageProxy || '',
         DoubanProxy: config.SiteConfig.DoubanProxy || '',
+        DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
       });
     }
   }, [config]);
@@ -1607,6 +1610,61 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         />
         <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
           用于代理豆瓣数据访问，解决跨域或访问限制问题。留空则使用服务端API。
+        </p>
+      </div>
+
+      {/* 禁用黄色过滤器 */}
+      <div>
+        <div className='flex items-center justify-between'>
+          <label
+            className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+              isD1Storage || isUpstashStorage ? 'opacity-50' : ''
+            }`}
+          >
+            禁用黄色过滤器
+            {isD1Storage && (
+              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                (D1 环境下请通过环境变量修改)
+              </span>
+            )}
+            {isUpstashStorage && (
+              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                (Upstash 环境下请通过环境变量修改)
+              </span>
+            )}
+          </label>
+          <button
+            type='button'
+            onClick={() =>
+              !isD1Storage &&
+              !isUpstashStorage &&
+              setSiteSettings((prev) => ({
+                ...prev,
+                DisableYellowFilter: !prev.DisableYellowFilter,
+              }))
+            }
+            disabled={isD1Storage || isUpstashStorage}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+              siteSettings.DisableYellowFilter
+                ? 'bg-green-600'
+                : 'bg-gray-200 dark:bg-gray-700'
+            } ${
+              isD1Storage || isUpstashStorage
+                ? 'opacity-50 cursor-not-allowed'
+                : ''
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                siteSettings.DisableYellowFilter
+                  ? 'translate-x-6'
+                  : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
+        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          禁用黄色内容的过滤功能，允许显示所有内容。
         </p>
       </div>
 
