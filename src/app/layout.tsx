@@ -9,6 +9,7 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 import { getConfig } from '@/lib/config';
 import RuntimeConfig from '@/lib/runtime';
 
+import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 
@@ -113,6 +114,7 @@ export default async function RootLayout({
         >
           <SiteProvider siteName={siteName} announcement={announcement}>
             {children}
+            <GlobalErrorIndicator />
           </SiteProvider>
         </ThemeProvider>
       </body>
