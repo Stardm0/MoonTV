@@ -132,11 +132,11 @@
 
 ```bash
 # 拉取预构建镜像
-docker pull ghcr.io/senshinya/moontv:latest
+docker pull ghcr.io/lunatechlab/moontv:latest
 
 # 运行容器
 # -d: 后台运行  -p: 映射端口 3000 -> 3000
-docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password ghcr.io/senshinya/moontv:latest
+docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password ghcr.io/lunatechlab/moontv:latest
 ```
 
 访问 `http://服务器 IP:3000` 即可。（需自行到服务器控制台放通 `3000` 端口）
@@ -150,7 +150,7 @@ docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password ghcr.io/se
 ```yaml
 services:
   moontv-core:
-    image: ghcr.io/senshinya/moontv:latest
+    image: ghcr.io/lunatechlab/moontv:latest
     container_name: moontv-core
     restart: unless-stopped
     ports:
@@ -167,7 +167,7 @@ services:
 ```yaml
 services:
   moontv-core:
-    image: ghcr.io/senshinya/moontv:latest
+    image: ghcr.io/lunatechlab/moontv:latest
     container_name: moontv-core
     restart: unless-stopped
     ports:
@@ -331,4 +331,4 @@ MoonTV 支持标准的苹果 CMS V10 API 格式。
 
 ## Star 趋势
 
-[![Stargazers over time](https://starchart.cc/senshinya/MoonTV.svg?variant=adaptive)](https://starchart.cc/senshinya/MoonTV)
+[![Stargazers over time](https://starchart.cc/LunaTechLab/MoonTV.svg?variant=adaptive)](https://starchart.cc/LunaTechLab/MoonTV)

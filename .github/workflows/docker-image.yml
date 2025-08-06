@@ -159,6 +159,6 @@ jobs:
       - name: Refresh VERSION.txt cache
         run: |
           echo "Refreshing VERSION.txt cache..."
-          curl -s https://purge.jsdelivr.net/gh/senshinya/moontv/VERSION.txt
+          curl -s https://purge.jsdelivr.net/gh/LunaTechLab/moontv/VERSION.txt
           echo ""
           echo "VERSION.txt cache refreshed successfully"
