@@ -21,7 +21,6 @@ export async function fetchDoubanData<T>(url: string): Promise<T> {
   };
 
   try {
-    // 尝试直接访问豆瓣API
     const response = await fetch(url, fetchOptions);
     clearTimeout(timeoutId);
 
@@ -31,23 +30,7 @@ export async function fetchDoubanData<T>(url: string): Promise<T> {
 
     return await response.json();
   } catch (error) {
-    const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
-      url
-    )}`;
-    try {
-      const fallbackResponse = await fetch(fallbackUrl, fetchOptions);
-      clearTimeout(timeoutId);
-      if (!fallbackResponse.ok) {
-        throw new Error(`HTTP error! Status: ${fallbackResponse.status}`);
-      }
-      const fallbackData = await fallbackResponse.json();
-      if (fallbackData && fallbackData.contents) {
-        return JSON.parse(fallbackData.contents);
-      }
-      throw new Error('Invalid fallback response');
-    } catch (fallbackError) {
-      clearTimeout(timeoutId);
-      throw fallbackError;
-    }
+    clearTimeout(timeoutId);
+    throw error;
   }
 }

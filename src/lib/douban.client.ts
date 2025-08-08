@@ -56,8 +56,28 @@ async function fetchWithTimeout(
     clearTimeout(timeoutId);
     return response;
   } catch (error) {
-    clearTimeout(timeoutId);
-    throw error;
+    if (proxyUrl) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+    const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
+      url
+    )}`;
+    try {
+      const fallbackResponse = await fetch(fallbackUrl, fetchOptions);
+      clearTimeout(timeoutId);
+      if (!fallbackResponse.ok) {
+        throw new Error(`HTTP error! Status: ${fallbackResponse.status}`);
+      }
+      const fallbackData = await fallbackResponse.json();
+      if (fallbackData && fallbackData.contents) {
+        return JSON.parse(fallbackData.contents);
+      }
+      throw new Error('Invalid fallback response');
+    } catch (fallbackError) {
+      clearTimeout(timeoutId);
+      throw fallbackError;
+    }
   }
 }
 

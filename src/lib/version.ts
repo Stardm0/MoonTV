@@ -2,7 +2,7 @@
 
 'use client';
 
-const CURRENT_VERSION = '20250807220654';
+const CURRENT_VERSION = '20250808130942';
 
 // 版本检查结果枚举
 export enum UpdateStatus {
@@ -53,7 +53,13 @@ async function fetchVersionFromUrl(url: string): Promise<string | null> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超时
 
-    const response = await fetch(url, {
+    // 添加时间戳参数以避免缓存
+    const timestamp = Date.now();
+    const urlWithTimestamp = url.includes('?')
+      ? `${url}&_t=${timestamp}`
+      : `${url}?_t=${timestamp}`;
+
+    const response = await fetch(urlWithTimestamp, {
       method: 'GET',
       signal: controller.signal,
       headers: {
