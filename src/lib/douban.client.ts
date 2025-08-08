@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+
 import { DoubanItem, DoubanResult } from './types';
 import { getDoubanProxyUrl } from './utils';
 
@@ -33,6 +35,23 @@ interface DoubanListApiResponse {
     card_subtitle: string;
     cover: string;
     rate: string;
+  }>;
+}
+
+interface DoubanRecommandApiResponse {
+  total: number;
+  items: Array<{
+    id: string;
+    title: string;
+    year: string;
+    type: string;
+    pic: {
+      large: string;
+      normal: string;
+    };
+    rating: {
+      value: number;
+    };
   }>;
 }
 
@@ -256,5 +275,139 @@ export async function fetchDoubanList(
       );
     }
     throw new Error(`获取豆瓣分类数据失败: ${(error as Error).message}`);
+  }
+}
+
+interface DoubanRecommandsParams {
+  kind: 'tv' | 'movie';
+  pageLimit?: number;
+  pageStart?: number;
+  category?: string;
+  format?: string;
+  region?: string;
+  year?: string;
+  platform?: string;
+  sort?: string;
+}
+
+export async function getDoubanRecommands(
+  params: DoubanRecommandsParams
+): Promise<DoubanResult> {
+  const {
+    kind,
+    pageLimit = 20,
+    pageStart = 0,
+    category,
+    format,
+    region,
+    year,
+    platform,
+    sort,
+  } = params;
+  if (shouldUseDoubanClient()) {
+    // 使用客户端代理获取（当设置了代理 URL 时）
+    return fetchDoubanRecommands(params);
+  } else {
+    const response = await fetch(
+      `/api/douban/recommands?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
+    );
+
+    if (!response.ok) {
+      return fetchDoubanRecommands(params, true);
+    }
+
+    return response.json();
+  }
+}
+
+async function fetchDoubanRecommands(
+  params: DoubanRecommandsParams,
+  fallbackProxy = false
+): Promise<DoubanResult> {
+  const { kind, pageLimit = 20, pageStart = 0 } = params;
+  let { category, format, region, year, platform, sort } = params;
+  if (category === 'all') {
+    category = '';
+  }
+  if (format === 'all') {
+    format = '';
+  }
+  if (region === 'all') {
+    region = '';
+  }
+  if (year === 'all') {
+    year = '';
+  }
+  if (platform === 'all') {
+    platform = '';
+  }
+  if (sort === 'T') {
+    sort = '';
+  }
+
+  const selectedCategories = { 类型: category } as any;
+  if (format) {
+    selectedCategories['形式'] = format;
+  }
+  if (region) {
+    selectedCategories['地区'] = region;
+  }
+
+  const tags = [] as Array<string>;
+  if (category) {
+    tags.push(category);
+  }
+  if (!category && format) {
+    tags.push(format);
+  }
+  if (region) {
+    tags.push(region);
+  }
+  if (year) {
+    tags.push(year);
+  }
+  if (platform) {
+    tags.push(platform);
+  }
+
+  const baseUrl = `https://m.douban.com/rexxar/api/v2/${kind}/recommend`;
+  const reqParams = new URLSearchParams();
+  reqParams.append('refresh', '0');
+  reqParams.append('start', pageStart.toString());
+  reqParams.append('count', pageLimit.toString());
+  reqParams.append('selected_categories', JSON.stringify(selectedCategories));
+  reqParams.append('uncollect', 'false');
+  reqParams.append('score_range', '0,10');
+  reqParams.append('tags', tags.join(','));
+  if (sort) {
+    reqParams.append('sort', sort);
+  }
+  const target = `${baseUrl}?${reqParams.toString()}`;
+  console.log(target);
+  try {
+    const response = await fetchWithTimeout(target, fallbackProxy);
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    const doubanData: DoubanRecommandApiResponse = await response.json();
+    const list: DoubanItem[] = doubanData.items
+      .filter((item) => item.type == 'movie' || item.type == 'tv')
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        poster: item.pic?.normal || item.pic?.large || '',
+        rate: item.rating?.value ? item.rating.value.toFixed(1) : '',
+        year: item.year,
+      }));
+
+    return {
+      code: 200,
+      message: '获取成功',
+      list: list,
+    };
+  } catch (error) {
+    throw new Error(`获取豆瓣推荐数据失败: ${(error as Error).message}`);
   }
 }
