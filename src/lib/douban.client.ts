@@ -25,29 +25,44 @@ interface DoubanCategoryApiResponse {
   }>;
 }
 
+interface DoubanListApiResponse {
+  total: number;
+  subjects: Array<{
+    id: string;
+    title: string;
+    card_subtitle: string;
+    cover: string;
+    rate: string;
+  }>;
+}
+
 /**
  * 带超时的 fetch 请求
  */
 async function fetchWithTimeout(
   url: string,
-  options: RequestInit = {}
+  fallbackProxy = false
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
 
   // 检查是否使用代理
-  const proxyUrl = getDoubanProxyUrl();
-  const finalUrl = proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
+  const proxyUrl = fallbackProxy
+    ? 'https://cors-anywhere.com/'
+    : getDoubanProxyUrl();
+  const finalUrl = fallbackProxy
+    ? `${proxyUrl}${url}`
+    : proxyUrl
+    ? `${proxyUrl}${encodeURIComponent(url)}`
+    : url;
 
   const fetchOptions: RequestInit = {
-    ...options,
     signal: controller.signal,
     headers: {
       'User-Agent':
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
       Referer: 'https://movie.douban.com/',
       Accept: 'application/json, text/plain, */*',
-      ...options.headers,
     },
   };
 
@@ -56,28 +71,8 @@ async function fetchWithTimeout(
     clearTimeout(timeoutId);
     return response;
   } catch (error) {
-    if (proxyUrl) {
-      clearTimeout(timeoutId);
-      throw error;
-    }
-    const fallbackUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(
-      url
-    )}`;
-    try {
-      const fallbackResponse = await fetch(fallbackUrl, fetchOptions);
-      clearTimeout(timeoutId);
-      if (!fallbackResponse.ok) {
-        throw new Error(`HTTP error! Status: ${fallbackResponse.status}`);
-      }
-      const fallbackData = await fallbackResponse.json();
-      if (fallbackData && fallbackData.contents) {
-        return JSON.parse(fallbackData.contents);
-      }
-      throw new Error('Invalid fallback response');
-    } catch (fallbackError) {
-      clearTimeout(timeoutId);
-      throw fallbackError;
-    }
+    clearTimeout(timeoutId);
+    throw error;
   }
 }
 
@@ -92,7 +87,8 @@ export function shouldUseDoubanClient(): boolean {
  * 浏览器端豆瓣分类数据获取函数
  */
 export async function fetchDoubanCategories(
-  params: DoubanCategoriesParams
+  params: DoubanCategoriesParams,
+  fallbackProxy = false
 ): Promise<DoubanResult> {
   const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
 
@@ -116,7 +112,7 @@ export async function fetchDoubanCategories(
   const target = `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`;
 
   try {
-    const response = await fetchWithTimeout(target);
+    const response = await fetchWithTimeout(target, fallbackProxy);
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
@@ -168,15 +164,7 @@ export async function getDoubanCategories(
     );
 
     if (!response.ok) {
-      // 触发全局错误提示
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('globalError', {
-            detail: { message: '获取豆瓣分类数据失败' },
-          })
-        );
-      }
-      throw new Error('获取豆瓣分类数据失败');
+      return fetchDoubanCategories(params, true);
     }
 
     return response.json();
@@ -203,15 +191,7 @@ export async function getDoubanList(
     );
 
     if (!response.ok) {
-      // 触发全局错误提示
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(
-          new CustomEvent('globalError', {
-            detail: { message: '获取豆瓣列表数据失败' },
-          })
-        );
-      }
-      throw new Error('获取豆瓣列表数据失败');
+      return fetchDoubanList(params, true);
     }
 
     return response.json();
@@ -219,7 +199,8 @@ export async function getDoubanList(
 }
 
 export async function fetchDoubanList(
-  params: DoubanListParams
+  params: DoubanListParams,
+  fallbackProxy = false
 ): Promise<DoubanResult> {
   const { tag, type, pageLimit = 20, pageStart = 0 } = params;
 
@@ -243,20 +224,20 @@ export async function fetchDoubanList(
   const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
 
   try {
-    const response = await fetchWithTimeout(target);
+    const response = await fetchWithTimeout(target, fallbackProxy);
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
-    const doubanData: DoubanCategoryApiResponse = await response.json();
+    const doubanData: DoubanListApiResponse = await response.json();
 
     // 转换数据格式
-    const list: DoubanItem[] = doubanData.items.map((item) => ({
+    const list: DoubanItem[] = doubanData.subjects.map((item) => ({
       id: item.id,
       title: item.title,
-      poster: item.pic?.normal || item.pic?.large || '',
-      rate: item.rating?.value ? item.rating.value.toFixed(1) : '',
+      poster: item.cover,
+      rate: item.rate,
       year: item.card_subtitle?.match(/(\d{4})/)?.[1] || '',
     }));
 
