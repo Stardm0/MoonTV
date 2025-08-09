@@ -23,6 +23,8 @@ interface VideoInfo {
 interface EpisodeSelectorProps {
   /** 总集数 */
   totalEpisodes: number;
+  /** 剧集标题 */
+  episodes_titles: string[];
   /** 每页显示多少集，默认 50 */
   episodesPerPage?: number;
   /** 当前选中的集数（1 开始） */
@@ -47,6 +49,7 @@ interface EpisodeSelectorProps {
  */
 const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   totalEpisodes,
+  episodes_titles,
   episodesPerPage = 50,
   value = 1,
   onChange,
@@ -391,7 +394,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           </div>
 
           {/* 集数网格 */}
-          <div className='grid grid-cols-[repeat(auto-fill,minmax(40px,1fr))] auto-rows-[40px] gap-x-3 gap-y-3 overflow-y-auto h-full pb-4'>
+          <div className='flex flex-wrap gap-3 overflow-y-auto flex-1 content-start pb-4'>
             {(() => {
               const len = currentEnd - currentStart + 1;
               const episodes = Array.from({ length: len }, (_, i) =>
@@ -404,14 +407,25 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 <button
                   key={episodeNumber}
                   onClick={() => handleEpisodeClick(episodeNumber - 1)}
-                  className={`h-10 flex items-center justify-center text-sm font-medium rounded-md transition-all duration-200 
+                  className={`h-10 min-w-10 px-3 py-2 flex items-center justify-center text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap font-mono
                     ${
                       isActive
                         ? 'bg-green-500 text-white shadow-lg shadow-green-500/25 dark:bg-green-600'
                         : 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:scale-105 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20'
                     }`.trim()}
                 >
-                  {episodeNumber}
+                  {(() => {
+                    const title = episodes_titles?.[episodeNumber - 1];
+                    if (!title) {
+                      return episodeNumber;
+                    }
+                    // 如果匹配"第X集"格式，提取中间的数字
+                    const match = title.match(/第(\d+)集/);
+                    if (match) {
+                      return match[1];
+                    }
+                    return title;
+                  })()}
                 </button>
               );
             })}
