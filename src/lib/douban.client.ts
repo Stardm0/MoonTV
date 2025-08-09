@@ -327,6 +327,7 @@ interface DoubanRecommendsParams {
   pageStart?: number;
   category?: string;
   format?: string;
+  label?: string;
   region?: string;
   year?: string;
   platform?: string;
@@ -342,6 +343,7 @@ export async function getDoubanRecommends(
     pageStart = 0,
     category,
     format,
+    label,
     region,
     year,
     platform,
@@ -362,7 +364,7 @@ export async function getDoubanRecommends(
     case 'direct':
     default:
       const response = await fetch(
-        `/api/douban/recommends?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
+        `/api/douban/recommends?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}&label=${label}`
       );
 
       return response.json();
@@ -376,12 +378,15 @@ async function fetchDoubanRecommends(
   useAliCDN = false
 ): Promise<DoubanResult> {
   const { kind, pageLimit = 20, pageStart = 0 } = params;
-  let { category, format, region, year, platform, sort } = params;
+  let { category, format, region, year, platform, sort, label } = params;
   if (category === 'all') {
     category = '';
   }
   if (format === 'all') {
     format = '';
+  }
+  if (label === 'all') {
+    label = '';
   }
   if (region === 'all') {
     region = '';
@@ -410,6 +415,9 @@ async function fetchDoubanRecommends(
   }
   if (!category && format) {
     tags.push(format);
+  }
+  if (label) {
+    tags.push(label);
   }
   if (region) {
     tags.push(region);

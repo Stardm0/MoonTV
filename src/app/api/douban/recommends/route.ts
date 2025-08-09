@@ -43,6 +43,8 @@ export async function GET(request: NextRequest) {
   const platform =
     searchParams.get('platform') === 'all' ? '' : searchParams.get('platform');
   const sort = searchParams.get('sort') === 'T' ? '' : searchParams.get('sort');
+  const label =
+    searchParams.get('label') === 'all' ? '' : searchParams.get('label');
 
   if (!kind) {
     return NextResponse.json({ error: '缺少必要参数: kind' }, { status: 400 });
@@ -62,6 +64,9 @@ export async function GET(request: NextRequest) {
   }
   if (!category && format) {
     tags.push(format);
+  }
+  if (label) {
+    tags.push(label);
   }
   if (region) {
     tags.push(region);

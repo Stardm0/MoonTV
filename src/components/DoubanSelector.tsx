@@ -12,7 +12,7 @@ interface SelectorOption {
 }
 
 interface DoubanSelectorProps {
-  type: 'movie' | 'tv' | 'show';
+  type: 'movie' | 'tv' | 'show' | 'anime';
   primarySelection?: string;
   secondarySelection?: string;
   onPrimaryChange: (value: string) => void;
@@ -91,6 +91,12 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     { label: '国外', value: 'show_foreign' },
   ];
 
+  // 动漫一级选择器选项
+  const animePrimaryOptions: SelectorOption[] = [
+    { label: '番剧', value: '番剧' },
+    { label: '剧场版', value: '剧场版' },
+  ];
+
   // 处理多级选择器变化
   const handleMultiLevelChange = (values: Record<string, string>) => {
     onMultiLevelChange?.(values);
@@ -146,6 +152,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     } else if (type === 'tv') {
       const activeIndex = tvPrimaryOptions.findIndex(
         (opt) => opt.value === (primarySelection || tvPrimaryOptions[1].value)
+      );
+      updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
+    } else if (type === 'anime') {
+      const activeIndex = animePrimaryOptions.findIndex(
+        (opt) =>
+          opt.value === (primarySelection || animePrimaryOptions[0].value)
       );
       updateIndicatorPosition(
         activeIndex,
@@ -209,6 +226,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
       return cleanup;
     } else if (type === 'tv') {
       const activeIndex = tvPrimaryOptions.findIndex(
+        (opt) => opt.value === primarySelection
+      );
+      const cleanup = updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
+      return cleanup;
+    } else if (type === 'anime') {
+      const activeIndex = animePrimaryOptions.findIndex(
         (opt) => opt.value === primarySelection
       );
       const cleanup = updateIndicatorPosition(
@@ -362,6 +390,7 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </span>
               <div className='overflow-x-auto'>
                 <MultiLevelSelector
+                  key={`${type}-${primarySelection}`}
                   onChange={handleMultiLevelChange}
                   contentType={type}
                 />
@@ -412,12 +441,53 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </span>
               <div className='overflow-x-auto'>
                 <MultiLevelSelector
+                  key={`${type}-${primarySelection}`}
                   onChange={handleMultiLevelChange}
                   contentType={type}
                 />
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* 动漫类型 - 显示一级选择器和多级选择器 */}
+      {type === 'anime' && (
+        <div className='space-y-3 sm:space-y-4'>
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              分类
+            </span>
+            <div className='overflow-x-auto'>
+              {renderCapsuleSelector(
+                animePrimaryOptions,
+                primarySelection || animePrimaryOptions[0].value,
+                onPrimaryChange,
+                true
+              )}
+            </div>
+          </div>
+
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              筛选
+            </span>
+            <div className='overflow-x-auto'>
+              {(primarySelection || animePrimaryOptions[0].value) === '番剧' ? (
+                <MultiLevelSelector
+                  key={`anime-tv-${primarySelection}`}
+                  onChange={handleMultiLevelChange}
+                  contentType='anime-tv'
+                />
+              ) : (
+                <MultiLevelSelector
+                  key={`anime-movie-${primarySelection}`}
+                  onChange={handleMultiLevelChange}
+                  contentType='anime-movie'
+                />
+              )}
+            </div>
+          </div>
         </div>
       )}
 
@@ -462,6 +532,7 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </span>
               <div className='overflow-x-auto'>
                 <MultiLevelSelector
+                  key={`${type}-${primarySelection}`}
                   onChange={handleMultiLevelChange}
                   contentType={type}
                 />
