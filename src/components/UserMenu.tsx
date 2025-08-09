@@ -62,7 +62,7 @@ export const UserMenu: React.FC = () => {
   const doubanImageProxyTypeOptions = [
     { value: 'direct', label: '直连（浏览器直接请求豆瓣）' },
     { value: 'server', label: '服务器代理（由服务器代理请求豆瓣）' },
-    { value: 'img9', label: '豆瓣精品 CDN（阿里云）' },
+    { value: 'img3', label: '豆瓣精品 CDN（阿里云）' },
     {
       value: 'cmliussss-cdn-tencent',
       label: '豆瓣 CDN By CMLiussss（腾讯云）',

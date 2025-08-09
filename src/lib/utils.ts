@@ -6,7 +6,7 @@ function getDoubanImageProxyConfig(): {
   proxyType:
     | 'direct'
     | 'server'
-    | 'img9'
+    | 'img3'
     | 'cmliussss-cdn-tencent'
     | 'cmliussss-cdn-ali'
     | 'custom';
@@ -41,8 +41,8 @@ export function processImageUrl(originalUrl: string): string {
   switch (proxyType) {
     case 'server':
       return `/api/image-proxy?url=${encodeURIComponent(originalUrl)}`;
-    case 'img9':
-      return originalUrl.replace(/img\d+\.doubanio\.com/g, 'img9.doubanio.com');
+    case 'img3':
+      return originalUrl.replace(/img\d+\.doubanio\.com/g, 'img3.doubanio.com');
     case 'cmliussss-cdn-tencent':
       return originalUrl.replace(
         /img\d+\.doubanio\.com/g,
