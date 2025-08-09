@@ -6,7 +6,7 @@ import { getCacheTime } from '@/lib/config';
 import { fetchDoubanData } from '@/lib/douban';
 import { DoubanResult } from '@/lib/types';
 
-interface DoubanRecommandApiResponse {
+interface DoubanRecommendApiResponse {
   total: number;
   items: Array<{
     id: string;
@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
   const target = `${baseUrl}?${params.toString()}`;
   console.log(target);
   try {
-    const doubanData = await fetchDoubanData<DoubanRecommandApiResponse>(
+    const doubanData = await fetchDoubanData<DoubanRecommendApiResponse>(
       target
     );
     const list = doubanData.items

@@ -9,7 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   getDoubanCategories,
   getDoubanList,
-  getDoubanRecommands,
+  getDoubanRecommends,
 } from '@/lib/douban.client';
 import { DoubanItem, DoubanResult } from '@/lib/types';
 
@@ -198,7 +198,7 @@ function DoubanPageClient() {
           throw new Error('没有找到对应的分类');
         }
       } else if (primarySelection === '全部') {
-        data = await getDoubanRecommands({
+        data = await getDoubanRecommends({
           kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
           pageLimit: 25,
           pageStart: currentPage * 25,
@@ -303,7 +303,7 @@ function DoubanPageClient() {
               throw new Error('没有找到对应的分类');
             }
           } else if (primarySelection === '全部') {
-            data = await getDoubanRecommands({
+            data = await getDoubanRecommends({
               kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
               pageLimit: 25,
               pageStart: currentPage * 25,

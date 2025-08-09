@@ -34,8 +34,9 @@ export async function POST(request: NextRequest) {
       SearchDownstreamMaxPage,
       SiteInterfaceCacheTime,
       DoubanProxyType,
-      ImageProxy,
       DoubanProxy,
+      DoubanImageProxyType,
+      DoubanImageProxy,
       DisableYellowFilter,
     } = body as {
       SiteName: string;
@@ -43,8 +44,9 @@ export async function POST(request: NextRequest) {
       SearchDownstreamMaxPage: number;
       SiteInterfaceCacheTime: number;
       DoubanProxyType: string;
-      ImageProxy: string;
       DoubanProxy: string;
+      DoubanImageProxyType: string;
+      DoubanImageProxy: string;
       DisableYellowFilter: boolean;
     };
 
@@ -55,8 +57,9 @@ export async function POST(request: NextRequest) {
       typeof SearchDownstreamMaxPage !== 'number' ||
       typeof SiteInterfaceCacheTime !== 'number' ||
       typeof DoubanProxyType !== 'string' ||
-      typeof ImageProxy !== 'string' ||
       typeof DoubanProxy !== 'string' ||
+      typeof DoubanImageProxyType !== 'string' ||
+      typeof DoubanImageProxy !== 'string' ||
       typeof DisableYellowFilter !== 'boolean'
     ) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
@@ -83,8 +86,9 @@ export async function POST(request: NextRequest) {
       SearchDownstreamMaxPage,
       SiteInterfaceCacheTime,
       DoubanProxyType,
-      ImageProxy,
       DoubanProxy,
+      DoubanImageProxyType,
+      DoubanImageProxy,
       DisableYellowFilter,
     };
 

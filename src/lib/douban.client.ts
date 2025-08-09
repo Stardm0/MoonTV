@@ -37,7 +37,7 @@ interface DoubanListApiResponse {
   }>;
 }
 
-interface DoubanRecommandApiResponse {
+interface DoubanRecommendApiResponse {
   total: number;
   items: Array<{
     id: string;
@@ -321,7 +321,7 @@ export async function fetchDoubanList(
   }
 }
 
-interface DoubanRecommandsParams {
+interface DoubanRecommendsParams {
   kind: 'tv' | 'movie';
   pageLimit?: number;
   pageStart?: number;
@@ -333,8 +333,8 @@ interface DoubanRecommandsParams {
   sort?: string;
 }
 
-export async function getDoubanRecommands(
-  params: DoubanRecommandsParams
+export async function getDoubanRecommends(
+  params: DoubanRecommendsParams
 ): Promise<DoubanResult> {
   const {
     kind,
@@ -350,27 +350,27 @@ export async function getDoubanRecommands(
   const { proxyType, proxyUrl } = getDoubanProxyConfig();
   switch (proxyType) {
     case 'cors-proxy-zwei':
-      return fetchDoubanRecommands(params, 'https://cors.eu.org/');
+      return fetchDoubanRecommends(params, 'https://cors.eu.org/');
     case 'cmliussss-cdn-tencent':
-      return fetchDoubanRecommands(params, '', true, false);
+      return fetchDoubanRecommends(params, '', true, false);
     case 'cmliussss-cdn-ali':
-      return fetchDoubanRecommands(params, '', false, true);
+      return fetchDoubanRecommends(params, '', false, true);
     case 'cors-anywhere':
-      return fetchDoubanRecommands(params, 'https://cors-anywhere.com/');
+      return fetchDoubanRecommends(params, 'https://cors-anywhere.com/');
     case 'custom':
-      return fetchDoubanRecommands(params, proxyUrl);
+      return fetchDoubanRecommends(params, proxyUrl);
     case 'direct':
     default:
       const response = await fetch(
-        `/api/douban/recommands?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
+        `/api/douban/recommends?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
       );
 
       return response.json();
   }
 }
 
-async function fetchDoubanRecommands(
-  params: DoubanRecommandsParams,
+async function fetchDoubanRecommends(
+  params: DoubanRecommendsParams,
   proxyUrl: string,
   useTencentCDN = false,
   useAliCDN = false
@@ -449,7 +449,7 @@ async function fetchDoubanRecommands(
       throw new Error(`HTTP error! Status: ${response.status}`);
     }
 
-    const doubanData: DoubanRecommandApiResponse = await response.json();
+    const doubanData: DoubanRecommendApiResponse = await response.json();
     const list: DoubanItem[] = doubanData.items
       .filter((item) => item.type == 'movie' || item.type == 'tv')
       .map((item) => ({

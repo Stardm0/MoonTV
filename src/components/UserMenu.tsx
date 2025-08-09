@@ -37,11 +37,13 @@ export const UserMenu: React.FC = () => {
   // 设置相关状态
   const [defaultAggregateSearch, setDefaultAggregateSearch] = useState(true);
   const [doubanProxyUrl, setDoubanProxyUrl] = useState('');
-  const [imageProxyUrl, setImageProxyUrl] = useState('');
   const [enableOptimization, setEnableOptimization] = useState(true);
-  const [enableImageProxy, setEnableImageProxy] = useState(false);
   const [doubanDataSource, setDoubanDataSource] = useState('direct');
+  const [doubanImageProxyType, setDoubanImageProxyType] = useState('direct');
+  const [doubanImageProxyUrl, setDoubanImageProxyUrl] = useState('');
   const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
+  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] =
+    useState(false);
 
   // 豆瓣数据源选项
   const doubanDataSourceOptions = [
@@ -53,6 +55,19 @@ export const UserMenu: React.FC = () => {
     },
     { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
     { value: 'cors-anywhere', label: 'Cors Anywhere（20 qpm）' },
+    { value: 'custom', label: '自定义代理' },
+  ];
+
+  // 豆瓣图片代理选项
+  const doubanImageProxyTypeOptions = [
+    { value: 'direct', label: '直连（浏览器直接请求豆瓣）' },
+    { value: 'server', label: '服务器代理（由服务器代理请求豆瓣）' },
+    { value: 'img9', label: '豆瓣精品 CDN（阿里云）' },
+    {
+      value: 'cmliussss-cdn-tencent',
+      label: '豆瓣 CDN By CMLiussss（腾讯云）',
+    },
+    { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
     { value: 'custom', label: '自定义代理' },
   ];
 
@@ -112,20 +127,26 @@ export const UserMenu: React.FC = () => {
         setDoubanProxyUrl(defaultDoubanProxy);
       }
 
-      const savedEnableImageProxy = localStorage.getItem('enableImageProxy');
-      const defaultImageProxy =
-        (window as any).RUNTIME_CONFIG?.IMAGE_PROXY || '';
-      if (savedEnableImageProxy !== null) {
-        setEnableImageProxy(JSON.parse(savedEnableImageProxy));
-      } else if (defaultImageProxy) {
-        setEnableImageProxy(true);
+      const savedDoubanImageProxyType = localStorage.getItem(
+        'doubanImageProxyType'
+      );
+      const defaultDoubanImageProxyType =
+        (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE || 'direct';
+      if (savedDoubanImageProxyType !== null) {
+        setDoubanImageProxyType(savedDoubanImageProxyType);
+      } else if (defaultDoubanImageProxyType) {
+        setDoubanImageProxyType('direct');
       }
 
-      const savedImageProxyUrl = localStorage.getItem('imageProxyUrl');
-      if (savedImageProxyUrl !== null) {
-        setImageProxyUrl(savedImageProxyUrl);
-      } else if (defaultImageProxy) {
-        setImageProxyUrl(defaultImageProxy);
+      const savedDoubanImageProxyUrl = localStorage.getItem(
+        'doubanImageProxyUrl'
+      );
+      const defaultDoubanImageProxyUrl =
+        (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY || '';
+      if (savedDoubanImageProxyUrl !== null) {
+        setDoubanImageProxyUrl(savedDoubanImageProxyUrl);
+      } else if (defaultDoubanImageProxyUrl) {
+        setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
       }
 
       const savedEnableOptimization =
@@ -169,6 +190,23 @@ export const UserMenu: React.FC = () => {
         document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [isDoubanDropdownOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isDoubanImageProxyDropdownOpen) {
+        const target = event.target as Element;
+        if (!target.closest('[data-dropdown="douban-image-proxy"]')) {
+          setIsDoubanImageProxyDropdownOpen(false);
+        }
+      }
+    };
+
+    if (isDoubanImageProxyDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () =>
+        document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isDoubanImageProxyDropdownOpen]);
 
   const handleMenuClick = () => {
     setIsOpen(!isOpen);
@@ -277,13 +315,6 @@ export const UserMenu: React.FC = () => {
     }
   };
 
-  const handleImageProxyUrlChange = (value: string) => {
-    setImageProxyUrl(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('imageProxyUrl', value);
-    }
-  };
-
   const handleOptimizationToggle = (value: boolean) => {
     setEnableOptimization(value);
     if (typeof window !== 'undefined') {
@@ -291,17 +322,24 @@ export const UserMenu: React.FC = () => {
     }
   };
 
-  const handleImageProxyToggle = (value: boolean) => {
-    setEnableImageProxy(value);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('enableImageProxy', JSON.stringify(value));
-    }
-  };
-
   const handleDoubanDataSourceChange = (value: string) => {
     setDoubanDataSource(value);
     if (typeof window !== 'undefined') {
       localStorage.setItem('doubanDataSource', value);
+    }
+  };
+
+  const handleDoubanImageProxyTypeChange = (value: string) => {
+    setDoubanImageProxyType(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('doubanImageProxyType', value);
+    }
+  };
+
+  const handleDoubanImageProxyUrlChange = (value: string) => {
+    setDoubanImageProxyUrl(value);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('doubanImageProxyUrl', value);
     }
   };
 
@@ -325,29 +363,29 @@ export const UserMenu: React.FC = () => {
   };
 
   const handleResetSettings = () => {
-    const defaultImageProxy = (window as any).RUNTIME_CONFIG?.IMAGE_PROXY || '';
     const defaultDoubanProxyType =
       (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE || 'direct';
     const defaultDoubanProxy =
       (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
+    const defaultDoubanImageProxyType =
+      (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY_TYPE || 'direct';
+    const defaultDoubanImageProxyUrl =
+      (window as any).RUNTIME_CONFIG?.DOUBAN_IMAGE_PROXY || '';
 
     setDefaultAggregateSearch(true);
     setEnableOptimization(true);
     setDoubanProxyUrl(defaultDoubanProxy);
     setDoubanDataSource(defaultDoubanProxyType);
-    setEnableImageProxy(!!defaultImageProxy);
-    setImageProxyUrl(defaultImageProxy);
+    setDoubanImageProxyType(defaultDoubanImageProxyType);
+    setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
 
     if (typeof window !== 'undefined') {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
       localStorage.setItem('enableOptimization', JSON.stringify(true));
       localStorage.setItem('doubanProxyUrl', defaultDoubanProxy);
       localStorage.setItem('doubanDataSource', defaultDoubanProxyType);
-      localStorage.setItem(
-        'enableImageProxy',
-        JSON.stringify(!!defaultImageProxy)
-      );
-      localStorage.setItem('imageProxyUrl', defaultImageProxy);
+      localStorage.setItem('doubanImageProxyType', defaultDoubanImageProxyType);
+      localStorage.setItem('doubanImageProxyUrl', defaultDoubanImageProxyUrl);
     }
   };
 
@@ -528,57 +566,6 @@ export const UserMenu: React.FC = () => {
 
         {/* 设置项 */}
         <div className='space-y-6'>
-          {/* 默认聚合搜索结果 */}
-          <div className='flex items-center justify-between'>
-            <div>
-              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                默认聚合搜索结果
-              </h4>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                搜索时默认按标题和年份聚合显示结果
-              </p>
-            </div>
-            <label className='flex items-center cursor-pointer'>
-              <div className='relative'>
-                <input
-                  type='checkbox'
-                  className='sr-only peer'
-                  checked={defaultAggregateSearch}
-                  onChange={(e) => handleAggregateToggle(e.target.checked)}
-                />
-                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-              </div>
-            </label>
-          </div>
-
-          {/* 优选和测速 */}
-          <div className='flex items-center justify-between'>
-            <div>
-              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                启用优选和测速
-              </h4>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                如出现播放器劫持问题可关闭
-              </p>
-            </div>
-            <label className='flex items-center cursor-pointer'>
-              <div className='relative'>
-                <input
-                  type='checkbox'
-                  className='sr-only peer'
-                  checked={enableOptimization}
-                  onChange={(e) => handleOptimizationToggle(e.target.checked)}
-                />
-                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-              </div>
-            </label>
-          </div>
-
-          {/* 分割线 */}
-          <div className='border-t border-gray-200 dark:border-gray-700'></div>
-
           {/* 豆瓣数据源选择 */}
           <div className='space-y-3'>
             <div>
@@ -682,14 +669,126 @@ export const UserMenu: React.FC = () => {
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>
 
-          {/* 图片代理开关 */}
+          {/* 豆瓣图片代理设置 */}
+          <div className='space-y-3'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                豆瓣图片代理
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                选择获取豆瓣图片的方式
+              </p>
+            </div>
+            <div className='relative' data-dropdown='douban-image-proxy'>
+              {/* 自定义下拉选择框 */}
+              <button
+                type='button'
+                onClick={() =>
+                  setIsDoubanImageProxyDropdownOpen(
+                    !isDoubanImageProxyDropdownOpen
+                  )
+                }
+                className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left'
+              >
+                {
+                  doubanImageProxyTypeOptions.find(
+                    (option) => option.value === doubanImageProxyType
+                  )?.label
+                }
+              </button>
+
+              {/* 下拉箭头 */}
+              <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
+                <ChevronDown
+                  className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                    isDoubanDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </div>
+
+              {/* 下拉选项列表 */}
+              {isDoubanImageProxyDropdownOpen && (
+                <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
+                  {doubanImageProxyTypeOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type='button'
+                      onClick={() => {
+                        handleDoubanImageProxyTypeChange(option.value);
+                        setIsDoubanImageProxyDropdownOpen(false);
+                      }}
+                      className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                        doubanImageProxyType === option.value
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                          : 'text-gray-900 dark:text-gray-100'
+                      }`}
+                    >
+                      <span className='truncate'>{option.label}</span>
+                      {doubanImageProxyType === option.value && (
+                        <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 感谢信息 */}
+            {getThanksInfo(doubanImageProxyType) && (
+              <div className='mt-3'>
+                <button
+                  type='button'
+                  onClick={() =>
+                    window.open(
+                      getThanksInfo(doubanImageProxyType)!.url,
+                      '_blank'
+                    )
+                  }
+                  className='flex items-center justify-center gap-1.5 w-full px-3 text-xs text-gray-500 dark:text-gray-400 cursor-pointer'
+                >
+                  <span className='font-medium'>
+                    {getThanksInfo(doubanImageProxyType)!.text}
+                  </span>
+                  <ExternalLink className='w-3.5 opacity-70' />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 豆瓣图片代理地址设置 - 仅在选择自定义代理时显示 */}
+          {doubanImageProxyType === 'custom' && (
+            <div className='space-y-3'>
+              <div>
+                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  豆瓣图片代理地址
+                </h4>
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                  自定义图片代理服务器地址
+                </p>
+              </div>
+              <input
+                type='text'
+                className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500'
+                placeholder='例如: https://proxy.example.com/fetch?url='
+                value={doubanImageProxyUrl}
+                onChange={(e) =>
+                  handleDoubanImageProxyUrlChange(e.target.value)
+                }
+              />
+            </div>
+          )}
+
+          {/* 分割线 */}
+          <div className='border-t border-gray-200 dark:border-gray-700'></div>
+
+          {/* 默认聚合搜索结果 */}
           <div className='flex items-center justify-between'>
             <div>
               <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                启用图片代理
+                默认聚合搜索结果
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                启用后，所有图片加载将通过代理服务器
+                搜索时默认按标题和年份聚合显示结果
               </p>
             </div>
             <label className='flex items-center cursor-pointer'>
@@ -697,8 +796,8 @@ export const UserMenu: React.FC = () => {
                 <input
                   type='checkbox'
                   className='sr-only peer'
-                  checked={enableImageProxy}
-                  onChange={(e) => handleImageProxyToggle(e.target.checked)}
+                  checked={defaultAggregateSearch}
+                  onChange={(e) => handleAggregateToggle(e.target.checked)}
                 />
                 <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
                 <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
@@ -706,28 +805,28 @@ export const UserMenu: React.FC = () => {
             </label>
           </div>
 
-          {/* 图片代理地址设置 */}
-          <div className='space-y-3'>
+          {/* 优选和测速 */}
+          <div className='flex items-center justify-between'>
             <div>
               <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                图片代理地址
+                启用优选和测速
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                仅在启用图片代理时生效
+                如出现播放器劫持问题可关闭
               </p>
             </div>
-            <input
-              type='text'
-              className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
-                enableImageProxy
-                  ? 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400'
-                  : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-500 placeholder-gray-400 dark:placeholder-gray-600 cursor-not-allowed'
-              }`}
-              placeholder='例如: https://imageproxy.example.com/?url='
-              value={imageProxyUrl}
-              onChange={(e) => handleImageProxyUrlChange(e.target.value)}
-              disabled={!enableImageProxy}
-            />
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={enableOptimization}
+                  onChange={(e) => handleOptimizationToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
           </div>
         </div>
 
