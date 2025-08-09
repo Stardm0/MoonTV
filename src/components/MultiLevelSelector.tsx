@@ -262,10 +262,35 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     const element = categoryRefs.current[categoryKey];
     if (element) {
       const rect = element.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const isMobile = viewportWidth < 768; // md breakpoint
+
+      let x = rect.left;
+      let dropdownWidth = Math.max(rect.width, 300);
+      let useFixedWidth = false; // 标记是否使用固定宽度
+
+      // 移动端优化：防止下拉框被右侧视口截断
+      if (isMobile) {
+        const padding = 16; // 左右各留16px的边距
+        const maxWidth = viewportWidth - padding * 2;
+        dropdownWidth = Math.min(dropdownWidth, maxWidth);
+        useFixedWidth = true; // 移动端使用固定宽度
+
+        // 如果右侧超出视口，则调整x位置
+        if (x + dropdownWidth > viewportWidth - padding) {
+          x = viewportWidth - dropdownWidth - padding;
+        }
+
+        // 如果左侧超出视口，则贴左边
+        if (x < padding) {
+          x = padding;
+        }
+      }
+
       setDropdownPosition({
-        x: rect.left,
+        x,
         y: rect.bottom,
-        width: rect.width,
+        width: useFixedWidth ? dropdownWidth : rect.width, // PC端保持原有逻辑
       });
     }
   };
@@ -352,7 +377,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     return value === optionValue;
   };
 
-  // 监听滚动事件，重新计算位置
+  // 监听滚动和窗口大小变化事件，重新计算位置
   useEffect(() => {
     const handleScroll = () => {
       if (activeCategory) {
@@ -360,8 +385,18 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       }
     };
 
+    const handleResize = () => {
+      if (activeCategory) {
+        calculateDropdownPosition(activeCategory);
+      }
+    };
+
     window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      window.removeEventListener('resize', handleResize);
+    };
   }, [activeCategory]);
 
   // 点击外部关闭下拉框
@@ -436,7 +471,9 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
             style={{
               left: `${dropdownPosition.x}px`,
               top: `${dropdownPosition.y}px`,
-              minWidth: `${Math.max(dropdownPosition.width, 300)}px`,
+              ...(window.innerWidth < 768
+                ? { width: `${dropdownPosition.width}px` } // 移动端使用固定宽度
+                : { minWidth: `${Math.max(dropdownPosition.width, 300)}px` }), // PC端使用最小宽度
               maxWidth: '600px',
               position: 'fixed',
             }}
