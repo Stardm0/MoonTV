@@ -1,4 +1,4 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-console, @typescript-eslint/no-non-null-assertion */
 
 'use client';
 
@@ -22,8 +22,10 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import {
+  Check,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
   FolderOpen,
   Settings,
   Users,
@@ -58,6 +60,7 @@ interface SiteConfig {
   SearchDownstreamMaxPage: number;
   SiteInterfaceCacheTime: number;
   ImageProxy: string;
+  DoubanProxyType: string;
   DoubanProxy: string;
   DisableYellowFilter: boolean;
 }
@@ -1356,11 +1359,47 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     SearchDownstreamMaxPage: 1,
     SiteInterfaceCacheTime: 7200,
     ImageProxy: '',
+    DoubanProxyType: 'direct',
     DoubanProxy: '',
     DisableYellowFilter: false,
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
+
+  // 豆瓣数据源相关状态
+  const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
+
+  // 豆瓣数据源选项
+  const doubanDataSourceOptions = [
+    { value: 'direct', label: '实例服务端（直接请求豆瓣）' },
+    { value: 'cors-proxy-zwei', label: 'Cors Proxy By Zwei' },
+    {
+      value: 'cmliussss-cdn-tencent',
+      label: '豆瓣 CDN By CMLiussss（腾讯云）',
+    },
+    { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
+    { value: 'cors-anywhere', label: 'Cors Anywhere（20 qpm）' },
+    { value: 'custom', label: '自定义代理' },
+  ];
+
+  // 获取感谢信息
+  const getThanksInfo = (dataSource: string) => {
+    switch (dataSource) {
+      case 'cors-proxy-zwei':
+        return {
+          text: 'Thanks to @Zwei',
+          url: 'https://github.com/bestzwei',
+        };
+      case 'cmliussss-cdn-tencent':
+      case 'cmliussss-cdn-ali':
+        return {
+          text: 'Thanks to @CMLiussss',
+          url: 'https://github.com/cmliu',
+        };
+      default:
+        return null;
+    }
+  };
 
   // 检测存储类型是否为 d1 或 upstash
   const isD1Storage =
@@ -1375,11 +1414,40 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       setSiteSettings({
         ...config.SiteConfig,
         ImageProxy: config.SiteConfig.ImageProxy || '',
+        DoubanProxyType: config.SiteConfig.DoubanProxyType || 'direct',
         DoubanProxy: config.SiteConfig.DoubanProxy || '',
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
       });
     }
   }, [config]);
+
+  // 点击外部区域关闭下拉框
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isDoubanDropdownOpen) {
+        const target = event.target as Element;
+        if (!target.closest('[data-dropdown="douban-datasource"]')) {
+          setIsDoubanDropdownOpen(false);
+        }
+      }
+    };
+
+    if (isDoubanDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () =>
+        document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isDoubanDropdownOpen]);
+
+  // 处理豆瓣数据源变化
+  const handleDoubanDataSourceChange = (value: string) => {
+    if (!isD1Storage && !isUpstashStorage) {
+      setSiteSettings((prev) => ({
+        ...prev,
+        DoubanProxyType: value,
+      }));
+    }
+  };
 
   // 保存站点配置
   const handleSave = async () => {
@@ -1527,6 +1595,142 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         />
       </div>
 
+      {/* 豆瓣数据源设置 */}
+      <div className='space-y-3'>
+        <div>
+          <label
+            className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+              isD1Storage || isUpstashStorage ? 'opacity-50' : ''
+            }`}
+          >
+            豆瓣数据源
+            {isD1Storage && (
+              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                (D1 环境下请通过环境变量修改)
+              </span>
+            )}
+            {isUpstashStorage && (
+              <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                (Upstash 环境下请通过环境变量修改)
+              </span>
+            )}
+          </label>
+          <div className='relative' data-dropdown='douban-datasource'>
+            {/* 自定义下拉选择框 */}
+            <button
+              type='button'
+              onClick={() => setIsDoubanDropdownOpen(!isDoubanDropdownOpen)}
+              disabled={isD1Storage || isUpstashStorage}
+              className={`w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left ${
+                isD1Storage || isUpstashStorage
+                  ? 'opacity-50 cursor-not-allowed'
+                  : ''
+              }`}
+            >
+              {
+                doubanDataSourceOptions.find(
+                  (option) => option.value === siteSettings.DoubanProxyType
+                )?.label
+              }
+            </button>
+
+            {/* 下拉箭头 */}
+            <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
+              <ChevronDown
+                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                  isDoubanDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+
+            {/* 下拉选项列表 */}
+            {isDoubanDropdownOpen && !isD1Storage && !isUpstashStorage && (
+              <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
+                {doubanDataSourceOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type='button'
+                    onClick={() => {
+                      handleDoubanDataSourceChange(option.value);
+                      setIsDoubanDropdownOpen(false);
+                    }}
+                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                      siteSettings.DoubanProxyType === option.value
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                        : 'text-gray-900 dark:text-gray-100'
+                    }`}
+                  >
+                    <span className='truncate'>{option.label}</span>
+                    {siteSettings.DoubanProxyType === option.value && (
+                      <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+            选择获取豆瓣数据的方式
+          </p>
+
+          {/* 感谢信息 */}
+          {getThanksInfo(siteSettings.DoubanProxyType) && (
+            <div className='mt-3'>
+              <button
+                type='button'
+                onClick={() =>
+                  window.open(
+                    getThanksInfo(siteSettings.DoubanProxyType)!.url,
+                    '_blank'
+                  )
+                }
+                className='flex items-center justify-center gap-1.5 w-full px-3 text-xs text-gray-500 dark:text-gray-400 cursor-pointer'
+              >
+                <span className='font-medium'>
+                  {getThanksInfo(siteSettings.DoubanProxyType)!.text}
+                </span>
+                <ExternalLink className='w-3.5 opacity-70' />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* 豆瓣代理地址设置 - 仅在选择自定义代理时显示 */}
+        {siteSettings.DoubanProxyType === 'custom' && (
+          <div>
+            <label
+              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+                isD1Storage || isUpstashStorage ? 'opacity-50' : ''
+              }`}
+            >
+              豆瓣代理地址
+            </label>
+            <input
+              type='text'
+              placeholder='例如: https://proxy.example.com/fetch?url='
+              value={siteSettings.DoubanProxy}
+              onChange={(e) =>
+                !isD1Storage &&
+                !isUpstashStorage &&
+                setSiteSettings((prev) => ({
+                  ...prev,
+                  DoubanProxy: e.target.value,
+                }))
+              }
+              disabled={isD1Storage || isUpstashStorage}
+              className={`w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 ${
+                isD1Storage || isUpstashStorage
+                  ? 'opacity-50 cursor-not-allowed'
+                  : ''
+              }`}
+            />
+            <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
+              自定义代理服务器地址
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* 图片代理 */}
       <div>
         <label
@@ -1567,49 +1771,6 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         />
         <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
           用于代理图片访问，解决跨域或访问限制问题。留空则不使用代理。
-        </p>
-      </div>
-
-      {/* 豆瓣代理设置 */}
-      <div>
-        <label
-          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
-            isD1Storage || isUpstashStorage ? 'opacity-50' : ''
-          }`}
-        >
-          豆瓣代理地址
-          {isD1Storage && (
-            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-              (D1 环境下请通过环境变量修改)
-            </span>
-          )}
-          {isUpstashStorage && (
-            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-              (Upstash 环境下请通过环境变量修改)
-            </span>
-          )}
-        </label>
-        <input
-          type='text'
-          placeholder='例如: https://proxy.example.com/fetch?url='
-          value={siteSettings.DoubanProxy}
-          onChange={(e) =>
-            !isD1Storage &&
-            !isUpstashStorage &&
-            setSiteSettings((prev) => ({
-              ...prev,
-              DoubanProxy: e.target.value,
-            }))
-          }
-          disabled={isD1Storage || isUpstashStorage}
-          className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
-            isD1Storage || isUpstashStorage
-              ? 'opacity-50 cursor-not-allowed'
-              : ''
-          }`}
-        />
-        <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
-          用于代理豆瓣数据访问，解决跨域或访问限制问题。留空则使用服务端API。
         </p>
       </div>
 

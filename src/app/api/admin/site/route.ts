@@ -33,6 +33,7 @@ export async function POST(request: NextRequest) {
       Announcement,
       SearchDownstreamMaxPage,
       SiteInterfaceCacheTime,
+      DoubanProxyType,
       ImageProxy,
       DoubanProxy,
       DisableYellowFilter,
@@ -41,6 +42,7 @@ export async function POST(request: NextRequest) {
       Announcement: string;
       SearchDownstreamMaxPage: number;
       SiteInterfaceCacheTime: number;
+      DoubanProxyType: string;
       ImageProxy: string;
       DoubanProxy: string;
       DisableYellowFilter: boolean;
@@ -52,6 +54,7 @@ export async function POST(request: NextRequest) {
       typeof Announcement !== 'string' ||
       typeof SearchDownstreamMaxPage !== 'number' ||
       typeof SiteInterfaceCacheTime !== 'number' ||
+      typeof DoubanProxyType !== 'string' ||
       typeof ImageProxy !== 'string' ||
       typeof DoubanProxy !== 'string' ||
       typeof DisableYellowFilter !== 'boolean'
@@ -79,6 +82,7 @@ export async function POST(request: NextRequest) {
       Announcement,
       SearchDownstreamMaxPage,
       SiteInterfaceCacheTime,
+      DoubanProxyType,
       ImageProxy,
       DoubanProxy,
       DisableYellowFilter,

@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any,no-console,no-case-declarations */
 
 import { DoubanItem, DoubanResult } from './types';
-import { getDoubanProxyUrl } from './utils';
 
 interface DoubanCategoriesParams {
   kind: 'tv' | 'movie';
@@ -60,20 +59,18 @@ interface DoubanRecommandApiResponse {
  */
 async function fetchWithTimeout(
   url: string,
-  fallbackProxy = false
+  proxyUrl: string
 ): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
 
   // 检查是否使用代理
-  const proxyUrl = fallbackProxy
-    ? 'https://cors-anywhere.com/'
-    : getDoubanProxyUrl();
-  const finalUrl = fallbackProxy
-    ? `${proxyUrl}${url}`
-    : proxyUrl
-    ? `${proxyUrl}${encodeURIComponent(url)}`
-    : url;
+  const finalUrl =
+    proxyUrl === 'https://cors-anywhere.com/'
+      ? `${proxyUrl}${url}`
+      : proxyUrl
+      ? `${proxyUrl}${encodeURIComponent(url)}`
+      : url;
 
   const fetchOptions: RequestInit = {
     signal: controller.signal,
@@ -95,11 +92,28 @@ async function fetchWithTimeout(
   }
 }
 
-/**
- * 检查是否应该使用客户端获取豆瓣数据
- */
-export function shouldUseDoubanClient(): boolean {
-  return getDoubanProxyUrl() !== null;
+function getDoubanProxyConfig(): {
+  proxyType:
+    | 'direct'
+    | 'cors-proxy-zwei'
+    | 'cmliussss-cdn-tencent'
+    | 'cmliussss-cdn-ali'
+    | 'cors-anywhere'
+    | 'custom';
+  proxyUrl: string;
+} {
+  const doubanProxyType =
+    localStorage.getItem('doubanDataSource') ||
+    (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE ||
+    'direct';
+  const doubanProxy =
+    localStorage.getItem('doubanProxyUrl') ||
+    (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY ||
+    '';
+  return {
+    proxyType: doubanProxyType,
+    proxyUrl: doubanProxy,
+  };
 }
 
 /**
@@ -107,7 +121,9 @@ export function shouldUseDoubanClient(): boolean {
  */
 export async function fetchDoubanCategories(
   params: DoubanCategoriesParams,
-  fallbackProxy = false
+  proxyUrl: string,
+  useTencentCDN = false,
+  useAliCDN = false
 ): Promise<DoubanResult> {
   const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
 
@@ -128,10 +144,17 @@ export async function fetchDoubanCategories(
     throw new Error('pageStart 不能小于 0');
   }
 
-  const target = `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`;
+  const target = useTencentCDN
+    ? `https://m.douban.cmliussss.net/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`
+    : useAliCDN
+    ? `https://m.douban.cmliussss.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`
+    : `https://m.douban.com/rexxar/api/v2/subject/recent_hot/${kind}?start=${pageStart}&limit=${pageLimit}&category=${category}&type=${type}`;
 
   try {
-    const response = await fetchWithTimeout(target, fallbackProxy);
+    const response = await fetchWithTimeout(
+      target,
+      useTencentCDN || useAliCDN ? '' : proxyUrl
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
@@ -172,21 +195,26 @@ export async function fetchDoubanCategories(
 export async function getDoubanCategories(
   params: DoubanCategoriesParams
 ): Promise<DoubanResult> {
-  if (shouldUseDoubanClient()) {
-    // 使用客户端代理获取（当设置了代理 URL 时）
-    return fetchDoubanCategories(params);
-  } else {
-    // 使用服务端 API（当没有设置代理 URL 时）
-    const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
-    const response = await fetch(
-      `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`
-    );
+  const { kind, category, type, pageLimit = 20, pageStart = 0 } = params;
+  const { proxyType, proxyUrl } = getDoubanProxyConfig();
+  switch (proxyType) {
+    case 'cors-proxy-zwei':
+      return fetchDoubanCategories(params, 'https://cors.eu.org/');
+    case 'cmliussss-cdn-tencent':
+      return fetchDoubanCategories(params, '', true, false);
+    case 'cmliussss-cdn-ali':
+      return fetchDoubanCategories(params, '', false, true);
+    case 'cors-anywhere':
+      return fetchDoubanCategories(params, 'https://cors-anywhere.com/');
+    case 'custom':
+      return fetchDoubanCategories(params, proxyUrl);
+    case 'direct':
+    default:
+      const response = await fetch(
+        `/api/douban/categories?kind=${kind}&category=${category}&type=${type}&limit=${pageLimit}&start=${pageStart}`
+      );
 
-    if (!response.ok) {
-      return fetchDoubanCategories(params, true);
-    }
-
-    return response.json();
+      return response.json();
   }
 }
 
@@ -201,25 +229,33 @@ export async function getDoubanList(
   params: DoubanListParams
 ): Promise<DoubanResult> {
   const { tag, type, pageLimit = 20, pageStart = 0 } = params;
-  if (shouldUseDoubanClient()) {
-    // 使用客户端代理获取（当设置了代理 URL 时）
-    return fetchDoubanList(params);
-  } else {
-    const response = await fetch(
-      `/api/douban?tag=${tag}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
-    );
+  const { proxyType, proxyUrl } = getDoubanProxyConfig();
+  switch (proxyType) {
+    case 'cors-proxy-zwei':
+      return fetchDoubanList(params, 'https://cors.eu.org/');
+    case 'cmliussss-cdn-tencent':
+      return fetchDoubanList(params, '', true, false);
+    case 'cmliussss-cdn-ali':
+      return fetchDoubanList(params, '', false, true);
+    case 'cors-anywhere':
+      return fetchDoubanList(params, 'https://cors-anywhere.com/');
+    case 'custom':
+      return fetchDoubanList(params, proxyUrl);
+    case 'direct':
+    default:
+      const response = await fetch(
+        `/api/douban?tag=${tag}&type=${type}&pageSize=${pageLimit}&pageStart=${pageStart}`
+      );
 
-    if (!response.ok) {
-      return fetchDoubanList(params, true);
-    }
-
-    return response.json();
+      return response.json();
   }
 }
 
 export async function fetchDoubanList(
   params: DoubanListParams,
-  fallbackProxy = false
+  proxyUrl: string,
+  useTencentCDN = false,
+  useAliCDN = false
 ): Promise<DoubanResult> {
   const { tag, type, pageLimit = 20, pageStart = 0 } = params;
 
@@ -240,10 +276,17 @@ export async function fetchDoubanList(
     throw new Error('pageStart 不能小于 0');
   }
 
-  const target = `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
+  const target = useTencentCDN
+    ? `https://movie.douban.cmliussss.net/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
+    : useAliCDN
+    ? `https://movie.douban.cmliussss.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`
+    : `https://movie.douban.com/j/search_subjects?type=${type}&tag=${tag}&sort=recommend&page_limit=${pageLimit}&page_start=${pageStart}`;
 
   try {
-    const response = await fetchWithTimeout(target, fallbackProxy);
+    const response = await fetchWithTimeout(
+      target,
+      useTencentCDN || useAliCDN ? '' : proxyUrl
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);
@@ -304,25 +347,33 @@ export async function getDoubanRecommands(
     platform,
     sort,
   } = params;
-  if (shouldUseDoubanClient()) {
-    // 使用客户端代理获取（当设置了代理 URL 时）
-    return fetchDoubanRecommands(params);
-  } else {
-    const response = await fetch(
-      `/api/douban/recommands?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
-    );
+  const { proxyType, proxyUrl } = getDoubanProxyConfig();
+  switch (proxyType) {
+    case 'cors-proxy-zwei':
+      return fetchDoubanRecommands(params, 'https://cors.eu.org/');
+    case 'cmliussss-cdn-tencent':
+      return fetchDoubanRecommands(params, '', true, false);
+    case 'cmliussss-cdn-ali':
+      return fetchDoubanRecommands(params, '', false, true);
+    case 'cors-anywhere':
+      return fetchDoubanRecommands(params, 'https://cors-anywhere.com/');
+    case 'custom':
+      return fetchDoubanRecommands(params, proxyUrl);
+    case 'direct':
+    default:
+      const response = await fetch(
+        `/api/douban/recommands?kind=${kind}&limit=${pageLimit}&start=${pageStart}&category=${category}&format=${format}&region=${region}&year=${year}&platform=${platform}&sort=${sort}`
+      );
 
-    if (!response.ok) {
-      return fetchDoubanRecommands(params, true);
-    }
-
-    return response.json();
+      return response.json();
   }
 }
 
 async function fetchDoubanRecommands(
   params: DoubanRecommandsParams,
-  fallbackProxy = false
+  proxyUrl: string,
+  useTencentCDN = false,
+  useAliCDN = false
 ): Promise<DoubanResult> {
   const { kind, pageLimit = 20, pageStart = 0 } = params;
   let { category, format, region, year, platform, sort } = params;
@@ -370,7 +421,11 @@ async function fetchDoubanRecommands(
     tags.push(platform);
   }
 
-  const baseUrl = `https://m.douban.com/rexxar/api/v2/${kind}/recommend`;
+  const baseUrl = useTencentCDN
+    ? `https://m.douban.cmliussss.net/rexxar/api/v2/${kind}/recommend`
+    : useAliCDN
+    ? `https://m.douban.cmliussss.com/rexxar/api/v2/${kind}/recommend`
+    : `https://m.douban.com/rexxar/api/v2/${kind}/recommend`;
   const reqParams = new URLSearchParams();
   reqParams.append('refresh', '0');
   reqParams.append('start', pageStart.toString());
@@ -385,7 +440,10 @@ async function fetchDoubanRecommands(
   const target = `${baseUrl}?${reqParams.toString()}`;
   console.log(target);
   try {
-    const response = await fetchWithTimeout(target, fallbackProxy);
+    const response = await fetchWithTimeout(
+      target,
+      useTencentCDN || useAliCDN ? '' : proxyUrl
+    );
 
     if (!response.ok) {
       throw new Error(`HTTP error! Status: ${response.status}`);

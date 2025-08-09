@@ -194,18 +194,15 @@ export default function VideoCard({
   const handleClick = useCallback(() => {
     if (from === 'douban') {
       router.push(
-        `/play?title=${encodeURIComponent(actualTitle.trim())}${
-          actualYear ? `&year=${actualYear}` : ''
+        `/play?title=${encodeURIComponent(actualTitle.trim())}${actualYear ? `&year=${actualYear}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
       );
     } else if (actualSource && actualId) {
       router.push(
         `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
-        )}${actualYear ? `&year=${actualYear}` : ''}${
-          isAggregate ? '&prefer=true' : ''
-        }${
-          actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
+        )}${actualYear ? `&year=${actualYear}` : ''}${isAggregate ? '&prefer=true' : ''
+        }${actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
         }${actualSearchType ? `&stype=${actualSearchType}` : ''}`
       );
     }
@@ -279,7 +276,18 @@ export default function VideoCard({
           fill
           className='object-cover'
           referrerPolicy='no-referrer'
+          loading='lazy'
           onLoadingComplete={() => setIsLoading(true)}
+          onError={(e) => {
+            // 图片加载失败时的重试机制
+            const img = e.target as HTMLImageElement;
+            if (!img.dataset.retried) {
+              img.dataset.retried = 'true';
+              setTimeout(() => {
+                img.src = processImageUrl(actualPoster);
+              }, 2000);
+            }
+          }}
         />
 
         {/* 悬浮遮罩 */}
@@ -310,11 +318,10 @@ export default function VideoCard({
               <Heart
                 onClick={handleToggleFavorite}
                 size={20}
-                className={`transition-all duration-300 ease-out ${
-                  favorited
+                className={`transition-all duration-300 ease-out ${favorited
                     ? 'fill-red-600 stroke-red-600'
                     : 'fill-transparent stroke-white hover:stroke-red-400'
-                } hover:scale-[1.1]`}
+                  } hover:scale-[1.1]`}
               />
             )}
           </div>

@@ -26,11 +26,26 @@ export async function GET(request: Request) {
 
   const config = await getConfig();
   const apiSites = config.SourceConfig.filter((site) => !site.disabled);
-  const searchPromises = apiSites.map((site) => searchFromApi(site, query));
+
+  // 添加超时控制和错误处理，避免慢接口拖累整体响应
+  const searchPromises = apiSites.map((site) =>
+    Promise.race([
+      searchFromApi(site, query),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
+      )
+    ]).catch(err => {
+      console.warn(`搜索失败 ${site.name}:`, err.message);
+      return []; // 返回空数组而不是抛出错误
+    })
+  );
 
   try {
-    const results = await Promise.all(searchPromises);
-    let flattenedResults = results.flat();
+    const results = await Promise.allSettled(searchPromises);
+    const successResults = results
+      .filter(result => result.status === 'fulfilled')
+      .map(result => (result as PromiseFulfilledResult<any>).value);
+    let flattenedResults = successResults.flat();
     if (!config.SiteConfig.DisableYellowFilter) {
       flattenedResults = flattenedResults.filter((result) => {
         const typeName = result.type_name || '';

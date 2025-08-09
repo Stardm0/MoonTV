@@ -1,8 +1,18 @@
-/* eslint-disable no-console,@typescript-eslint/no-explicit-any */
+/* eslint-disable no-console,@typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 'use client';
 
-import { KeyRound, LogOut, Settings, Shield, User, X } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ExternalLink,
+  KeyRound,
+  LogOut,
+  Settings,
+  Shield,
+  User,
+  X,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -30,7 +40,21 @@ export const UserMenu: React.FC = () => {
   const [imageProxyUrl, setImageProxyUrl] = useState('');
   const [enableOptimization, setEnableOptimization] = useState(true);
   const [enableImageProxy, setEnableImageProxy] = useState(false);
-  const [enableDoubanProxy, setEnableDoubanProxy] = useState(false);
+  const [doubanDataSource, setDoubanDataSource] = useState('direct');
+  const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
+
+  // 豆瓣数据源选项
+  const doubanDataSourceOptions = [
+    { value: 'direct', label: '实例服务端（直接请求豆瓣）' },
+    { value: 'cors-proxy-zwei', label: 'Cors Proxy By Zwei' },
+    {
+      value: 'cmliussss-cdn-tencent',
+      label: '豆瓣 CDN By CMLiussss（腾讯云）',
+    },
+    { value: 'cmliussss-cdn-ali', label: '豆瓣 CDN By CMLiussss（阿里云）' },
+    { value: 'cors-anywhere', label: 'Cors Anywhere（20 qpm）' },
+    { value: 'custom', label: '自定义代理' },
+  ];
 
   // 修改密码相关状态
   const [newPassword, setNewPassword] = useState('');
@@ -69,16 +93,19 @@ export const UserMenu: React.FC = () => {
         setDefaultAggregateSearch(JSON.parse(savedAggregateSearch));
       }
 
-      const savedEnableDoubanProxy = localStorage.getItem('enableDoubanProxy');
-      const defaultDoubanProxy =
-        (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
-      if (savedEnableDoubanProxy !== null) {
-        setEnableDoubanProxy(JSON.parse(savedEnableDoubanProxy));
-      } else if (defaultDoubanProxy) {
-        setEnableDoubanProxy(true);
+      const savedDoubanDataSource = localStorage.getItem('doubanDataSource');
+      const defaultDoubanProxyType =
+        (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE || 'direct';
+      if (savedDoubanDataSource !== null) {
+        setDoubanDataSource(savedDoubanDataSource);
+      } else if (defaultDoubanProxyType) {
+        // 如果没有设置，则设置为直接请求豆瓣
+        setDoubanDataSource('direct');
       }
 
       const savedDoubanProxyUrl = localStorage.getItem('doubanProxyUrl');
+      const defaultDoubanProxy =
+        (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
       if (savedDoubanProxyUrl !== null) {
         setDoubanProxyUrl(savedDoubanProxyUrl);
       } else if (defaultDoubanProxy) {
@@ -124,6 +151,24 @@ export const UserMenu: React.FC = () => {
 
     checkUpdate();
   }, []);
+
+  // 点击外部区域关闭下拉框
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (isDoubanDropdownOpen) {
+        const target = event.target as Element;
+        if (!target.closest('[data-dropdown="douban-datasource"]')) {
+          setIsDoubanDropdownOpen(false);
+        }
+      }
+    };
+
+    if (isDoubanDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () =>
+        document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isDoubanDropdownOpen]);
 
   const handleMenuClick = () => {
     setIsOpen(!isOpen);
@@ -253,22 +298,43 @@ export const UserMenu: React.FC = () => {
     }
   };
 
-  const handleDoubanProxyToggle = (value: boolean) => {
-    setEnableDoubanProxy(value);
+  const handleDoubanDataSourceChange = (value: string) => {
+    setDoubanDataSource(value);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('enableDoubanProxy', JSON.stringify(value));
+      localStorage.setItem('doubanDataSource', value);
+    }
+  };
+
+  // 获取感谢信息
+  const getThanksInfo = (dataSource: string) => {
+    switch (dataSource) {
+      case 'cors-proxy-zwei':
+        return {
+          text: 'Thanks to @Zwei',
+          url: 'https://github.com/bestzwei',
+        };
+      case 'cmliussss-cdn-tencent':
+      case 'cmliussss-cdn-ali':
+        return {
+          text: 'Thanks to @CMLiussss',
+          url: 'https://github.com/cmliu',
+        };
+      default:
+        return null;
     }
   };
 
   const handleResetSettings = () => {
     const defaultImageProxy = (window as any).RUNTIME_CONFIG?.IMAGE_PROXY || '';
+    const defaultDoubanProxyType =
+      (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY_TYPE || 'direct';
     const defaultDoubanProxy =
       (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY || '';
 
     setDefaultAggregateSearch(true);
     setEnableOptimization(true);
     setDoubanProxyUrl(defaultDoubanProxy);
-    setEnableDoubanProxy(!!defaultDoubanProxy);
+    setDoubanDataSource(defaultDoubanProxyType);
     setEnableImageProxy(!!defaultImageProxy);
     setImageProxyUrl(defaultImageProxy);
 
@@ -276,10 +342,7 @@ export const UserMenu: React.FC = () => {
       localStorage.setItem('defaultAggregateSearch', JSON.stringify(true));
       localStorage.setItem('enableOptimization', JSON.stringify(true));
       localStorage.setItem('doubanProxyUrl', defaultDoubanProxy);
-      localStorage.setItem(
-        'enableDoubanProxy',
-        JSON.stringify(!!defaultDoubanProxy)
-      );
+      localStorage.setItem('doubanDataSource', defaultDoubanProxyType);
       localStorage.setItem(
         'enableImageProxy',
         JSON.stringify(!!defaultImageProxy)
@@ -516,53 +579,105 @@ export const UserMenu: React.FC = () => {
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>
 
-          {/* 豆瓣代理开关 */}
-          <div className='flex items-center justify-between'>
-            <div>
-              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                启用豆瓣代理
-              </h4>
-              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                启用后，豆瓣数据将通过代理服务器获取
-              </p>
-            </div>
-            <label className='flex items-center cursor-pointer'>
-              <div className='relative'>
-                <input
-                  type='checkbox'
-                  className='sr-only peer'
-                  checked={enableDoubanProxy}
-                  onChange={(e) => handleDoubanProxyToggle(e.target.checked)}
-                />
-                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
-                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
-              </div>
-            </label>
-          </div>
-
-          {/* 豆瓣代理地址设置 */}
+          {/* 豆瓣数据源选择 */}
           <div className='space-y-3'>
             <div>
               <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
-                豆瓣代理地址
+                豆瓣数据源
               </h4>
               <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
-                仅在启用豆瓣代理时生效，留空则使用服务器 API
+                选择获取豆瓣数据的方式
               </p>
             </div>
-            <input
-              type='text'
-              className={`w-full px-3 py-2 border rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors ${
-                enableDoubanProxy
-                  ? 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400'
-                  : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 text-gray-400 dark:text-gray-500 placeholder-gray-400 dark:placeholder-gray-600 cursor-not-allowed'
-              }`}
-              placeholder='例如: https://proxy.example.com/fetch?url='
-              value={doubanProxyUrl}
-              onChange={(e) => handleDoubanProxyUrlChange(e.target.value)}
-              disabled={!enableDoubanProxy}
-            />
+            <div className='relative' data-dropdown='douban-datasource'>
+              {/* 自定义下拉选择框 */}
+              <button
+                type='button'
+                onClick={() => setIsDoubanDropdownOpen(!isDoubanDropdownOpen)}
+                className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left'
+              >
+                {
+                  doubanDataSourceOptions.find(
+                    (option) => option.value === doubanDataSource
+                  )?.label
+                }
+              </button>
+
+              {/* 下拉箭头 */}
+              <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
+                <ChevronDown
+                  className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                    isDoubanDropdownOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </div>
+
+              {/* 下拉选项列表 */}
+              {isDoubanDropdownOpen && (
+                <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
+                  {doubanDataSourceOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      type='button'
+                      onClick={() => {
+                        handleDoubanDataSourceChange(option.value);
+                        setIsDoubanDropdownOpen(false);
+                      }}
+                      className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                        doubanDataSource === option.value
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                          : 'text-gray-900 dark:text-gray-100'
+                      }`}
+                    >
+                      <span className='truncate'>{option.label}</span>
+                      {doubanDataSource === option.value && (
+                        <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 感谢信息 */}
+            {getThanksInfo(doubanDataSource) && (
+              <div className='mt-3'>
+                <button
+                  type='button'
+                  onClick={() =>
+                    window.open(getThanksInfo(doubanDataSource)!.url, '_blank')
+                  }
+                  className='flex items-center justify-center gap-1.5 w-full px-3 text-xs text-gray-500 dark:text-gray-400 cursor-pointer'
+                >
+                  <span className='font-medium'>
+                    {getThanksInfo(doubanDataSource)!.text}
+                  </span>
+                  <ExternalLink className='w-3.5 opacity-70' />
+                </button>
+              </div>
+            )}
           </div>
+
+          {/* 豆瓣代理地址设置 - 仅在选择自定义代理时显示 */}
+          {doubanDataSource === 'custom' && (
+            <div className='space-y-3'>
+              <div>
+                <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                  豆瓣代理地址
+                </h4>
+                <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                  自定义代理服务器地址
+                </p>
+              </div>
+              <input
+                type='text'
+                className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500'
+                placeholder='例如: https://proxy.example.com/fetch?url='
+                value={doubanProxyUrl}
+                onChange={(e) => handleDoubanProxyUrlChange(e.target.value)}
+              />
+            </div>
+          )}
 
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>

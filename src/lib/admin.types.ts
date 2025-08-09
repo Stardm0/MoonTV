@@ -5,6 +5,7 @@ export interface AdminConfig {
     SearchDownstreamMaxPage: number;
     SiteInterfaceCacheTime: number;
     ImageProxy: string;
+    DoubanProxyType: string;
     DoubanProxy: string;
     DisableYellowFilter: boolean;
   };

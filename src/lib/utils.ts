@@ -1,5 +1,4 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import he from 'he';
 import Hls from 'hls.js';
 
@@ -39,58 +38,6 @@ export function processImageUrl(originalUrl: string): string {
   if (!proxyUrl) return originalUrl;
 
   return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
-}
-
-/**
- * 获取豆瓣代理 URL 设置
- */
-export function getDoubanProxyUrl(): string | null {
-  if (typeof window === 'undefined') return null;
-
-  // 本地未开启豆瓣代理，则不使用代理
-  const enableDoubanProxy = localStorage.getItem('enableDoubanProxy');
-  if (enableDoubanProxy !== null) {
-    if (!JSON.parse(enableDoubanProxy) as boolean) {
-      return null;
-    }
-  }
-
-  const localDoubanProxy = localStorage.getItem('doubanProxyUrl');
-  if (localDoubanProxy != null) {
-    return localDoubanProxy.trim() ? localDoubanProxy.trim() : null;
-  }
-
-  // 如果未设置，则使用全局对象
-  const serverDoubanProxy = (window as any).RUNTIME_CONFIG?.DOUBAN_PROXY;
-  return serverDoubanProxy && serverDoubanProxy.trim()
-    ? serverDoubanProxy.trim()
-    : null;
-}
-
-/**
- * 处理豆瓣 URL，如果设置了豆瓣代理则使用代理
- */
-export function processDoubanUrl(originalUrl: string): string {
-  if (!originalUrl) return originalUrl;
-
-  const proxyUrl = getDoubanProxyUrl();
-  if (!proxyUrl) return originalUrl;
-
-  return `${proxyUrl}${encodeURIComponent(originalUrl)}`;
-}
-
-export function cleanHtmlTags(text: string): string {
-  if (!text) return '';
-
-  const cleanedText = text
-    .replace(/<[^>]+>/g, '\n') // 将 HTML 标签替换为换行
-    .replace(/\n+/g, '\n') // 将多个连续换行合并为一个
-    .replace(/[ \t]+/g, ' ') // 将多个连续空格和制表符合并为一个空格，但保留换行符
-    .replace(/^\n+|\n+$/g, '') // 去掉首尾换行
-    .trim(); // 去掉首尾空格
-
-  // 使用 he 库解码 HTML 实体
-  return he.decode(cleanedText);
 }
 
 /**
@@ -248,4 +195,18 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
       }`
     );
   }
+}
+
+export function cleanHtmlTags(text: string): string {
+  if (!text) return '';
+
+  const cleanedText = text
+    .replace(/<[^>]+>/g, '\n') // 将 HTML 标签替换为换行
+    .replace(/\n+/g, '\n') // 将多个连续换行合并为一个
+    .replace(/[ \t]+/g, ' ') // 将多个连续空格和制表符合并为一个空格，但保留换行符
+    .replace(/^\n+|\n+$/g, '') // 去掉首尾换行
+    .trim(); // 去掉首尾空格
+
+  // 使用 he 库解码 HTML 实体
+  return he.decode(cleanedText);
 }
