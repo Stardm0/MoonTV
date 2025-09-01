@@ -1,5 +1,8 @@
 /* eslint-disable no-console, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+import { StoreageInKV } from '@/lib/kv.db';
+import { MemoryKVDatabase } from '@/lib/memory.db';
+
 import { AdminConfig } from './admin.types';
 import { RedisStorage } from './redis.db';
 import { Favorite, IStorage, PlayRecord, SkipConfig } from './types';
@@ -11,6 +14,7 @@ const STORAGE_TYPE =
     | 'localstorage'
     | 'redis'
     | 'upstash'
+    | 'memory'
     | undefined) || 'localstorage';
 
 // 创建存储实例
@@ -20,6 +24,8 @@ function createStorage(): IStorage {
       return new RedisStorage();
     case 'upstash':
       return new UpstashRedisStorage();
+    case 'memory':
+      return new StoreageInKV(new MemoryKVDatabase());
     case 'localstorage':
     default:
       return null as unknown as IStorage;

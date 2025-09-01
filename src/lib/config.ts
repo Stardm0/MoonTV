@@ -288,7 +288,7 @@ async function initConfig() {
           });
         }
         adminConfig = {
-          ConfigFile: '',
+          ConfigFile: JSON.stringify(runtimeConfig),
           SiteConfig: {
             SiteName: process.env.NEXT_PUBLIC_SITE_NAME || 'MoonTV',
             Announcement:

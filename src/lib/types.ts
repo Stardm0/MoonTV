@@ -81,6 +81,13 @@ export interface IStorage {
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
 }
 
+export interface IKVDatabase {
+  //to simplify: set null == delete
+  set(key: string, value: string | null): Promise<void>;
+  get(key: string): Promise<string | null>;
+  list(prefixKey: string): Promise<Array<[key: string, value: string]>>;
+}
+
 // 搜索结果数据结构
 export interface SearchResult {
   id: string;
