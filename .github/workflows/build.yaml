@@ -1,4 +1,4 @@
-name: Build and Download
+name: Build and Download MoonTV
 
 on:
   workflow_dispatch: # 手动触发
@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
+    - name: Checkout code
       uses: actions/checkout@v4
 
     - name: Setup Node.js
@@ -17,24 +17,29 @@ jobs:
         node-version: '20'
         cache: 'pnpm'
 
-    - name: Setup pnpm
-      uses: pnpm/action-setup@v2
-      with:
-        version: 10.14.0
+    - name: Install pnpm
+      run: npm install -g pnpm@10.14.0
 
     - name: Install dependencies
-      run: pnpm install
+      run: pnpm install --frozen-lockfile
 
-    - name: Build project
+    - name: Generate manifest
+      run: pnpm run gen:manifest
+
+    - name: Generate runtime
+      run: pnpm run gen:runtime
+
+    - name: Build with next-on-pages
       run: pnpm run pages:build
 
     - name: Create deployment package
       run: |
         cd .vercel/output/static
-        zip -r ../deployment.zip .
+        zip -r ../../deployment.zip .
 
-    - name: Upload artifact
+    - name: Upload deployment package
       uses: actions/upload-artifact@v4
       with:
-        name: deployment-package
-        path: .vercel/output/deployment.zip
+        name: moontv-deployment
+        path: deployment.zip
+        retention-days: 1
