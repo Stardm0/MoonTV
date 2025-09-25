@@ -17,6 +17,10 @@ read -p "请输入 Cloudflare Pages 项目名称: " PROJECT_NAME
 if [ "$OPTION" == "1" ]; then
   echo "🚀 开始【更新部署】Cloudflare Pages 项目: $PROJECT_NAME"
 
+  # 0. 清理缓存
+  echo "🧹 清理缓存..."
+  pnpm clean
+
   # 1. 安装依赖
   echo "📦 安装依赖..."
   pnpm install
