@@ -19,7 +19,7 @@ if [ "$OPTION" == "1" ]; then
 
   # 0. 清理缓存
   echo "🧹 清理缓存..."
-  pnpm clean
+  rm -rf .next
 
   # 1. 安装依赖
   echo "📦 安装依赖..."
