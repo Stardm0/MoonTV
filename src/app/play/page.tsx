@@ -1,9 +1,6 @@
 /* eslint-disable @typescript-eslint/ban-ts-comment, @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, no-console, @next/next/no-img-element */
 
 'use client';
-
-import Artplayer from 'artplayer';
-import Hls from 'hls.js';
 import { Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
@@ -112,7 +109,7 @@ function PlayPageClient() {
   const [searchType] = useState(searchParams.get('stype') || '');
 
   // 是否需要优选
-  const [needPrefer, setNeedPrefer] = useState(
+  const [needPrefer, _setNeedPrefer] = useState(
     searchParams.get('prefer') === 'true'
   );
   const needPreferRef = useRef(needPrefer);
@@ -602,35 +599,7 @@ function PlayPageClient() {
     }
   };
 
-  class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
-    constructor(config: any) {
-      super(config);
-      const load = this.load.bind(this);
-      this.load = function (context: any, config: any, callbacks: any) {
-        // 拦截manifest和level请求
-        if (
-          (context as any).type === 'manifest' ||
-          (context as any).type === 'level'
-        ) {
-          const onSuccess = callbacks.onSuccess;
-          callbacks.onSuccess = function (
-            response: any,
-            stats: any,
-            context: any
-          ) {
-            // 如果是m3u8文件，处理内容以移除广告分段
-            if (response.data && typeof response.data === 'string') {
-              // 过滤掉广告段 - 实现更精确的广告过滤逻辑
-              response.data = filterAdsFromM3U8(response.data);
-            }
-            return onSuccess(response, stats, context, null);
-          };
-        }
-        // 执行原始load方法
-        load(context, config, callbacks);
-      };
-    }
-  }
+  // 注意：自定义 HLS Loader 会在确保 Hls 动态加载成功后再定义
 
   // 当集数索引变化时自动更新视频地址
   useEffect(() => {
@@ -639,27 +608,7 @@ function PlayPageClient() {
 
   // 进入页面时直接获取全部源信息
   useEffect(() => {
-    const fetchSourceDetail = async (
-      source: string,
-      id: string
-    ): Promise<SearchResult[]> => {
-      try {
-        const detailResponse = await fetch(
-          `/api/detail?source=${source}&id=${id}`
-        );
-        if (!detailResponse.ok) {
-          throw new Error('获取视频详情失败');
-        }
-        const detailData = (await detailResponse.json()) as SearchResult;
-        setAvailableSources([detailData]);
-        return [detailData];
-      } catch (err) {
-        console.error('获取视频详情失败:', err);
-        return [];
-      } finally {
-        setSourceSearchLoading(false);
-      }
-    };
+    // 已不再使用的函数移除（避免 SSR 与 linter 报错）
     
     const fetchSourcesData = async (
       query: string,
@@ -1271,15 +1220,37 @@ function PlayPageClient() {
     }
   };
 
+  // 动态加载播放器相关库，仅在客户端
+  const artLibRef = useRef<any>(null);
+  const hlsLibRef = useRef<any>(null);
+  const [libsReady, setLibsReady] = useState(false);
+
   useEffect(() => {
-    if (
-      !Artplayer ||
-      !Hls ||
-      !videoUrl ||
-      loading ||
-      currentEpisodeIndex === null ||
-      !artRef.current
-    ) {
+    let mounted = true;
+    (async () => {
+      try {
+        const [{ default: Art }, { default: Hls }] = await Promise.all([
+          import('artplayer'),
+          import('hls.js'),
+        ]);
+        if (!mounted) return;
+        artLibRef.current = Art;
+        hlsLibRef.current = Hls;
+        setLibsReady(true);
+      } catch (err) {
+        console.error('加载播放器库失败:', err);
+        setLibsReady(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const Artplayer = artLibRef.current;
+    const Hls = hlsLibRef.current;
+    if (!libsReady || !Artplayer || !Hls || !videoUrl || loading || currentEpisodeIndex === null || !artRef.current) {
       return;
     }
 
@@ -1330,6 +1301,26 @@ function PlayPageClient() {
       // 创建新的播放器实例
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       Artplayer.USE_RAF = true;
+
+      // 在这里定义自定义 Loader，确保 Hls 已就绪
+      class CustomHlsJsLoader extends Hls.DefaultConfig.loader {
+        constructor(config: any) {
+          super(config);
+          const load = this.load.bind(this);
+          this.load = function (context: any, config: any, callbacks: any) {
+            if ((context as any).type === 'manifest' || (context as any).type === 'level') {
+              const onSuccess = callbacks.onSuccess;
+              callbacks.onSuccess = function (response: any, stats: any, context: any) {
+                if (response.data && typeof response.data === 'string') {
+                  response.data = filterAdsFromM3U8(response.data);
+                }
+                return onSuccess(response, stats, context, null);
+              };
+            }
+            load(context, config, callbacks);
+          };
+        }
+      }
 
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
@@ -1387,9 +1378,7 @@ function PlayPageClient() {
               maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
 
               /* 自定义loader */
-              loader: blockAdEnabledRef.current
-                ? CustomHlsJsLoader
-                : Hls.DefaultConfig.loader,
+              loader: blockAdEnabledRef.current ? CustomHlsJsLoader : Hls.DefaultConfig.loader,
             });
 
             hls.loadSource(url);
@@ -1454,7 +1443,7 @@ function PlayPageClient() {
             name: '跳过片头片尾',
             html: '跳过片头片尾',
             switch: skipConfigRef.current.enable,
-            onSwitch: function (item) {
+            onSwitch: function (item: any) {
               const newConfig = {
                 ...skipConfigRef.current,
                 enable: !item.switch,
@@ -1696,7 +1685,7 @@ function PlayPageClient() {
       console.error('创建播放器失败:', err);
       setError('播放器初始化失败');
     }
-  }, [Artplayer, Hls, videoUrl, loading, blockAdEnabled]);
+  }, [libsReady, videoUrl, loading, blockAdEnabled, currentEpisodeIndex, detail]);
 
   // 当组件卸载时清理定时器、Wake Lock 和播放器资源
   useEffect(() => {
