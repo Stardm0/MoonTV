@@ -1,24 +1,28 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
 /**
- * 本程式在搜尋前會呼叫繁化姬 API 將繁體關鍵字轉為簡體，以提升召回率。
- * Fanhuaji /convert 說明：GET/POST，必填參數 { text, converter: "Simplified" }，
- * 允許空 API 金鑰；詳見官方文件。
- * 若你有金鑰，可在 Vercel 專案變數中設定 FANHUAJI_API_KEY。
+ * 搜尋前繁→簡（繁化姬）＋簡體變體規範化（如：飚→飙），並做雙檢索合併去重。
+ * 若繁化姬超時/失敗，會回退用原查詢繼續，確保不阻塞。
+ *
+ * 如需 API Key：在 Vercel 專案變數設 FANHUAJI_API_KEY。
  */
+
 import { getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'edge';
 
-// --- Fanhuaji（繁化姬）繁→簡：若失敗則回傳原字串 ---
+/** ---------------------------
+ *  Fanhuaji（繁化姬）繁→簡
+ *  ---------------------------
+ */
 async function toSimplified(input: string): Promise<string> {
   const text = (input ?? '').trim();
   if (!text) return input;
 
-  // 對繁化姬轉換做一個短超時，避免拖慢整體搜索
+  // 短超時，避免拖慢整體
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 秒超時
+  const timeoutId = setTimeout(() => controller.abort(), 4000); // 4s 超時
 
   try {
     const res = await fetch('https://api.zhconvert.org/convert', {
@@ -26,8 +30,8 @@ async function toSimplified(input: string): Promise<string> {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         text,
-        converter: 'Simplified', // 簡體化
-        apiKey: process.env.FANHUAJI_API_KEY ?? '' // 允許空 Key；有就帶上
+        converter: 'Simplified',
+        apiKey: process.env.FANHUAJI_API_KEY ?? ''
       }),
       signal: controller.signal,
       cache: 'no-store'
@@ -44,14 +48,45 @@ async function toSimplified(input: string): Promise<string> {
   }
 }
 
+/** ----------------------------------------
+ *  簡體規範化（處理常見異寫字 → 通用寫法）
+ *  目前主要解決：飚 → 飙（"狂飆" 有時會被轉成 "狂飚"）
+ *  可按需擴充（保持最小侵入）
+ *  ----------------------------------------
+ */
+function normalizeCNVariants(s: string): string {
+  // 單字級規範化表（盡量保守，只處理高影響、低風險的字）
+  const MAP: Record<string, string> = {
+    '飚': '飙', // 常見網站索引用「飙」，不是「飚」
+    // 如有需要可擴充：'裏': '里', '纟'...（此處先不動，以免過度影響）
+  };
+  if (!s) return s;
+  let out = '';
+  for (const ch of s) out += MAP[ch] ?? ch;
+  return out;
+}
+
+/** 產生變體候選（用於雙檢索）。例如主查「飙」，備查「飚」。 */
+function expandVariantQueries(q: string): string[] {
+  const alts = new Set<string>();
+  if (q.includes('飙')) alts.add(q.replaceAll('飙', '飚'));
+  if (q.includes('飚')) alts.add(q.replaceAll('飚', '飙'));
+  return [...alts];
+}
+
+/** 用於結果去重：以「簡體規範化後的標題 + 年份」合併 */
+function dedupeKey(item: any): string {
+  const title = typeof item?.title === 'string' ? item.title : '';
+  const year = item?.year ?? '';
+  return `${normalizeCNVariants(title)}#${year}`;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const queryRaw = searchParams.get('q');
-
+  const queryRaw = searchParams.get('q') ?? '';
   const streamParam = searchParams.get('stream');
 
-  // 如果未显式指定 stream，且请求并非来自浏览器（无 sec-fetch-* 头），
-  // 默认关闭流式以兼容原生客户端。浏览器默认流式，原生默认非流式。
+  // 判斷是否開啟流式
   const isBrowserLikeRequest = !!(
     request.headers.get('sec-fetch-mode') ||
     request.headers.get('sec-fetch-dest') ||
@@ -59,13 +94,13 @@ export async function GET(request: Request) {
   );
   const enableStream = streamParam ? streamParam !== '0' : isBrowserLikeRequest;
 
-  // 可選超時（ms），會傳給下游各站搜索
+  // 可選超時（秒）
   const timeoutParam = searchParams.get('timeout');
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined;
 
   const config = await getConfig();
 
-  // 取得選中的搜索源
+  // 取得被啟用的搜索源（或按參數篩選）
   const selectedSourcesParam = searchParams.get('sources');
   let apiSites = config.SourceConfig.filter((site: any) => !site.disabled);
   if (selectedSourcesParam) {
@@ -73,15 +108,12 @@ export async function GET(request: Request) {
     apiSites = apiSites.filter((site: any) => selectedSources.includes(site.key));
   }
 
-  const encoder = new TextEncoder();
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-
-  if (!queryRaw) {
-    // 空查詢，明確不快取
+  // 空查詢直接返回
+  if (!queryRaw.trim()) {
     return new Response(JSON.stringify({ results: [] }), {
       headers: {
         'Content-Type': 'application/json',
+        // 為避免誤判，搜尋一律不快取
         'Cache-Control': 'no-store, no-cache, must-revalidate',
         Pragma: 'no-cache',
         Expires: '0'
@@ -89,21 +121,20 @@ export async function GET(request: Request) {
     });
   }
 
-  // ★★★ 關鍵改動：繁→簡 ★★★
-  // 將使用者輸入的繁體關鍵字，先透過繁化姬轉為簡體以提高召回率
-  // 若繁化姬失敗或超時，將回退使用原字串
-  const query = await toSimplified(queryRaw);
+  // --- 核心：繁→簡 + 規範化 + 變體擴展（雙檢索）
+  const qCN = await toSimplified(queryRaw);
+  const qMain = normalizeCNVariants(qCN);
+  const qAlts = expandVariantQueries(qMain); // 針對飙/飚這類變體再搜一輪
 
-  // 安全寫入與斷連處理
+  const encoder = new TextEncoder();
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+
   let shouldStop = false;
   const abortSignal = (request as any).signal as AbortSignal | undefined;
   abortSignal?.addEventListener('abort', () => {
     shouldStop = true;
-    try {
-      writer.close();
-    } catch {
-      // ignore
-    }
+    try { writer.close(); } catch {}
   });
 
   const safeWrite = async (obj: unknown) => {
@@ -117,162 +148,146 @@ export async function GET(request: Request) {
     }
   };
 
-  // -------------------------
-  // 非流式：並發
-  // -------------------------
+  // -------- 非流式（一次回傳）---------
   if (!enableStream) {
     const tasks = apiSites.map(async (site: any) => {
       const siteResults: any[] = [];
-      let hasResults = false;
-      try {
-        const generator = searchFromApiStream(site, query, true, timeout);
-        for await (const pageResults of generator) {
-          let filteredResults = pageResults;
+      const seen = new Set<string>();
+      let hasAny = false;
 
-          if (filteredResults.length !== 0) {
-            hasResults = true;
-          }
+      // 在同一個站點做「主查 + 變體備查」，依序執行並去重
+      const runOneQuery = async (q: string) => {
+        const gen = searchFromApiStream(site, q, true, timeout);
+        for await (const pageResults of gen) {
+          let filtered = pageResults;
+
+          if (filtered.length) hasAny = true;
 
           if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = pageResults.filter((result: any) => {
-              const typeName = result.type_name || '';
-              return !yellowWords.some((word: string) => typeName.includes(word));
+            filtered = filtered.filter((r: any) => {
+              const t = r.type_name || '';
+              return !yellowWords.some((w: string) => t.includes(w));
             });
           }
 
-          if (hasResults && filteredResults.length === 0) {
-            throw new Error('结果被过滤');
+          for (const r of filtered) {
+            const key = dedupeKey(r);
+            if (!seen.has(key)) {
+              seen.add(key);
+              siteResults.push(r);
+            }
           }
-
-          siteResults.push(...filteredResults);
         }
+      };
 
-        if (!hasResults) {
-          throw new Error('无搜索结果');
-        }
+      try {
+        await runOneQuery(qMain);
+        for (const alt of qAlts) await runOneQuery(alt);
+
+        if (!hasAny) throw new Error('无搜索结果');
 
         return { siteResults, failed: null };
       } catch (err: any) {
-        let errorMessage = err.message || '未知的错误';
-        if (err.message === '请求超时') errorMessage = '请求超时';
-        else if (err.message === '网络连接失败') errorMessage = '网络连接失败';
-        else if (typeof err.message === 'string' && err.message.includes('网络错误')) errorMessage = '网络错误';
-
-        return {
-          siteResults: [],
-          failed: { name: site.name, key: site.key, error: errorMessage }
-        };
+        let msg = err?.message || '未知的错误';
+        if (msg === '请求超时') msg = '请求超时';
+        else if (msg.includes('网络')) msg = '网络错误';
+        return { siteResults: [], failed: { name: site.name, key: site.key, error: msg } };
       }
     });
 
     const results = await Promise.all(tasks);
-    const aggregatedResults = results.flatMap((r: any) => r.siteResults);
-    const failedSources = results.filter((r: any) => r.failed).map((r: any) => r.failed);
+    const aggregatedResults = results.flatMap(r => r.siteResults);
+    const failedSources = results.filter(r => r.failed).map(r => r.failed);
 
-    if (aggregatedResults.length === 0) {
-      const body = isBrowserLikeRequest
-        ? { aggregatedResults, failedSources }
-        : { results: [], failedSources };
+    const body = isBrowserLikeRequest
+      ? { aggregatedResults, failedSources }
+      : { results: aggregatedResults, failedSources };
 
-      return new Response(JSON.stringify(body), {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': 'no-store, no-cache, must-revalidate',
-          Pragma: 'no-cache',
-          Expires: '0'
-        }
-      });
-    } else {
-      const cacheTime = await getCacheTime();
-      const body = isBrowserLikeRequest
-        ? { aggregatedResults, failedSources }
-        : { results: aggregatedResults, failedSources };
-
-      return new Response(JSON.stringify(body), {
-        headers: {
-          'Content-Type': 'application/json; charset=utf-8',
-          'Cache-Control': `private, max-age=${cacheTime}`
-        }
-      });
-    }
+    return new Response(JSON.stringify(body), {
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        // 搜尋一律 no-store，避免舊快取造成誤判
+        'Cache-Control': 'no-store, no-cache, must-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0'
+      }
+    });
   }
 
-  // -------------------------
-  // 流式：並發
-  // -------------------------
+  // -------- 流式回傳（邊搜邊推）---------
   (async () => {
     const aggregatedResults: any[] = [];
     const failedSources: { name: string; key: string; error: string }[] = [];
 
     const tasks = apiSites.map(async (site: any) => {
-      try {
-        const generator = searchFromApiStream(site, query, true, timeout);
-        let hasResults = false;
+      const seen = new Set<string>();
+      let hasAny = false;
 
-        for await (const pageResults of generator) {
-          let filteredResults = pageResults;
+      const runOneQuery = async (q: string) => {
+        const gen = searchFromApiStream(site, q, true, timeout);
+        for await (const pageResults of gen) {
+          let filtered = pageResults;
 
-          if (filteredResults.length !== 0) {
-            hasResults = true;
-          }
+          if (filtered.length) hasAny = true;
 
           if (!config.SiteConfig.DisableYellowFilter) {
-            filteredResults = pageResults.filter((result: any) => {
-              const typeName = result.type_name || '';
-              return !yellowWords.some((word: string) => typeName.includes(word));
+            filtered = filtered.filter((r: any) => {
+              const t = r.type_name || '';
+              return !yellowWords.some((w: string) => t.includes(w));
             });
           }
 
-          if (hasResults && filteredResults.length === 0) {
-            failedSources.push({ name: site.name, key: site.key, error: '结果被过滤' });
-            await safeWrite({ failedSources });
-            return;
+          // 先站內去重，再輸出
+          const unique = [];
+          for (const r of filtered) {
+            const key = dedupeKey(r);
+            if (!seen.has(key)) {
+              seen.add(key);
+              aggregatedResults.push(r);
+              unique.push(r);
+            }
           }
 
-          aggregatedResults.push(...filteredResults);
-          if (!(await safeWrite({ site: site.key, pageResults: filteredResults }))) {
-            return;
+          if (unique.length) {
+            if (!(await safeWrite({ site: site.key, pageResults: unique }))) return;
           }
         }
+      };
 
-        if (!hasResults) {
+      try {
+        await runOneQuery(qMain);
+        for (const alt of qAlts) await runOneQuery(alt);
+
+        if (!hasAny) {
           failedSources.push({ name: site.name, key: site.key, error: '无搜索结果' });
           await safeWrite({ failedSources });
         }
       } catch (err: any) {
-        console.warn(`搜索失败 ${site.name}:`, err?.message);
-        let errorMessage = err?.message || '未知的错误';
-        if (err?.message === '请求超时') errorMessage = '请求超时';
-        else if (err?.message === '请求失败') errorMessage = '请求失败';
-        else if (typeof err?.message === 'string' && err.message.includes('网络错误')) {
-          errorMessage = '网络错误';
-        }
-        failedSources.push({ name: site.name, key: site.key, error: errorMessage });
+        let msg = err?.message || '未知的错误';
+        if (msg === '请求超时') msg = '请求超时';
+        else if (msg.includes('网络')) msg = '网络错误';
+        failedSources.push({ name: site.name, key: site.key, error: msg });
         await safeWrite({ failedSources });
       }
     });
 
-    // 等所有 site 跑完
     await Promise.allSettled(tasks);
 
-    if (failedSources.length > 0) {
+    if (failedSources.length) {
       await safeWrite({ failedSources });
     }
-
     await safeWrite({ aggregatedResults });
 
-    try {
-      await writer.close();
-    } catch {
-      // ignore
-    }
+    try { await writer.close(); } catch {}
   })();
 
-  const cacheTime = await getCacheTime();
+  // 流式回應頭：亦改為 no-store，避免快取干擾測試
   return new Response(readable, {
     headers: {
       'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': `private, max-age=${cacheTime}`
+      'Cache-Control': 'no-store, no-cache, must-revalidate',
+      Pragma: 'no-cache',
+      Expires: '0'
     }
   });
 }
