@@ -1,14 +1,14 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-console, no-empty */
 /**
  * 功能：
- * 1) 搜索前先用「繁化姬」把繁體關鍵字轉簡體（超時/失敗自動回退原字串）
- * 2) 對簡體做「變體規範化」（例如：飚 → 飙）
+ * 1) 搜索前用「繁化姬」把繁體關鍵字轉簡體（超時/失敗自動回退原字串）
+ * 2) 對簡體做「變體規範化」（例：飚 → 飙）
  * 3) 在每個源站做「主查 + 變體備查」並合併去重（解決“狂飆/狂飙/狂飚”差異）
- * 4) 兼容流式與非流式；為避免快取干擾，搜尋回應一律 no-store
+ * 4) 兼容流式與非流式；搜尋回應一律 no-store（避免快取干擾）
  *
- * 若你有 Fanhuaji 金鑰，在 Vercel 專案變數設 FANHUAJI_API_KEY 即可；空值也能用。
+ * 若你有 Fanhuaji 金鑰，在 Vercel 專案變數設 FANHUAJI_API_KEY；空值也能用。
  */
-import { getCacheTime, getConfig } from '@/lib/config';
+import { getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
 
@@ -38,20 +38,21 @@ async function toSimplified(input: string): Promise<string> {
       cache: 'no-store'
     });
     clearTimeout(tid);
+
     if (!res.ok) return input;
     const json: any = await res.json();
     const converted = json && json.data && json.data.text;
     return typeof converted === 'string' && converted.length ? converted : input;
-  } catch {
+  } catch (e) {
     clearTimeout(tid);
+    void e; // 吞掉錯誤，避免 ESLint no-empty
     return input;
   }
 }
 
-/** 簡單的「全字串替換」（避免使用 replaceAll 造成 TS/lib 兼容問題） */
+/** 以 split/join 實作全字串替換（避免 replaceAll 在某些 lib 版本報錯） */
 function replaceAllChar(s: string, from: string, to: string): string {
   if (!s || from === to) return s;
-  // 用 split/join 兼容舊環境
   return s.split(from).join(to);
 }
 
@@ -88,11 +89,10 @@ export async function GET(request: Request) {
 
   // 是否流式
   const streamParam = searchParams.get('stream');
-  const isBrowserLike = !!(
-    request.headers.get('sec-fetch-mode') ||
-    request.headers.get('sec-fetch-dest') ||
-    request.headers.get('sec-fetch-site')
-  );
+  const isBrowserLike =
+    !!request.headers.get('sec-fetch-mode') ||
+    !!request.headers.get('sec-fetch-dest') ||
+    !!request.headers.get('sec-fetch-site');
   const enableStream = streamParam ? streamParam !== '0' : isBrowserLike;
 
   // 下游超時（秒）
@@ -195,7 +195,7 @@ export async function GET(request: Request) {
 
   // ========== 流式（NDJSON）==========
   const encoder = new TextEncoder();
-  const stream = new TransformStream(); // TS 只做型別，Edge/Node18 皆支持
+  const stream = new TransformStream();
   const writer = stream.writable.getWriter();
 
   let stopped = false;
@@ -203,7 +203,11 @@ export async function GET(request: Request) {
   if (abortSignal && typeof abortSignal.addEventListener === 'function') {
     abortSignal.addEventListener('abort', () => {
       stopped = true;
-      try { writer.close(); } catch {}
+      try {
+        writer.close();
+      } catch (e) {
+        void e; // 吞掉關閉錯誤，避免 no-empty
+      }
     });
   }
 
@@ -212,8 +216,9 @@ export async function GET(request: Request) {
     try {
       await writer.write(encoder.encode(JSON.stringify(obj) + '\n'));
       return true;
-    } catch {
+    } catch (e) {
       stopped = true;
+      void e;
       return false;
     }
   };
@@ -280,7 +285,11 @@ export async function GET(request: Request) {
     if (failedSources.length) await safeWrite({ failedSources });
     await safeWrite({ aggregatedResults });
 
-    try { await writer.close(); } catch {}
+    try {
+      await writer.close();
+    } catch (e) {
+      void e; // 吞掉關閉錯誤，避免 no-empty
+    }
   })();
 
   return new Response(stream.readable, {
