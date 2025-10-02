@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "3.1.0",
+    date: "2025-10-02",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "TVBox的设置改为在管理面板中，原位置显示状态及其链接",
+    "修改桌面端导航栏布局为顶栏",
+    "桌面搜索页改为顶栏搜索框"
+    ],
+    fixed: [
+    "卡片显示详情链接跳转"
+    ]
+  },
+  {
     version: "3.0.0",
     date: "2025-09-30",
     added: [

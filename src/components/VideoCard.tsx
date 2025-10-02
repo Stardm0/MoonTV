@@ -224,7 +224,7 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: true,
         showCheckCircle: true,
-        showDoubanLink: false,
+        showDoubanLink: !!actualDoubanId,
         showRating: false,
       },
       favorite: {
@@ -233,7 +233,7 @@ export default function VideoCard({
         showPlayButton: true,
         showHeart: true,
         showCheckCircle: false,
-        showDoubanLink: false,
+        showDoubanLink: !!actualDoubanId,
         showRating: false,
       },
       search: {
@@ -339,22 +339,7 @@ export default function VideoCard({
         {/* ⭐ 评分显示（左上角小圆圈，可跳转豆瓣或 Bangumi） */}
         {config.showRating && rate && actualDoubanId && (
           <div
-            onClick={(e) => {
-              e.stopPropagation(); // 阻止触发卡片点击
-
-              const searchParams = new URLSearchParams(window.location.search);
-              const type = searchParams.get("type");
-
-              if (type === "anime") {
-                // 动漫 → Bangumi
-                window.open(`https://bangumi.tv/subject/${actualDoubanId}`, "_blank");
-              } else {
-                // 默认 → 豆瓣
-                window.open(`https://movie.douban.com/subject/${actualDoubanId}`, "_blank");
-              }
-            }}
             className="absolute top-2 left-2 bg-pink-500 text-white text-[10px] sm:text-xs font-bold px-2 py-0.5 rounded-full shadow-md cursor-pointer hover:bg-pink-600 transition"
-            title="去详情页查看"
           >
             {rate}
           </div>
@@ -368,6 +353,39 @@ export default function VideoCard({
         >
           {actualYear}
         </div>
+        )}
+
+        {/* 🔗 豆瓣/Bangumi跳转链接（左下角） */}
+        {config.showDoubanLink && actualDoubanId && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation(); // 阻止触发卡片点击
+              
+              if (isBangumi) {
+                // 动漫 → Bangumi
+                window.open(`https://bangumi.tv/subject/${actualDoubanId}`, "_blank");
+              } else {
+                // 默认 → 豆瓣
+                window.open(`https://movie.douban.com/subject/${actualDoubanId}`, "_blank");
+              }
+            }}
+            className="absolute bottom-2 left-2 bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out opacity-0 group-hover:opacity-100 cursor-pointer"
+            title={isBangumi ? "跳转到 Bangumi" : "跳转到豆瓣"}
+          >
+            <svg
+              width='16'
+              height='16'
+              viewBox='0 0 24 24'
+              fill='none'
+              stroke='currentColor'
+              strokeWidth='2'
+              strokeLinecap='round'
+              strokeLinejoin='round'
+            >
+              <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
+              <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
+            </svg>
+          </div>
         )}
 
         {/* 集数 */}

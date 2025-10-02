@@ -11,6 +11,7 @@ interface SourceSelectorProps {
   onChange: (sources: string[]) => void;
   openFilter: string | null;
   setOpenFilter: React.Dispatch<React.SetStateAction<string | null>>;
+  size?: 'default' | 'compact'; // 可选的尺寸属性
 }
 
 export default function SourceSelector({
@@ -18,6 +19,7 @@ export default function SourceSelector({
   onChange,
   openFilter,
   setOpenFilter,
+  size = 'default',
 }: SourceSelectorProps) {
   const [availableSources, setAvailableSources] = useState<{ key: string; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -141,12 +143,14 @@ export default function SourceSelector({
     }
   }, [open]);
 
+  const heightClass = size === 'compact' ? 'h-10' : 'h-12';
+
   if (isLoading) {
     return (
       <div className="relative inline-block">
         <div className="flex items-center bg-gray-200 dark:bg-gray-700 rounded-l-lg overflow-hidden">
           <button
-            className="flex items-center gap-1 px-3 h-12 text-sm font-medium opacity-50"
+            className={`flex items-center gap-1 px-3 ${heightClass} text-sm font-medium opacity-50`}
             disabled
           >
             <Settings className="w-4 h-4" />
@@ -168,7 +172,7 @@ export default function SourceSelector({
         <button
           ref={buttonRef}
           onClick={toggleOpen}
-          className="flex items-center gap-1 px-3 h-12 text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+          className={`flex items-center gap-1 px-3 ${heightClass} text-sm font-medium hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors`}
         >
           <Settings className="w-4 h-4" />
           {selectedSources.length > 0 && (

@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType,
       DoubanImageProxy,
       DisableYellowFilter,
+      TVBoxEnabled,
+      TVBoxPassword,
     } = body as {
       SiteName: string;
       Announcement: string;
@@ -48,6 +50,8 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType: string;
       DoubanImageProxy: string;
       DisableYellowFilter: boolean;
+      TVBoxEnabled?: boolean;
+      TVBoxPassword?: string;
     };
 
     // 参数校验
@@ -60,7 +64,9 @@ export async function POST(request: NextRequest) {
       typeof DoubanProxy !== 'string' ||
       typeof DoubanImageProxyType !== 'string' ||
       typeof DoubanImageProxy !== 'string' ||
-      typeof DisableYellowFilter !== 'boolean'
+      typeof DisableYellowFilter !== 'boolean' ||
+      (TVBoxEnabled !== undefined && typeof TVBoxEnabled !== 'boolean') ||
+      (TVBoxPassword !== undefined && typeof TVBoxPassword !== 'string')
     ) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -90,6 +96,8 @@ export async function POST(request: NextRequest) {
       DoubanImageProxyType,
       DoubanImageProxy,
       DisableYellowFilter,
+      TVBoxEnabled,
+      TVBoxPassword,
     };
 
     // 写入数据库
