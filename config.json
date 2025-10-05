@@ -6,6 +6,11 @@
       "name": "电影天堂",
       "detail": "http://caiji.dyttzyapi.com"
     },
+    "heimuer": {
+      "api": "https://json.heimuer.xyz/api.php/provide/vod",
+      "name": "黑木耳",
+      "detail": "https://heimuer.tv"
+    },
     "ruyi": {
       "api": "http://cj.rycjapi.com/api.php/provide/vod",
       "name": "如意资源"
@@ -74,11 +79,11 @@
     },
     "lzi": {
       "api": "https://cj.lziapi.com/api.php/provide/vod",
-      "name": "量子资源"
+      "name": "量子资源站"
     },
-    "bdzy": {
-      "api": "https://api.apibdzy.com/api.php/provide/vod",
-      "name": "百度资源"
+    "xiaomaomi": {
+      "api": "https://zy.xmm.hk/api.php/provide/vod",
+      "name": "小猫咪资源"
     }
   }
 }
