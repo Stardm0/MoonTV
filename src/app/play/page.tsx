@@ -19,7 +19,7 @@ import {
   subscribeToDataUpdates,
 } from '@/lib/db.client';
 import { SearchResult } from '@/lib/types';
-import { getRequestTimeout,getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
+import { getRequestTimeout,getVideoResolutionFromM3u8 } from '@/lib/utils';
 
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -167,10 +167,6 @@ function PlayPageClient() {
   const [precomputedVideoInfo, setPrecomputedVideoInfo] = useState<
     Map<string, { quality: string; loadSpeed: string; pingTime: number }>
   >(new Map());
-
-  // 折叠状态（仅在 lg 及以上屏幕有效）
-  const [isEpisodeSelectorCollapsed, setIsEpisodeSelectorCollapsed] =
-    useState(false);
 
   // 换源加载状态
   const [isVideoLoading, setIsVideoLoading] = useState(true);
@@ -623,7 +619,7 @@ function PlayPageClient() {
         // 发起流式搜索请求
         const timeoutSeconds = getRequestTimeout();
         const response = await fetch(
-          `/api/search?q=${encodeURIComponent(query.trim())}&timeout=${timeoutSeconds}`
+          `/api/search?q=${encodeURIComponent(query.trim())}&timeout=${timeoutSeconds}&stream=1`
         );
         if (!response.ok) throw new Error('搜索失败');
   
@@ -1865,83 +1861,21 @@ function PlayPageClient() {
 
   return (
     <PageLayout activePath='/play'>
-      <div className='flex flex-col gap-3 py-4 px-5 lg:px-[3rem] 2xl:px-20'>
-        {/* 第一行：影片标题 */}
-        <div className='py-1'>
-          <h1 className='text-xl font-semibold text-gray-900 dark:text-gray-100'>
-            {videoTitle || '影片标题'}
-            {totalEpisodes > 1 && (
-              <span className='text-gray-500 dark:text-gray-400'>
-                {` > 第 ${currentEpisodeIndex + 1} 集`}
-              </span>
-            )}
-          </h1>
-        </div>
-        {/* 第二行：播放器和选集 */}
+      <div className='flex flex-col gap-3 py-4 px-0 lg:px-[5rem] 2xl:px-32'>
+        {/* 播放器和选集 */}
         <div className='space-y-2'>
-          {/* 折叠控制 - 仅在 lg 及以上屏幕显示 */}
-          <div className='hidden lg:flex justify-end'>
-            <button
-              onClick={() =>
-                setIsEpisodeSelectorCollapsed(!isEpisodeSelectorCollapsed)
-              }
-              className='group relative flex items-center space-x-1.5 px-3 py-1.5 rounded-full bg-white/80 hover:bg-white dark:bg-gray-800/80 dark:hover:bg-gray-800 backdrop-blur-sm border border-gray-200/50 dark:border-gray-700/50 shadow-sm hover:shadow-md transition-all duration-200'
-              title={
-                isEpisodeSelectorCollapsed ? '显示选集面板' : '隐藏选集面板'
-              }
-            >
-              <svg
-                className={`w-3.5 h-3.5 text-gray-500 dark:text-gray-400 transition-transform duration-200 ${
-                  isEpisodeSelectorCollapsed ? 'rotate-180' : 'rotate-0'
-                }`}
-                fill='none'
-                stroke='currentColor'
-                viewBox='0 0 24 24'
-              >
-                <path
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  strokeWidth='2'
-                  d='M9 5l7 7-7 7'
-                />
-              </svg>
-              <span className='text-xs font-medium text-gray-600 dark:text-gray-300'>
-                {isEpisodeSelectorCollapsed ? '显示' : '隐藏'}
-              </span>
-
-              {/* 精致的状态指示点 */}
-              <div
-                className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full transition-all duration-200 ${
-                  isEpisodeSelectorCollapsed
-                    ? 'bg-orange-400 animate-pulse'
-                    : 'bg-green-400'
-                }`}
-              ></div>
-            </button>
-          </div>
-
-          <div
-            className={`grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] transition-all duration-300 ease-in-out ${
-              isEpisodeSelectorCollapsed
-                ? 'grid-cols-1'
-                : 'grid-cols-1 md:grid-cols-4'
-            }`}
-          >
+          <div className='grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4'>
             {/* 播放器 */}
-            <div
-              className={`h-full transition-all duration-300 ease-in-out rounded-xl border border-white/0 dark:border-white/30 ${
-                isEpisodeSelectorCollapsed ? 'col-span-1' : 'md:col-span-3'
-              }`}
-            >
+            <div className='h-full md:rounded-xl border-0 md:border md:border-white/0 md:dark:border-white/30 md:col-span-3'>
               <div className='relative w-full h-[300px] lg:h-full'>
                 <div
                   ref={artRef}
-                  className='bg-black w-full h-full rounded-xl overflow-hidden shadow-lg'
+                  className='bg-black w-full h-full md:rounded-xl overflow-hidden shadow-lg'
                 ></div>
 
                 {/* 换源加载蒙层 */}
                 {isVideoLoading && (
-                  <div className='absolute inset-0 bg-black/85 backdrop-blur-sm rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
+                  <div className='absolute inset-0 bg-black/85 backdrop-blur-sm md:rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
                     <div className='text-center max-w-md mx-auto px-6'>
                       {/* 动画影院图标 */}
                       <div className='relative mb-8'>
@@ -1981,14 +1915,8 @@ function PlayPageClient() {
               </div>
             </div>
 
-            {/* 选集和换源 - 在移动端始终显示，在 lg 及以上可折叠 */}
-            <div
-              className={`h-[300px] lg:h-full md:overflow-hidden transition-all duration-300 ease-in-out ${
-                isEpisodeSelectorCollapsed
-                  ? 'md:col-span-1 lg:hidden lg:opacity-0 lg:scale-95'
-                  : 'md:col-span-1 lg:opacity-100 lg:scale-100'
-              }`}
-            >
+            {/* 选集和换源 */}
+            <div className='h-[300px] lg:h-full md:overflow-hidden md:col-span-1'>
               <EpisodeSelector
                 totalEpisodes={totalEpisodes}
                 episodes_titles={detail?.episodes_titles || []}
@@ -2012,13 +1940,18 @@ function PlayPageClient() {
         </div>
 
         {/* 详情展示 */}
-        <div className='grid grid-cols-1 md:grid-cols-4 gap-4'>
+        <div className='grid grid-cols-1 gap-4'>
           {/* 文字区 */}
-          <div className='md:col-span-3'>
+          <div className='w-full'>
             <div className='p-6 flex flex-col min-h-0'>
               {/* 标题 */}
               <h1 className='text-3xl font-bold mb-2 tracking-wide flex items-center flex-shrink-0 text-center md:text-left w-full'>
                 {videoTitle || '影片标题'}
+                {totalEpisodes > 1 && (
+                  <span className='text-gray-500 dark:text-gray-400 text-2xl ml-3'>
+                    第 {currentEpisodeIndex + 1} 集
+                  </span>
+                )}
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2028,6 +1961,31 @@ function PlayPageClient() {
                 >
                   <FavoriteIcon filled={favorited} />
                 </button>
+                {/* 豆瓣链接按钮 */}
+                {videoDoubanId !== 0 && (
+                  <a
+                    href={`https://movie.douban.com/subject/${videoDoubanId.toString()}`}
+                    target='_blank'
+                    rel='noopener noreferrer'
+                    className='ml-3 flex-shrink-0'
+                  >
+                    <div className='bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out'>
+                      <svg
+                        width='16'
+                        height='16'
+                        viewBox='0 0 24 24'
+                        fill='none'
+                        stroke='currentColor'
+                        strokeWidth='2'
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                      >
+                        <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
+                        <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
+                      </svg>
+                    </div>
+                  </a>
+                )}
               </h1>
 
               {/* 关键信息行 */}
@@ -2056,53 +2014,6 @@ function PlayPageClient() {
                   {detail.desc}
                 </div>
               )}
-            </div>
-          </div>
-
-          {/* 封面展示 */}
-          <div className='hidden md:block md:col-span-1 md:order-first'>
-            <div className='pl-0 py-4 pr-6'>
-              <div className='relative bg-gray-300 dark:bg-gray-700 aspect-[2/3] flex items-center justify-center rounded-xl overflow-hidden'>
-                {videoCover ? (
-                  <>
-                    <img
-                      src={processImageUrl(videoCover)}
-                      alt={videoTitle}
-                      className='w-full h-full object-cover'
-                    />
-
-                    {/* 豆瓣链接按钮 */}
-                    {videoDoubanId !== 0 && (
-                      <a
-                        href={`https://movie.douban.com/subject/${videoDoubanId.toString()}`}
-                        target='_blank'
-                        rel='noopener noreferrer'
-                        className='absolute top-3 left-3'
-                      >
-                        <div className='bg-green-500 text-white text-xs font-bold w-8 h-8 rounded-full flex items-center justify-center shadow-md hover:bg-green-600 hover:scale-[1.1] transition-all duration-300 ease-out'>
-                          <svg
-                            width='16'
-                            height='16'
-                            viewBox='0 0 24 24'
-                            fill='none'
-                            stroke='currentColor'
-                            strokeWidth='2'
-                            strokeLinecap='round'
-                            strokeLinejoin='round'
-                          >
-                            <path d='M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71'></path>
-                            <path d='M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71'></path>
-                          </svg>
-                        </div>
-                      </a>
-                    )}
-                  </>
-                ) : (
-                  <span className='text-gray-600 dark:text-gray-400'>
-                    封面图片
-                  </span>
-                )}
-              </div>
             </div>
           </div>
         </div>

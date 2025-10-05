@@ -9,6 +9,8 @@ import { useEffect, useState } from 'react';
 
 import { getCustomCategories } from '@/lib/config.client';
 
+import { useNavigationLoading } from './NavigationLoadingProvider';
+
 interface MobileBottomNavProps {
   /**
    * 主动指定当前激活的路径。当未提供时，自动使用 usePathname() 获取的路径。
@@ -18,6 +20,7 @@ interface MobileBottomNavProps {
 
 const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   const pathname = usePathname();
+  const { startLoading } = useNavigationLoading();
 
   // 当前激活路径：优先使用传入的 activePath，否则回退到浏览器地址
   const currentActive = activePath ?? pathname;
@@ -125,6 +128,12 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
               <Link
                 href={item.href}
                 className='flex flex-col items-center justify-center w-full h-14 gap-1 text-xs'
+                onClick={(e) => {
+                  // 如果不是当前激活的链接，则触发加载动画
+                  if (!active) {
+                    startLoading();
+                  }
+                }}
               >
                 <item.icon
                   className={`h-6 w-6 ${active

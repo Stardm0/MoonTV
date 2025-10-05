@@ -9,6 +9,8 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 import { getConfig } from '@/lib/config';
 
 import { GlobalErrorIndicator } from '../components/GlobalErrorIndicator';
+import { NavigationLoadingIndicator } from '../components/NavigationLoadingIndicator';
+import { NavigationLoadingProvider } from '../components/NavigationLoadingProvider';
 import { SiteProvider } from '../components/SiteProvider';
 import { ThemeProvider } from '../components/ThemeProvider';
 
@@ -102,10 +104,13 @@ export default async function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          <SiteProvider siteName={siteName} announcement={announcement}>
-            {children}
-            <GlobalErrorIndicator />
-          </SiteProvider>
+          <NavigationLoadingProvider>
+            <SiteProvider siteName={siteName} announcement={announcement}>
+              <NavigationLoadingIndicator />
+              {children}
+              <GlobalErrorIndicator />
+            </SiteProvider>
+          </NavigationLoadingProvider>
         </ThemeProvider>
       </body>
     </html>

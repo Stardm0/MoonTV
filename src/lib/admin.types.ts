@@ -10,6 +10,9 @@ export interface AdminConfig {
     DoubanImageProxyType: string;
     DoubanImageProxy: string;
     DisableYellowFilter: boolean;
+    // TVBox 接口开关与访问密码
+    TVBoxEnabled?: boolean;
+    TVBoxPassword?: string;
   };
   UserConfig: {
     AllowRegister: boolean;

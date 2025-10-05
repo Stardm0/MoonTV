@@ -3,8 +3,7 @@
 
 import { ChevronUp, Search, X } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useMemo } from 'react';
-import { useEffect,useRef, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   addSearchHistory,
@@ -238,7 +237,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       setShowResults(true);
 
       const params = new URLSearchParams({ q: query.trim() });
-      if (!streamEnabled) params.set('stream', '0');
+      params.set('stream', streamEnabled ? '1' : '0');
       
       // 添加选中的搜索源到请求参数
       if (searchSources.length > 0) {
@@ -255,7 +254,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
       if (!streamEnabled) {
         const json = await response.json();
-        setSearchResults(json.aggregatedResults || []);
+        setSearchResults(json.results || []);
         setFailedSources(json.failedSources || []);
         setIsLoading(false);
       } else {
@@ -313,21 +312,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     }
   };
 
-  // 搜索历史、滚动监听和自动搜索处理
+  // 初始化：搜索历史、滚动监听
   useEffect(() => {
-    // 检查URL中是否有搜索查询参数
-    const urlQuery = searchParams.get('q');
-    if (urlQuery) {
-      // 触发搜索
-      setSearchQuery(urlQuery);
-      setIsLoading(true);
-      setShowResults(true);
-      fetchSearchResults(urlQuery);
-      addSearchHistory(urlQuery);
-    } else {
-      document.getElementById('searchInput')?.focus();
-    }
-    
     getSearchHistory().then(setSearchHistory);
     const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
     const handleScroll = () => {
@@ -339,6 +325,32 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
       document.body.removeEventListener('scroll', handleScroll);
     };
   }, []);
+
+  // 提取当前的查询参数 q 和 sources
+  const currentQuery = useMemo(() => searchParams.get('q'), [searchParams]);
+  const currentSources = useMemo(() => searchParams.get('sources'), [searchParams]);
+
+  // 同步搜索源配置（当 sources 参数变化时）
+  useEffect(() => {
+    if (currentSources) {
+      setSearchSources(currentSources.split(','));
+    }
+  }, [currentSources]);
+
+  // 监听查询参数 q 的变化并触发搜索（只在 q 变化时触发）
+  useEffect(() => {
+    if (currentQuery) {
+      // 触发搜索
+      setSearchQuery(currentQuery);
+      setIsLoading(true);
+      setShowResults(true);
+      fetchSearchResults(currentQuery);
+      addSearchHistory(currentQuery);
+    } else {
+      // 没有搜索参数时，聚焦输入框
+      document.getElementById('searchInput')?.focus();
+    }
+  }, [currentQuery]); // 只依赖查询参数 q，仅在 q 变化时触发
 
   // 监听URL参数变化，当URL变为无参数时重新挂载组件（只执行一次）
   useEffect(() => {
@@ -426,13 +438,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
     const trimmed = (query ?? searchQuery).trim().replace(/\s+/g, ' ');
     if (!trimmed) return;
   
-    setSearchQuery(trimmed);
-    setIsLoading(true);
-    setShowResults(true);
     setShowSuggestions(false);
-    fetchSearchResults(trimmed);
-    addSearchHistory(trimmed);
-    // 更新URL包含选中的搜索源和超时时间
+    // 更新URL，由useEffect监听触发搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', trimmed);
     if (searchSources.length > 0) {
@@ -445,13 +452,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   };
 
   const handleSuggestionSelect = (suggestion: string) => {
-    setSearchQuery(suggestion);
     setShowSuggestions(false);
-    setIsLoading(true);
-    setShowResults(true);
-    fetchSearchResults(suggestion);
-    addSearchHistory(suggestion);
-    // 更新URL包含选中的搜索源和超时时间
+    // 更新URL，由useEffect监听触发搜索
     const urlParams = new URLSearchParams();
     urlParams.set('q', suggestion);
     if (searchSources.length > 0) {
@@ -484,8 +486,8 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
   return (
     <PageLayout activePath="/search">
       <div className="px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10">
-        {/* 搜索框和搜索源选择器 - 作为一个整体 */}
-        <div className="mb-7 max-w-2xl mx-auto">
+        {/* 移动端搜索框和搜索源选择器 */}
+        <div className="mb-7 max-w-2xl mx-auto md:hidden">
           <div className="flex items-center">
             {/* 搜索源选择器 - 在搜索框左侧，作为一个整体 */}
             <div className="flex-shrink-0">

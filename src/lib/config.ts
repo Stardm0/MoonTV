@@ -304,7 +304,9 @@ async function initConfig() {
               process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE || 'direct',
             DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
             DisableYellowFilter:
-              process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
+          process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
+        TVBoxEnabled: false,
+        TVBoxPassword: '',
           },
           UserConfig: {
             AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
@@ -343,6 +345,8 @@ async function initConfig() {
         DoubanImageProxy: process.env.NEXT_PUBLIC_DOUBAN_IMAGE_PROXY || '',
         DisableYellowFilter:
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
+        TVBoxEnabled: false,
+        TVBoxPassword: '',
       },
       UserConfig: {
         AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
@@ -411,6 +415,23 @@ export async function getConfig(): Promise<AdminConfig> {
       typeof adminConfig.SiteConfig.DisableYellowFilter === 'boolean'
         ? adminConfig.SiteConfig.DisableYellowFilter
         : process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true';
+    // TVBox 开关与密码默认值
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    if (storageType === 'localstorage') {
+      const raw = process.env.TVBOX_ENABLED;
+      adminConfig.SiteConfig.TVBoxEnabled =
+        raw == null ? true : String(raw).toLowerCase() === 'true';
+      adminConfig.SiteConfig.TVBoxPassword = process.env.PASSWORD || '';
+    } else {
+      adminConfig.SiteConfig.TVBoxEnabled =
+        typeof adminConfig.SiteConfig.TVBoxEnabled === 'boolean'
+          ? adminConfig.SiteConfig.TVBoxEnabled
+          : false;
+      adminConfig.SiteConfig.TVBoxPassword =
+        typeof adminConfig.SiteConfig.TVBoxPassword === 'string'
+          ? adminConfig.SiteConfig.TVBoxPassword
+          : '';
+    }
 
     try {
       fileConfig = JSON.parse(adminConfig.ConfigFile) as ConfigFileStruct;

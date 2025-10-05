@@ -2,7 +2,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getCacheTime } from '@/lib/config';
+import { getConfig } from '@/lib/config';
 import { fetchDoubanData } from '@/lib/douban';
 import { DoubanResult } from '@/lib/types';
 
@@ -26,7 +28,22 @@ interface DoubanRecommendApiResponse {
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
+  const url = new URL(request.url);
+  const { searchParams } = url;
+
+  // 认证策略：已登录用户 或 TVBox 开启（无需口令）
+  const auth = getAuthInfoFromCookie(request);
+  if (!auth || !auth.username) {
+    const cfg = await getConfig();
+    const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    const enabled = storageType === 'localstorage'
+      ? (process.env.TVBOX_ENABLED == null ? true : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true')
+      : cfg.SiteConfig.TVBoxEnabled === true;
+    if (!enabled) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
+    // TVBox 已开启，允许匿名访问，无需口令
+  }
 
   // 获取参数
   const kind = searchParams.get('kind');

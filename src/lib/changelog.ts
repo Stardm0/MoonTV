@@ -11,6 +11,56 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "3.2.0",
+    date: "2025-10-04",
+    added: [
+    "添加Docker镜像自动构建工作流",
+    "搜索建议添加开关控制"
+    ],
+    changed: [
+    "优化搜索设置UI布局",
+    "调整搜索建议排序逻辑",
+    "优化搜索参数设置逻辑",
+    "调整并简化播放页面UI",
+    "调整移动端播放页面UI",
+    "微调站点配置UI",
+    "微调TVBox配置UI"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
+    version: "3.1.0",
+    date: "2025-10-02",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "TVBox的设置改为在管理面板中，原位置显示状态及其链接",
+    "修改桌面端导航栏布局为顶栏",
+    "桌面搜索页改为顶栏搜索框"
+    ],
+    fixed: [
+    "卡片显示详情链接跳转"
+    ]
+  },
+  {
+    version: "3.0.0",
+    date: "2025-09-30",
+    added: [
+    "添加TVBox配置接口",
+    "添加对Selene的兼容"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+    "修复首页动漫接口引起的崩溃",
+    "修复docker播放刷新崩溃问题"
+    ]
+  },
+  {
     version: "2.9.1",
     date: "2025-09-19",
     added: [

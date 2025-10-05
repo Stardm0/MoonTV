@@ -34,8 +34,6 @@
 <details>
   <summary>点击查看项目截图</summary>
   <img src="public/screenshot1.png" alt="项目截图" style="max-width:600px">
-  <img src="public/screenshot2.png" alt="项目截图" style="max-width:600px">
-  <img src="public/screenshot3.png" alt="项目截图" style="max-width:600px">
 </details>
 
 ## 🗺 目录
@@ -63,6 +61,8 @@
   - [配置说明](#配置说明)
   - [管理员配置](#管理员配置)
   - [AndroidTV 使用](#androidtv-使用)
+  - [TVBox 对接](#tvbox-对接)
+  - [Selene 使用](#selene-使用)
   - [Roadmap](#roadmap)
   - [安全与隐私提醒](#安全与隐私提醒)
     - [请设置密码保护并关闭公网注册](#请设置密码保护并关闭公网注册)
@@ -173,11 +173,11 @@
 ```bash
 # 拉取预构建镜像
 # 或拉取最新版本
-docker pull stardm/startv:latest
+docker pull ghcr.io/stardm0/moontv:latest
 
 # 运行容器
 # -d: 后台运行  -p: 映射端口 3000 -> 3000
-docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password stardm/startv:latest
+docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password ghcr.io/stardm0/moontv:latest
 ```
 
 #### Docker Compose
@@ -187,7 +187,7 @@ docker run -d --name moontv -p 3000:3000 --env PASSWORD=your_password stardm/sta
 ```yaml
 services:
   startv-core:
-    image: stardm/startv:latest
+    image: ghcr.io/stardm0/moontv:latest
     container_name: startv-core
     restart: on-failure
     ports:
@@ -201,7 +201,7 @@ services:
 ```yaml
 services:
   startv-core:
-    image: stardm/startv:latest
+    image: ghcr.io/stardm0/moontv:latest
     container_name: startv-core
     restart: on-failure
     ports:
@@ -312,6 +312,21 @@ MoonTV 支持标准的苹果 CMS V10 API 格式。
 ## AndroidTV 使用
 
 目前该项目可以配合 [OrionTV](https://github.com/zimplexing/OrionTV) 在 Android TV 上使用，可以直接作为 OrionTV 后端
+
+## TVBox 对接
+
+- 在首页右上角的“设置”中，开启“启用 TVBox 接口”。
+- 可选择“随机”生成访问密码，或自定义后点击“保存”。
+- 系统会生成可直接复制的接口地址，形式为：`https://你的域名/api/tvbox/config?pwd=你的口令`。
+- 将该地址填入 TVBox 的订阅/配置接口即可使用。
+- 如需关闭对接，关闭开关即可。
+
+### 本地存储(localstorage)模式
+
+- 开关由环境变量控制：`TVBOX_ENABLED=true|false`（默认 true，未设置即开启）
+- 接口访问口令使用登录密码：`PASSWORD`
+- 生成的订阅地址示例：`https://你的域名/api/tvbox/config?pwd=$PASSWORD`
+- 设置面板中的开关与保存在本地模式下仅用于展示（被禁用），请通过环境变量控制。
 
 ## Selene 使用
 

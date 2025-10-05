@@ -9,13 +9,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
   const streamParam = searchParams.get('stream');
-  // 如果未显式指定 stream，且请求并非来自浏览器（无 sec-fetch-* 头），默认关闭流式以兼容原生客户端
-  const isBrowserLikeRequest = !!(
-    request.headers.get('sec-fetch-mode') ||
-    request.headers.get('sec-fetch-dest') ||
-    request.headers.get('sec-fetch-site')
-  );
-  const enableStream = streamParam ? streamParam !== '0' : isBrowserLikeRequest; // 浏览器默认流式，原生默认非流式
+  const enableStream = streamParam ? streamParam !== '0' : false; // 无该参数关闭流式
   const timeoutParam = searchParams.get('timeout');
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 转换为毫秒
 
@@ -123,9 +117,7 @@ export async function GET(request: Request) {
     const failedSources = results.filter((r) => r.failed).map((r) => r.failed);
 
     if (aggregatedResults.length === 0) {
-      const body = isBrowserLikeRequest
-        ? { aggregatedResults, failedSources }
-        : { results: [], failedSources };
+      const body = { results: [], failedSources };
       return new Response(JSON.stringify(body), {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
@@ -136,9 +128,7 @@ export async function GET(request: Request) {
       });
     } else {
       const cacheTime = await getCacheTime();
-      const body = isBrowserLikeRequest
-        ? { aggregatedResults, failedSources }
-        : { results: aggregatedResults, failedSources };
+      const body = { results: aggregatedResults, failedSources };
       return new Response(JSON.stringify(body), {
         headers: {
           'Content-Type': 'application/json; charset=utf-8',
