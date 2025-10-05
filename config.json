@@ -6,6 +6,10 @@
       "name": "电影天堂",
       "detail": "http://caiji.dyttzyapi.com"
     },
+    "dbzy": {
+      "api": "https://dbzy.tv/api.php/provide/vod",
+      "name": "豆瓣资源"
+    },
     "bfzy": {
       "api": "https://bfzyapi.com/api.php/provide/vod",
       "name": "暴风资源"
