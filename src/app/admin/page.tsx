@@ -628,6 +628,9 @@ const VideoSourceConfig = ({
     disabled: false,
     from: 'config',
   });
+  
+  // 批量操作相关状态
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
 
   // dnd-kit 传感器
   const sensors = useSensors(
@@ -735,6 +738,114 @@ const VideoSourceConfig = ({
       });
   };
 
+  // 批量操作相关函数
+
+  const toggleSelectAll = () => {
+    if (selectedSources.size === sources.length) {
+      setSelectedSources(new Set());
+    } else {
+      setSelectedSources(new Set(sources.map(s => s.key)));
+    }
+  };
+
+  const toggleSelectSource = (key: string) => {
+    const newSelected = new Set(selectedSources);
+    if (newSelected.has(key)) {
+      newSelected.delete(key);
+    } else {
+      newSelected.add(key);
+    }
+    setSelectedSources(newSelected);
+  };
+
+  const handleBatchDisable = async () => {
+    if (selectedSources.size === 0) return;
+    
+    const { isConfirmed } = await Swal.fire({
+      title: '确认批量禁用',
+      text: `确定要禁用选中的 ${selectedSources.size} 个视频源吗？`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确认禁用',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await callSourceApi({ 
+        action: 'batchDisable', 
+        keys: Array.from(selectedSources) 
+      });
+    } catch (err) {
+      console.error('批量禁用失败', err);
+    }
+  };
+
+  const handleBatchEnable = async () => {
+    if (selectedSources.size === 0) return;
+    
+    const { isConfirmed } = await Swal.fire({
+      title: '确认批量启用',
+      text: `确定要启用选中的 ${selectedSources.size} 个视频源吗？`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确认启用',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#16a34a',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await callSourceApi({ 
+        action: 'batchEnable', 
+        keys: Array.from(selectedSources) 
+      });
+      // 批量启用后保持选中状态，不清空
+    } catch (err) {
+      console.error('批量启用失败', err);
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedSources.size === 0) return;
+    
+    // 检查是否有不可删除的源
+    const deletableSources = sources.filter(s => 
+      selectedSources.has(s.key) && s.from !== 'config'
+    );
+    const nonDeletableCount = selectedSources.size - deletableSources.length;
+    
+    let confirmText = `确定要删除选中的 ${deletableSources.length} 个自定义视频源吗？`;
+    if (nonDeletableCount > 0) {
+      confirmText += `\n注意：有 ${nonDeletableCount} 个系统默认源无法删除，将被跳过。`;
+    }
+    
+    const { isConfirmed } = await Swal.fire({
+      title: '确认批量删除',
+      text: confirmText,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+
+    if (!isConfirmed) return;
+
+    try {
+      await callSourceApi({ 
+        action: 'batchDelete', 
+        keys: deletableSources.map(s => s.key) 
+      });
+      setSelectedSources(new Set());
+    } catch (err) {
+      console.error('批量删除失败', err);
+    }
+  };
+
   // 可拖拽行封装 (dnd-kit)
   const DraggableRow = ({ source }: { source: DataSource }) => {
     const { attributes, listeners, setNodeRef, transform, transition } =
@@ -751,6 +862,7 @@ const VideoSourceConfig = ({
         style={style}
         className='hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors select-none'
       >
+        {/* 拖拽手柄 */}
         <td
           className='px-2 py-4 cursor-grab text-gray-400'
           style={{ touchAction: 'none' }}
@@ -758,6 +870,16 @@ const VideoSourceConfig = ({
           {...listeners}
         >
           <GripVertical size={16} />
+        </td>
+        
+        {/* 复选框列 */}
+        <td className='px-2 py-4'>
+          <input
+            type='checkbox'
+            checked={selectedSources.has(source.key)}
+            onChange={() => toggleSelectSource(source.key)}
+            className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+          />
         </td>
         <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
           {source.name}
@@ -833,6 +955,60 @@ const VideoSourceConfig = ({
         </button>
       </div>
 
+      {/* 批量操作工具栏 */}
+      {sources.length > 0 && (
+        <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700'>
+          <div className='flex items-center justify-between'>
+            <div className='flex items-center gap-4'>
+              <label className='flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
+                <input
+                  type='checkbox'
+                  checked={selectedSources.size === sources.length && sources.length > 0}
+                  onChange={toggleSelectAll}
+                  className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+                />
+                全选 ({selectedSources.size}/{sources.length})
+              </label>
+              {selectedSources.size > 0 ? (
+                <span className='text-xs text-blue-600 dark:text-blue-400 font-medium'>
+                  已选择 {selectedSources.size} 个视频源
+                </span>
+              ) : (
+                <span className='text-xs text-gray-500 dark:text-gray-400'>
+                  请选择要操作的视频源
+                </span>
+              )}
+            </div>
+            <div className='flex items-center gap-2'>
+              <button
+                onClick={handleBatchEnable}
+                disabled={selectedSources.size === 0}
+                className='px-3 py-1 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors flex items-center gap-1'
+              >
+                <Check size={14} />
+                批量启用
+              </button>
+              <button
+                onClick={handleBatchDisable}
+                disabled={selectedSources.size === 0}
+                className='px-3 py-1 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors flex items-center gap-1'
+              >
+                <ChevronDown size={14} />
+                批量禁用
+              </button>
+              <button
+                onClick={handleBatchDelete}
+                disabled={selectedSources.size === 0}
+                className='px-3 py-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white text-sm rounded-lg transition-colors flex items-center gap-1'
+              >
+                <FileText size={14} />
+                批量删除
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAddForm && (
         <div className='p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 space-y-4'>
           <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
@@ -890,6 +1066,7 @@ const VideoSourceConfig = ({
         <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
           <thead className='bg-gray-50 dark:bg-gray-900'>
             <tr>
+              <th className='w-8' />
               <th className='w-8' />
               <th className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'>
                 名称
@@ -1295,7 +1472,14 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
 
   useEffect(() => {
     if (config?.ConfigFile) {
-      setConfigContent(config.ConfigFile);
+      try {
+        // 解析 JSON 并格式化显示
+        const parsedConfig = JSON.parse(config.ConfigFile);
+        setConfigContent(JSON.stringify(parsedConfig, null, 2));
+      } catch (e) {
+        // 如果解析失败，直接显示原始内容
+        setConfigContent(config.ConfigFile);
+      }
     }
   }, [config]);
 
@@ -1305,10 +1489,20 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
   const handleSave = async () => {
     try {
       setSaving(true);
+      
+      // 验证并格式化 JSON
+      let formattedConfig;
+      try {
+        const parsedConfig = JSON.parse(configContent);
+        formattedConfig = JSON.stringify(parsedConfig, null, 2);
+      } catch (e) {
+        throw new Error('配置文件格式错误，请检查 JSON 语法');
+      }
+      
       const resp = await fetch('/api/admin/config_file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ configFile: configContent }),
+        body: JSON.stringify({ configFile: formattedConfig }),
       });
 
       if (!resp.ok) {
@@ -2204,7 +2398,7 @@ function AdminPageClient() {
               onClick={() => {
                 Swal.fire({
                   title: '提示',
-                  text: '视频源配置和分类配置中的修改需要清理浏览缓存才会彻底生效，否者需等待站点配置中的接口缓存时间后才生效',
+                  text: '视频源配置和分类配置中的修改需要清理浏览缓存才会彻底生效，否则需等待站点配置中的接口缓存时间后才生效',
                   icon: 'info',
                   confirmButtonText: '我知道了',
                   confirmButtonColor: '#3b82f6',

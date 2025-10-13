@@ -93,48 +93,41 @@ html:not(.dark) body {
   }
 }
 
-/* View Transitions API 动画 */
-@keyframes slide-from-top {
+/* View Transitions API 动画 - 整体渐变模式 */
+@keyframes fade-in {
   from {
-    clip-path: polygon(0 0, 100% 0, 100% 0, 0 0);
+    opacity: 0;
   }
   to {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    opacity: 1;
   }
 }
 
-@keyframes slide-from-bottom {
+@keyframes fade-out {
   from {
-    clip-path: polygon(0 100%, 100% 100%, 100% 100%, 0 100%);
+    opacity: 1;
   }
   to {
-    clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%);
+    opacity: 0;
   }
 }
 
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: 0.8s;
+  animation-duration: 0.6s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   animation-fill-mode: both;
 }
 
 /*
-  切换时，旧的视图不应该有动画，它应该在下面，等待被新的视图覆盖。
-  这可以防止在动画完成前，页面底部提前变色。
+  整体渐变模式：旧视图淡出，新视图淡入
 */
 ::view-transition-old(root) {
-  animation: none;
+  animation-name: fade-out;
 }
 
-/* 从浅色到深色：新内容（深色）从顶部滑入 */
-html.dark::view-transition-new(root) {
-  animation-name: slide-from-top;
-}
-
-/* 从深色到浅色：新内容（浅色）从底部滑入 */
-html:not(.dark)::view-transition-new(root) {
-  animation-name: slide-from-bottom;
+::view-transition-new(root) {
+  animation-name: fade-in;
 }
 
 /* 强制播放器内部的 video 元素高度为 100%，并保持内容完整显示 */

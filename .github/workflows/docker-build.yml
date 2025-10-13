@@ -2,6 +2,17 @@ name: Docker Build and Push
 
 on:
   workflow_dispatch:
+    inputs:
+      version_tag:
+        description: '版本标签 (例如: v1.0.0)'
+        required: false
+        type: string
+        default: ''
+      include_latest:
+        description: 'latest标签'
+        required: false
+        type: boolean
+        default: true
 
 env:
   REGISTRY: ghcr.io
@@ -35,7 +46,10 @@ jobs:
           images: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest
+            ${{ inputs.include_latest == true && 'type=raw,value=latest' || '' }}
+            ${{ inputs.version_tag != '' && format('type=raw,value={0}', inputs.version_tag) || '' }}
+          flavor: |
+            latest=false
 
       - name: 构建并推送 Docker 镜像
         uses: docker/build-push-action@v5
@@ -56,4 +70,12 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+          if [ -n "${{ inputs.version_tag }}" ]; then
+            echo "**版本标签：** ${{ inputs.version_tag }}" >> $GITHUB_STEP_SUMMARY
+          fi
+          if [ "${{ inputs.include_latest }}" == "true" ]; then
+            echo "**包含latest标签：** 是" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "**包含latest标签：** 否" >> $GITHUB_STEP_SUMMARY
+          fi
 
