@@ -10,7 +10,7 @@ import { IStorage } from '@/lib/types';
 export const runtime = 'edge';
 
 // 支持的操作类型
-type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort';
+type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort' | 'batchDisable' | 'batchEnable' | 'batchDelete';
 
 interface BaseBody {
   action?: Action;
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     const username = authInfo.username;
 
     // 基础校验
-    const ACTIONS: Action[] = ['add', 'disable', 'enable', 'delete', 'sort'];
+    const ACTIONS: Action[] = ['add', 'disable', 'enable', 'delete', 'sort', 'batchDisable', 'batchEnable', 'batchDelete'];
     if (!username || !action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -137,6 +137,49 @@ export async function POST(request: NextRequest) {
           if (map.has(item.key)) newList.push(item);
         });
         adminConfig.SourceConfig = newList;
+        break;
+      }
+      case 'batchDisable': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+        }
+        keys.forEach((key) => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.disabled = true;
+          }
+        });
+        break;
+      }
+      case 'batchEnable': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+        }
+        keys.forEach((key) => {
+          const entry = adminConfig.SourceConfig.find((s) => s.key === key);
+          if (entry) {
+            entry.disabled = false;
+          }
+        });
+        break;
+      }
+      case 'batchDelete': {
+        const { keys } = body as { keys?: string[] };
+        if (!Array.isArray(keys) || keys.length === 0) {
+          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+        }
+        // 只删除自定义源，系统默认源不可删除
+        keys.forEach((key) => {
+          const idx = adminConfig.SourceConfig.findIndex((s) => s.key === key);
+          if (idx !== -1) {
+            const entry = adminConfig.SourceConfig[idx];
+            if (entry.from !== 'config') {
+              adminConfig.SourceConfig.splice(idx, 1);
+            }
+          }
+        });
         break;
       }
       default:

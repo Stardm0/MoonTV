@@ -100,6 +100,15 @@ export async function POST(request: NextRequest) {
       TVBoxPassword,
     };
 
+    // 同步更新 ConfigFile 中的 cache_time
+    try {
+      const configFileData = JSON.parse(adminConfig.ConfigFile);
+      configFileData.cache_time = SiteInterfaceCacheTime;
+      adminConfig.ConfigFile = JSON.stringify(configFileData);
+    } catch (e) {
+      console.error('更新 ConfigFile 中的 cache_time 失败:', e);
+    }
+
     // 写入数据库
     if (storage && typeof (storage as any).setAdminConfig === 'function') {
       await (storage as any).setAdminConfig(adminConfig);
