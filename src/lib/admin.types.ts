@@ -20,6 +20,11 @@ export interface AdminConfig {
       username: string;
       role: 'user' | 'admin' | 'owner';
       banned?: boolean;
+      group?: string;
+    }[];
+    Groups?: {
+      name: string;
+      sourceKeys: string[];
     }[];
   };
   SourceConfig: {

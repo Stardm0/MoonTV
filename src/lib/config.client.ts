@@ -30,7 +30,8 @@ export async function getAvailableApiSitesClient(): Promise<ApiSite[]> {
       throw new Error('Failed to fetch sources');
     }
     const data = await res.json();
-    return data.filter((site: any) => !site.disabled).map((site: any) => ({
+    // 服务器已做按用户与禁用过滤
+    return data.map((site: any) => ({
       key: site.key,
       name: site.name,
       api: site.api,

@@ -138,6 +138,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const [userSettings, setUserSettings] = useState({
     enableRegistration: false,
   });
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
+  const [batchGroupName, setBatchGroupName] = useState<string>('');
+  const [_selectedGroupInDialog, setSelectedGroupInDialog] = useState<string>('');
+  // 弹窗编辑，删除内联编辑状态
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
   const [newUser, setNewUser] = useState({
@@ -248,6 +252,386 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
     await handleUserAction('deleteUser', username);
   };
 
+  // 选中/全选
+  const toggleSelectUser = (username: string) => {
+    const next = new Set(selectedUsers);
+    if (next.has(username)) next.delete(username);
+    else next.add(username);
+    setSelectedUsers(next);
+  };
+  const toggleSelectAllUsers = () => {
+    const all = config?.UserConfig.Users ?? [];
+    if (selectedUsers.size === all.length) setSelectedUsers(new Set());
+    else setSelectedUsers(new Set(all.map(u => u.username)));
+  };
+
+  // 批量分组与移出组
+  const _openGroupPicker = async () => { /* replaced by inline chips */ };
+
+  const createGroupPrompt = async () => {
+    const allSources = config?.SourceConfig || [];
+    const sourceListHtml = `
+      <div style="text-align:left;max-height:260px;overflow:auto;border:1px solid var(--swal2-border,#e5e7eb);border-radius:8px;padding:8px;margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
+        ${allSources
+          .map(
+            (s) => `
+            <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer">
+              <input type="checkbox" name="groupSources" value="${s.key}" />
+              <span style="font-size:13px"><strong>${s.name || s.key}</strong> <span style="opacity:.7">(${s.key})</span></span>
+            </label>`
+          )
+          .join('')}
+      </div>`;
+
+    const { value, isConfirmed } = await Swal.fire({
+      title: '新建分组',
+      html:
+        '<input id="swal-input-group-name" class="swal2-input" placeholder="分组名称" />' +
+        '<div style="text-align:left;margin-top:6px;font-size:12px;opacity:.8;display:flex;align-items:center;gap:10px">' +
+        '<span>选择该分组可使用的视频源</span>' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">' +
+        '<input id="swal-group-select-all" type="checkbox" /> 全选' +
+        '</label>' +
+        '</div>' +
+        sourceListHtml,
+      didOpen: (el) => {
+        const toggleAll = el.querySelector('#swal-group-select-all') as HTMLInputElement | null;
+        const itemNodes = Array.from(el.querySelectorAll('input[name="groupSources"]')) as HTMLInputElement[];
+        if (toggleAll) {
+          toggleAll.addEventListener('change', () => {
+            itemNodes.forEach((n) => {
+              n.checked = toggleAll.checked;
+            });
+          });
+        }
+      },
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: '创建',
+      cancelButtonText: '取消',
+      preConfirm: () => {
+        const nameEl = document.getElementById('swal-input-group-name') as HTMLInputElement | null;
+        const name = nameEl?.value?.trim();
+        if (!name) {
+          Swal.showValidationMessage('分组名称不能为空');
+          return null as unknown as { name: string; sourceKeys: string[] };
+        }
+        const checked = Array.from(
+          document.querySelectorAll('input[name="groupSources"]:checked')
+        ) as HTMLInputElement[];
+        const sourceKeys = checked.map((c) => c.value);
+        return { name, sourceKeys };
+      },
+    });
+    if (!isConfirmed || !value) return;
+    const { name, sourceKeys } = value as { name: string; sourceKeys: string[] };
+    try {
+      const resp = await fetch('/api/admin/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create', name, sourceKeys }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || '创建分组失败');
+      }
+      await refreshConfig();
+      setBatchGroupName(name);
+      showSuccess('分组已创建');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '创建分组失败');
+    }
+  };
+
+  const performBatchAssignGroup = async (groupName: string) => {
+    if (selectedUsers.size === 0) {
+      showError('请先选择要分配的用户');
+      return;
+    }
+    
+    try {
+      const resp = await fetch('/api/admin/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'assignUsers', name: groupName, users: Array.from(selectedUsers) }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || '批量分组失败');
+      }
+      setSelectedUsers(new Set());
+      setBatchGroupName('');
+      await refreshConfig();
+      showSuccess('批量分组成功');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '批量分组失败');
+    }
+  };
+  const handleBatchRemoveGroup = async () => {
+    if (selectedUsers.size === 0) return;
+    try {
+      const resp = await fetch('/api/admin/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'removeUsers', users: Array.from(selectedUsers) }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || '批量移出失败');
+      }
+      setSelectedUsers(new Set());
+      await refreshConfig();
+      showSuccess('已将所选用户移出分组');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '批量移出失败');
+    }
+  };
+
+  // 组管理：删除/进入编辑/保存编辑
+  const callGroupApi = async (body: Record<string, any>) => {
+    try {
+      const resp = await fetch('/api/admin/group', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `操作失败: ${resp.status}`);
+      }
+      await refreshConfig();
+      showSuccess('已保存');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '操作失败');
+      throw err;
+    }
+  };
+
+  const handleDeleteGroup = async (name: string) => {
+    const { isConfirmed } = await Swal.fire({
+      title: '确认删除分组',
+      text: `删除分组 ${name} 后，该分组下的用户不会再受限于此分组的视频源。`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: '确认删除',
+      cancelButtonText: '取消',
+      confirmButtonColor: '#dc2626',
+    });
+    if (!isConfirmed) return;
+    await callGroupApi({ action: 'delete', name });
+    if (batchGroupName === name) setBatchGroupName('');
+  };
+
+  const openGroupManagementDialog = async () => {
+    const groups = config?.UserConfig?.Groups || [];
+    setSelectedGroupInDialog(''); // 重置选中状态
+    
+    await Swal.fire({
+      title: '分组管理',
+      html: `
+        <div class="text-left">
+          <div class="mb-4">
+            <h4 class="text-sm font-medium text-gray-700 mb-2">已创建的分组</h4>
+            <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
+              ${groups.map(g => `
+                <div 
+                  onclick="window.selectGroupInDialog('${g.name}')"
+                  class="p-3 rounded-lg border cursor-pointer transition-colors hover:shadow-sm"
+                  style="background-color: var(--selected-group-bg, #f9fafb); border-color: var(--selected-group-border, #e5e7eb);"
+                  id="group-card-${g.name}"
+                >
+                  <div class="flex items-center justify-between gap-2 mb-2">
+                    <span class="text-sm font-medium text-gray-800">${g.name}</span>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
+                        ${g.sourceKeys?.length || 0} 源
+                      </span>
+                    </div>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    ${(g.sourceKeys || []).map(k => `
+                      <span class="px-2 py-1 text-xs rounded border bg-gray-50 border-gray-300 text-gray-700">
+                        ${k}
+                      </span>
+                    `).join('')}
+                    ${(!g.sourceKeys || g.sourceKeys.length === 0) ? '<span class="text-xs text-gray-500">未配置源</span>' : ''}
+                  </div>
+                </div>
+              `).join('')}
+              ${groups.length === 0 ? '<div class="col-span-full text-center text-gray-500 py-4">暂无分组</div>' : ''}
+            </div>
+          </div>
+          <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="text-sm text-blue-800">
+              已选中 ${selectedUsers.size} 个用户，选择分组和用户后可进行分配操作
+            </div>
+          </div>
+        </div>
+      `,
+      width: '800px',
+      showConfirmButton: false,
+      showCancelButton: false,
+      showCloseButton: true,
+      footer: `
+        <div class="flex items-center justify-between w-full">
+          <div class="text-sm text-gray-600">
+            <span id="selected-group-text">请选择分组</span>
+          </div>
+          <div class="flex gap-2">
+            <button 
+              id="edit-group-btn" 
+              class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled
+            >
+              编辑
+            </button>
+            <button 
+              id="assign-group-btn" 
+              class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled
+            >
+              分配
+            </button>
+            <button 
+              id="delete-group-btn" 
+              class="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+              disabled
+            >
+              删除
+            </button>
+          </div>
+        </div>
+      `,
+      didOpen: () => {
+        // 添加全局函数供按钮调用
+        (window as any).selectGroupInDialog = (groupName: string) => {
+          setSelectedGroupInDialog(groupName);
+          (window as any).currentSelectedGroup = groupName; // 设置全局变量
+          
+          // 更新UI
+          groups.forEach(g => {
+            const card = document.getElementById(`group-card-${g.name}`);
+            if (card) {
+              if (g.name === groupName) {
+                card.style.setProperty('--selected-group-bg', '#dcfce7');
+                card.style.setProperty('--selected-group-border', '#16a34a');
+              } else {
+                card.style.setProperty('--selected-group-bg', '#f9fafb');
+                card.style.setProperty('--selected-group-border', '#e5e7eb');
+              }
+            }
+          });
+          
+          // 更新文本和按钮状态
+          const selectedText = document.getElementById('selected-group-text');
+          const editBtn = document.getElementById('edit-group-btn') as HTMLButtonElement;
+          const assignBtn = document.getElementById('assign-group-btn') as HTMLButtonElement;
+          const deleteBtn = document.getElementById('delete-group-btn') as HTMLButtonElement;
+          
+          if (selectedText) selectedText.textContent = `已选择: ${groupName}`;
+          if (editBtn) editBtn.disabled = false;
+          if (assignBtn) assignBtn.disabled = selectedUsers.size === 0;
+          if (deleteBtn) deleteBtn.disabled = false;
+        };
+        
+        (window as any).editSelectedGroup = async () => {
+          const groupName = (window as any).currentSelectedGroup;
+          if (!groupName) return;
+          const group = groups.find(g => g.name === groupName);
+          if (group) {
+            await openEditGroupDialog(groupName, group.sourceKeys || []);
+            // 编辑完成后重新打开分组管理弹窗
+            openGroupManagementDialog();
+          }
+        };
+        
+        (window as any).assignToSelectedGroup = async () => {
+          const groupName = (window as any).currentSelectedGroup;
+          if (!groupName) return;
+          await performBatchAssignGroup(groupName);
+        };
+        
+        (window as any).deleteSelectedGroup = async () => {
+          const groupName = (window as any).currentSelectedGroup;
+          if (!groupName) return;
+          await handleDeleteGroup(groupName);
+        };
+        
+        // 绑定按钮事件
+        setTimeout(() => {
+          const editBtn = document.getElementById('edit-group-btn');
+          const assignBtn = document.getElementById('assign-group-btn');
+          const deleteBtn = document.getElementById('delete-group-btn');
+          
+          if (editBtn) editBtn.onclick = () => (window as any).editSelectedGroup();
+          if (assignBtn) assignBtn.onclick = () => (window as any).assignToSelectedGroup();
+          if (deleteBtn) deleteBtn.onclick = () => (window as any).deleteSelectedGroup();
+        }, 100);
+      }
+    });
+  };
+
+  const openEditGroupDialog = async (groupName: string, currentKeys: string[]) => {
+    const allSources = config?.SourceConfig || [];
+    const sourceListHtml = `
+      <div style="text-align:left;max-height:260px;overflow:auto;border:1px solid var(--swal2-border,#e5e7eb);border-radius:8px;padding:8px;margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
+        ${allSources
+          .map(
+            (s) => `
+            <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer">\n              <input type="checkbox" name="editGroupSources" value="${s.key}" ${currentKeys?.includes(s.key) ? 'checked' : ''}/>\n              <span style="font-size:13px"><strong>${s.name || s.key}</strong> <span style="opacity:.7">(${s.key})</span></span>\n            </label>`
+          )
+          .join('')}
+      </div>`;
+
+    const { value, isConfirmed } = await Swal.fire({
+      title: '编辑分组',
+      html:
+        `<input id="swal-edit-group-name" class="swal2-input" placeholder="分组名称" value="${groupName}" />` +
+        '<div style="text-align:left;margin-top:6px;font-size:12px;opacity:.8;display:flex;align-items:center;gap:10px">' +
+        '<span>设置该分组可使用的视频源</span>' +
+        '<label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;font-size:12px">' +
+        '<input id="swal-edit-group-select-all" type="checkbox" /> 全选' +
+        '</label>' +
+        '</div>' +
+        sourceListHtml,
+      focusConfirm: false,
+      showCancelButton: true,
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      didOpen: (el) => {
+        const toggleAll = el.querySelector('#swal-edit-group-select-all') as HTMLInputElement | null;
+        const itemNodes = Array.from(el.querySelectorAll('input[name="editGroupSources"]')) as HTMLInputElement[];
+        if (toggleAll) {
+          toggleAll.addEventListener('change', () => {
+            itemNodes.forEach((n) => {
+              n.checked = toggleAll.checked;
+            });
+          });
+        }
+      },
+      preConfirm: () => {
+        const nameEl = document.getElementById('swal-edit-group-name') as HTMLInputElement | null;
+        const name = nameEl?.value?.trim();
+        if (!name) {
+          Swal.showValidationMessage('分组名称不能为空');
+          return null as unknown as { name: string; sourceKeys: string[] };
+        }
+        const checked = Array.from(
+          document.querySelectorAll('input[name="editGroupSources"]:checked')
+        ) as HTMLInputElement[];
+        const sourceKeys = checked.map((c) => c.value);
+        return { name, sourceKeys };
+      },
+    });
+    if (!isConfirmed || !value) return;
+    const { name, sourceKeys } = value as { name: string; sourceKeys: string[] };
+    if (name !== groupName) {
+      await callGroupApi({ action: 'rename', name: groupName, newName: name });
+    }
+    await callGroupApi({ action: 'setSources', name, sourceKeys });
+    if (batchGroupName === groupName) setBatchGroupName(name);
+  };
+
   // 通用请求函数
   const handleUserAction = async (
     action:
@@ -294,6 +678,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
 
   return (
     <div className='space-y-6'>
+      
       {/* 用户统计 */}
       <div>
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
@@ -353,6 +738,42 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           >
             {showAddUserForm ? '取消' : '添加用户'}
           </button>
+        </div>
+
+        {/* 批量分组工具栏（移动到用户列表标题下方） */}
+        <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 mb-4'>
+          <div className='flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between'>
+            <label className='flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
+              <input
+                type='checkbox'
+                checked={selectedUsers.size === (config?.UserConfig.Users.length || 0) && (config?.UserConfig.Users.length || 0) > 0}
+                onChange={toggleSelectAllUsers}
+                className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+              />
+              全选 ({selectedUsers.size}/{config?.UserConfig.Users.length || 0})
+            </label>
+            <div className='flex items-center gap-2'>
+              <button
+                onClick={createGroupPrompt}
+                className='px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors'
+              >
+                新建分组
+              </button>
+              <button
+                onClick={openGroupManagementDialog}
+                className='px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors'
+              >
+                编辑分组
+              </button>
+              <button
+                onClick={handleBatchRemoveGroup}
+                disabled={selectedUsers.size === 0}
+                className='px-3 py-1 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white text-sm rounded-lg transition-colors'
+              >
+                移出分组
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* 添加用户表单 */}
@@ -439,6 +860,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
             <thead className='bg-gray-50 dark:bg-gray-900'>
               <tr>
+              <th className='w-8' />
                 <th
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
@@ -451,6 +873,12 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                 >
                   角色
                 </th>
+              <th
+                scope='col'
+                className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+              >
+                分组
+              </th>
                 <th
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
@@ -504,6 +932,14 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                         key={user.username}
                         className='hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors'
                       >
+                        <td className='px-2 py-4'>
+                          <input
+                            type='checkbox'
+                            checked={selectedUsers.has(user.username)}
+                            onChange={() => toggleSelectUser(user.username)}
+                            className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
+                          />
+                        </td>
                         <td className='px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100'>
                           {user.username}
                         </td>
@@ -522,6 +958,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                                 ? '管理员'
                                 : '普通用户'}
                           </span>
+                        </td>
+                        <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
+                          {user.group || '-'}
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
                           <span
@@ -738,6 +1177,8 @@ const VideoSourceConfig = ({
       });
   };
 
+  // 分组管理功能已迁移至“用户配置”模块，此处不再提供
+
   // 批量操作相关函数
 
   const toggleSelectAll = () => {
@@ -942,6 +1383,7 @@ const VideoSourceConfig = ({
 
   return (
     <div className='space-y-6'>
+      {/* 分组管理功能移除：请在“用户配置”中进行分组与分配 */}
       {/* 添加视频源表单 */}
       <div className='flex items-center justify-between'>
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
@@ -957,9 +1399,9 @@ const VideoSourceConfig = ({
 
       {/* 批量操作工具栏 */}
       {sources.length > 0 && (
-        <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700'>
-          <div className='flex items-center justify-between'>
-            <div className='flex items-center gap-4'>
+        <div className='p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700 mb-4'>
+          <div className='flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between'>
+            <div className='flex items-center gap-2'>
               <label className='flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
                 <input
                   type='checkbox'
@@ -969,15 +1411,6 @@ const VideoSourceConfig = ({
                 />
                 全选 ({selectedSources.size}/{sources.length})
               </label>
-              {selectedSources.size > 0 ? (
-                <span className='text-xs text-blue-600 dark:text-blue-400 font-medium'>
-                  已选择 {selectedSources.size} 个视频源
-                </span>
-              ) : (
-                <span className='text-xs text-gray-500 dark:text-gray-400'>
-                  请选择要操作的视频源
-                </span>
-              )}
             </div>
             <div className='flex items-center gap-2'>
               <button
@@ -2182,7 +2615,17 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 type='text'
                 value={
                   typeof window !== 'undefined'
-                    ? `${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}`
+                    ? (() => {
+                        const uname = getAuthInfoFromBrowserCookie()?.username || '';
+                        const un = (() => {
+                          if (!uname) return '';
+                          const bytes = new TextEncoder().encode(uname);
+                          let binary = '';
+                          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                          return btoa(binary);
+                        })();
+                        return `${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}${un ? `&un=${encodeURIComponent(un)}` : ''}`;
+                      })()
                     : ''
                 }
                 readOnly
@@ -2192,9 +2635,15 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 type='button'
                 onClick={() => {
                   if (typeof window !== 'undefined') {
-                    navigator.clipboard.writeText(
-                      `${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}`
-                    );
+                    const uname = getAuthInfoFromBrowserCookie()?.username || '';
+                    const un = (() => {
+                      if (!uname) return '';
+                      const bytes = new TextEncoder().encode(uname);
+                      let binary = '';
+                      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                      return btoa(binary);
+                    })();
+                    navigator.clipboard.writeText(`${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}${un ? `&un=${encodeURIComponent(un)}` : ''}`);
                   }
                 }}
                 className='px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm'
@@ -2398,7 +2847,7 @@ function AdminPageClient() {
               onClick={() => {
                 Swal.fire({
                   title: '提示',
-                  text: '视频源配置和分类配置中的修改需要清理浏览缓存才会彻底生效，否则需等待站点配置中的接口缓存时间后才生效',
+                  text: '视频源配置和分类配置中的修改需要清理浏览缓存才会在UI上彻底生效，否则需等待站点配置中的接口缓存时间后才生效',
                   icon: 'info',
                   confirmButtonText: '我知道了',
                   confirmButtonColor: '#3b82f6',

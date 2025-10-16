@@ -277,6 +277,13 @@ async function initConfig() {
             role: 'owner',
           });
         }
+        // 初始化分组结构（若缺失）
+        if (!adminConfig.UserConfig) {
+          adminConfig.UserConfig = { AllowRegister: false, Users: [], Groups: [] } as any;
+        }
+        if (!('Groups' in adminConfig.UserConfig) || !adminConfig.UserConfig.Groups) {
+          (adminConfig.UserConfig as any).Groups = [];
+        }
       } else {
         // 数据库中没有配置，使用默认的运行时配置
         if (process.env.DOCKER_ENV === 'true') {
@@ -329,6 +336,7 @@ async function initConfig() {
           UserConfig: {
             AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
             Users: allUsers as any,
+            Groups: [],
           },
           SourceConfig: Object.entries(fileConfig.api_site || {}).map(([key, site]) => ({
             key,
@@ -382,6 +390,7 @@ async function initConfig() {
       UserConfig: {
         AllowRegister: process.env.NEXT_PUBLIC_ENABLE_REGISTER === 'true',
         Users: [],
+        Groups: [],
       },
       SourceConfig: Object.entries(fileConfig.api_site).map(([key, site]) => ({
         key,
@@ -555,6 +564,14 @@ export async function getConfig(): Promise<AdminConfig> {
       adminConfig.SiteConfig.SiteInterfaceCacheTime = fileConfig.cache_time;
     }
 
+    // 初始化分组结构（若缺失）
+    if (!adminConfig.UserConfig) {
+      adminConfig.UserConfig = { AllowRegister: false, Users: [], Groups: [] } as any;
+    }
+    if (!('Groups' in adminConfig.UserConfig) || !adminConfig.UserConfig.Groups) {
+      (adminConfig.UserConfig as any).Groups = [];
+    }
+
     const ownerUser = process.env.USERNAME || '';
     // 检查配置中的站长用户是否和 USERNAME 匹配，如果不匹配则降级为普通用户
     let containOwner = false;
@@ -689,12 +706,22 @@ export async function getCacheTime(): Promise<number> {
   return config.SiteConfig.SiteInterfaceCacheTime || 7200;
 }
 
-export async function getAvailableApiSites(): Promise<ApiSite[]> {
+export async function getAvailableApiSites(username?: string): Promise<ApiSite[]> {
   const config = await getConfig();
-  return config.SourceConfig.filter((s) => !s.disabled).map((s) => ({
-    key: s.key,
-    name: s.name,
-    api: s.api,
-    detail: s.detail,
-  }));
+  const all = config.SourceConfig.filter((s) => !s.disabled);
+  if (!username || !config.UserConfig?.Groups || config.UserConfig.Groups.length === 0) {
+    return all.map((s) => ({ key: s.key, name: s.name, api: s.api, detail: s.detail }));
+  }
+  const user = config.UserConfig.Users.find((u) => u.username === username);
+  const groupName = user?.group;
+  if (!groupName) {
+    return all.map((s) => ({ key: s.key, name: s.name, api: s.api, detail: s.detail }));
+  }
+  const group = config.UserConfig.Groups.find((g) => g.name === groupName);
+  if (!group) {
+    return all.map((s) => ({ key: s.key, name: s.name, api: s.api, detail: s.detail }));
+  }
+  const allowed = new Set(group.sourceKeys);
+  const filtered = all.filter((s) => allowed.has(s.key));
+  return filtered.map((s) => ({ key: s.key, name: s.name, api: s.api, detail: s.detail }));
 }

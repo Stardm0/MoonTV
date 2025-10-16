@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   }
 
   const config = await getConfig();
-  const apiSites = await getAvailableApiSites();
+  const apiSites = await getAvailableApiSites(authInfo.username);
 
   try {
     const targetSite = apiSites.find((site) => site.key === resourceId);

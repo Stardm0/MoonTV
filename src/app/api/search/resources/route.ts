@@ -1,13 +1,16 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 
+import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime } from '@/lib/config';
 
 export const runtime = 'edge';
 
 // OrionTV 兼容接口
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const apiSites = await getAvailableApiSites();
+    const auth = getAuthInfoFromCookie(request);
+    const username = auth?.username;
+    const apiSites = await getAvailableApiSites(username);
     const cacheTime = await getCacheTime();
 
     return NextResponse.json(apiSites, {

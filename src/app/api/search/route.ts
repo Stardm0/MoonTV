@@ -1,11 +1,23 @@
 /* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-import { getCacheTime, getConfig } from '@/lib/config';
+
+import { NextRequest } from 'next/server';
+
+import { getAuthInfoFromCookie } from '@/lib/auth';
+import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'edge';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const authInfo = getAuthInfoFromCookie(request);
+  if (!authInfo || !authInfo.username) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
   const streamParam = searchParams.get('stream');
@@ -15,11 +27,11 @@ export async function GET(request: Request) {
 
   const config = await getConfig();
   
-  // 获取选中的搜索源
-  const selectedSourcesParam = searchParams.get('sources');
-  let apiSites = config.SourceConfig.filter((site) => !site.disabled);
+  // 获取用户可用的搜索源
+  let apiSites = await getAvailableApiSites(authInfo.username);
   
   // 如果指定了搜索源，只使用选中的搜索源
+  const selectedSourcesParam = searchParams.get('sources');
   if (selectedSourcesParam) {
     const selectedSources = selectedSourcesParam.split(',');
     apiSites = apiSites.filter(site => selectedSources.includes(site.key));

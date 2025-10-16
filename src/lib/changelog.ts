@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "3.3.0",
+    date: "2025-10-16",
+    added: [
+    "用户组分配视频源功能",
+    "视频源配置支持批量操作",
+    "添加加载动画"
+    ],
+    changed: [
+    "非本地存储默认关闭TVBox",
+    "简化明暗模式变化",
+    "优化 docker 构建流程"
+    ],
+    fixed: [
+    "非本地模式视频源配置初始化"
+    ]
+  },
+  {
     version: "3.2.0",
     date: "2025-10-04",
     added: [

@@ -38,7 +38,9 @@ export async function GET(request: NextRequest) {
   const base = new URL(request.url);
   base.pathname = '/api/tvbox/config';
   base.search = '';
-  const url = base.toString();
+  // 为生成的订阅 URL 添加加密后的 un 查询参数
+  const un = Buffer.from(authInfo.username, 'utf8').toString('base64');
+  const url = `${base.toString()}?un=${encodeURIComponent(un)}`;
 
   const payload = {
     enabled:
@@ -113,7 +115,10 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     enabled: (adminConfig.SiteConfig as any).TVBoxEnabled === true,
     password: (adminConfig.SiteConfig as any).TVBoxPassword || '',
-    url: base.toString(),
+    url: (() => {
+      const un = Buffer.from(username, 'utf8').toString('base64');
+      return `${base.toString()}?un=${encodeURIComponent(un)}`;
+    })(),
   });
 }
 
