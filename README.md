@@ -88,12 +88,12 @@
 
 存储支持矩阵
 
-|               | Docker | Vercel | Cloudflare |
-| :-----------: | :----: | :----: | :--------: |
-| localstorage  |   ✅   |   ✅   |     ✅     |
-|  原生 redis   |   ✅   |        |            |
-| Cloudflare D1 |        |        |     ✅     |
-| Upstash Redis |   ☑️   |   ✅   |     ✅     |
+|               | Docker | Vercel | Netlify | Cloudflare |
+| :-----------: | :----: | :----: | :-----: | :--------: |
+| localstorage  |   ✅   |   ✅   |   ✅    |     ✅     |
+|  原生 redis   |   ✅   |        |         |            |
+| Cloudflare D1 |        |        |         |     ✅     |
+| Upstash Redis |   ☑️   |   ✅   |   ✅    |     ✅     |
 
 ✅：经测试支持
 
@@ -259,6 +259,7 @@ NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE 选项解释：
 
 ```json
 {
+  "cache_time": 7200,
   "api_site": {
     "dyttzy": {
       "api": "http://caiji.dyttzyapi.com/api.php/provide/vod",
@@ -330,13 +331,7 @@ MoonTV 支持标准的苹果 CMS V10 API 格式。
 
 ## Selene 使用
 
-该项目已兼容 [Selene](https://github.com/MoonTechLab/Selene) 在移动端上使用，可以直接作为 Selene 后端
-
-## Roadmap
-
-- [x] 深色模式
-- [x] 持久化存储
-- [x] 多账户
+该项目已兼容 [Selene](https://github.com/MoonTechLab/Selene) 在移动端上使用，可以直接作为 Selene 后端(本地存储不支持)
 
 ## 安全与隐私提醒
 
@@ -377,6 +372,6 @@ MoonTV 支持标准的苹果 CMS V10 API 格式。
 
 ---
 
-<!-- ## Star 趋势
+## ⭐ Star 趋势
 
-[![Stargazers over time](https://starchart.cc/LunaTechLab/MoonTV.svg?variant=adaptive)](https://starchart.cc/LunaTechLab/MoonTV) -->
+[![Stargazers over time](https://starchart.cc/stardm0/MoonTV.svg?variant=adaptive)](https://starchart.cc/stardm0/MoonTV)

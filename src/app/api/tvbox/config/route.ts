@@ -16,18 +16,24 @@ export async function GET(request: Request) {
     const url = new URL(request.url);
     let inputPassword = url.searchParams.get('pwd') || url.searchParams.get('password') || '';
     const un = url.searchParams.get('un') || '';
-    if (!un.trim()) {
-      return NextResponse.json({ error: '缺少参数 un' }, { status: 400 });
-    }
-    let username = '';
-    try {
-      username = Buffer.from(un, 'base64').toString('utf8');
-    } catch (e) {
-      return NextResponse.json({ error: '参数 un 非法' }, { status: 400 });
-    }
-
+    
     const adminConfig = await getConfig();
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+    
+    // 本地存储模式下 un 参数可以为空
+    if (storageType !== 'localstorage' && !un.trim()) {
+      return NextResponse.json({ error: '缺少参数 un' }, { status: 400 });
+    }
+    
+    let username = '';
+    if (un.trim()) {
+      try {
+        username = Buffer.from(un, 'base64').toString('utf8');
+      } catch (e) {
+        return NextResponse.json({ error: '参数 un 非法' }, { status: 400 });
+      }
+    }
+
     // 本地模式下未提供查询参数则自动使用环境变量 PASSWORD
     if (storageType === 'localstorage' && !inputPassword) {
       inputPassword = process.env.PASSWORD || '';

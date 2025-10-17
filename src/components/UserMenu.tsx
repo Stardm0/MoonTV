@@ -919,16 +919,23 @@ export const UserMenu: React.FC = () => {
               {tvboxEnabled && tvboxUrl ? (
                 <>
                   <input
+                    ref={(input) => {
+                      if (input) {
+                        const url = new URL(tvboxUrl);
+                        url.searchParams.set('pwd', tvboxPassword || '');
+                        input.value = url.toString();
+                      }
+                    }}
                     type='text'
                     className='flex-1 min-w-0 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg text-sm bg-gray-50 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-                    value={`${tvboxUrl}?pwd=${encodeURIComponent(tvboxPassword || '')}`}
                     readOnly
                   />
                   <button
                     type='button'
                     className='shrink-0 px-3 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors'
-                    onClick={() => {
-                      navigator.clipboard.writeText(`${tvboxUrl}?pwd=${encodeURIComponent(tvboxPassword || '')}`);
+                    onClick={(e) => {
+                      const input = e.currentTarget.previousElementSibling as HTMLInputElement;
+                      navigator.clipboard.writeText(input.value);
                     }}
                   >
                     复制
