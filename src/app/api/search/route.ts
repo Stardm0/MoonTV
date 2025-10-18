@@ -10,12 +10,20 @@ import { yellowWords } from '@/lib/yellow';
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
-  const authInfo = getAuthInfoFromCookie(request);
-  if (!authInfo || !authInfo.username) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
-      status: 401,
-      headers: { 'Content-Type': 'application/json' }
-    });
+  // 检查是否为本地存储模式
+  const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
+  const isLocalStorage = storageType === 'localstorage';
+  
+  let authInfo = null;
+  if (!isLocalStorage) {
+    // 非本地存储模式才需要认证
+    authInfo = getAuthInfoFromCookie(request);
+    if (!authInfo || !authInfo.username) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { 
+        status: 401,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
   }
 
   const { searchParams } = new URL(request.url);
@@ -28,7 +36,7 @@ export async function GET(request: NextRequest) {
   const config = await getConfig();
   
   // 获取用户可用的搜索源
-  let apiSites = await getAvailableApiSites(authInfo.username);
+  let apiSites = await getAvailableApiSites(authInfo?.username);
   
   // 如果指定了搜索源，只使用选中的搜索源
   const selectedSourcesParam = searchParams.get('sources');
