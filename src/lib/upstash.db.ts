@@ -343,6 +343,12 @@ export class UpstashRedisStorage implements IStorage {
 
     return configs;
   }
+
+  // 清空所有数据
+  async clearAllData(): Promise<void> {
+    const client = getUpstashRedisClient();
+    await client.flushall();
+  }
 }
 
 // 单例 Upstash Redis 客户端

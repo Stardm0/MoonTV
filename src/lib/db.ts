@@ -222,6 +222,15 @@ export class DbManager {
     }
     return {};
   }
+
+  // ---------- 数据清理 ----------
+  async clearAllData(): Promise<void> {
+    if (typeof (this.storage as any).clearAllData === 'function') {
+      await (this.storage as any).clearAllData();
+    } else {
+      throw new Error('存储类型不支持清空数据操作');
+    }
+  }
 }
 
 // 导出默认实例

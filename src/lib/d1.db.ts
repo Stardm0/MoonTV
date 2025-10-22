@@ -139,6 +139,9 @@ export class D1Storage implements IStorage {
     key: string
   ): Promise<PlayRecord | null> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      return null;
+    }
     const userId = await this.getUserId(userName);
     if (!userId) return null;
 
@@ -174,6 +177,9 @@ export class D1Storage implements IStorage {
     record: PlayRecord
   ): Promise<void> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      throw new Error('Invalid key format for play record');
+    }
     const userId = await this.ensureUser(userName);
 
     await this.db
@@ -202,16 +208,16 @@ export class D1Storage implements IStorage {
         userId,
         source,
         videoId,
-        record.title,
-        record.source_name,
-        record.year,
-        record.cover,
-        record.index,
-        record.total_episodes,
-        record.play_time,
-        record.total_time,
-        record.save_time,
-        record.search_title
+        record.title || '',
+        record.source_name || '',
+        record.year || '',
+        record.cover || '',
+        record.index ?? 0,
+        record.total_episodes ?? 0,
+        record.play_time ?? 0,
+        record.total_time ?? 0,
+        record.save_time ?? Date.now(),
+        record.search_title || ''
       )
       .run();
   }
@@ -249,6 +255,9 @@ export class D1Storage implements IStorage {
 
   async deletePlayRecord(userName: string, key: string): Promise<void> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      return;
+    }
     const userId = await this.getUserId(userName);
     if (!userId) return;
 
@@ -263,6 +272,9 @@ export class D1Storage implements IStorage {
   // ---------- 收藏 ----------
   async getFavorite(userName: string, key: string): Promise<Favorite | null> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      return null;
+    }
     const userId = await this.getUserId(userName);
     if (!userId) return null;
 
@@ -292,6 +304,9 @@ export class D1Storage implements IStorage {
     favorite: Favorite
   ): Promise<void> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      throw new Error('Invalid key format for favorite');
+    }
     const userId = await this.ensureUser(userName);
 
     await this.db
@@ -315,13 +330,13 @@ export class D1Storage implements IStorage {
         userId,
         source,
         videoId,
-        favorite.title,
-        favorite.source_name,
-        favorite.year,
-        favorite.cover,
-        favorite.total_episodes,
-        favorite.save_time,
-        favorite.search_title
+        favorite.title || '',
+        favorite.source_name || '',
+        favorite.year || '',
+        favorite.cover || '',
+        favorite.total_episodes ?? 0,
+        favorite.save_time ?? Date.now(),
+        favorite.search_title || ''
       )
       .run();
   }
@@ -354,6 +369,9 @@ export class D1Storage implements IStorage {
 
   async deleteFavorite(userName: string, key: string): Promise<void> {
     const [source, videoId] = key.split('+');
+    if (!source || !videoId) {
+      return;
+    }
     const userId = await this.getUserId(userName);
     if (!userId) return;
 
@@ -526,8 +544,8 @@ export class D1Storage implements IStorage {
         source,
         id,
         config.enable ? 1 : 0,
-        config.intro_time,
-        config.outro_time
+        config.intro_time ?? 0,
+        config.outro_time ?? 0
       )
       .run();
   }
@@ -570,5 +588,16 @@ export class D1Storage implements IStorage {
     }
 
     return configs;
+  }
+
+  // 清空所有数据
+  async clearAllData(): Promise<void> {
+    // 删除所有表的数据
+    await this.db.prepare('DELETE FROM play_records').run();
+    await this.db.prepare('DELETE FROM favorites').run();
+    await this.db.prepare('DELETE FROM search_history').run();
+    await this.db.prepare('DELETE FROM skip_configs').run();
+    await this.db.prepare('DELETE FROM users').run();
+    await this.db.prepare('DELETE FROM admin_config').run();
   }
 }

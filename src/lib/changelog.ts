@@ -11,6 +11,28 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "3.4.2",
+    date: "2025-10-21",
+    added: [
+    "添加数据迁移功能",
+    "加入卡片右键长按选项卡"
+    ],
+    changed: [
+    "调整选项卡收藏按钮显示逻辑",
+    "微调UI及收藏按钮显示逻辑",
+    "优化移动端卡片长按复制问题",
+    "微调播放页面UI",
+    "简化调整播放页面",
+    "调整分组配置弹窗UI",
+    "微调视频源配置UI"
+    ],
+    fixed: [
+    "修复CF数据迁入问题",
+    "修复本地存储搜索",
+    "修复本地存储TVBox接口"
+    ]
+  },
+  {
     version: "3.3.0",
     date: "2025-10-16",
     added: [

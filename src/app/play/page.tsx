@@ -1861,21 +1861,21 @@ function PlayPageClient() {
 
   return (
     <PageLayout activePath='/play'>
-      <div className='flex flex-col gap-3 py-4 px-0 lg:px-[5rem] 2xl:px-32'>
+      <div className='flex flex-col px-0 lg:px-[5rem] 2xl:px-32'>
         {/* 播放器和选集 */}
-        <div className='space-y-2'>
-          <div className='grid gap-4 lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4'>
+        <div>
+          <div className='grid lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4 md:gap-0'>
             {/* 播放器 */}
-            <div className='h-full md:rounded-xl border-0 md:border md:border-white/0 md:dark:border-white/30 md:col-span-3'>
+            <div className='h-full border-0 md:border-t md:border-b md:border-l md:border-white/0 md:dark:border-white/30 md:col-span-3'>
               <div className='relative w-full h-[300px] lg:h-full'>
                 <div
                   ref={artRef}
-                  className='bg-black w-full h-full md:rounded-xl overflow-hidden shadow-lg'
+                  className='bg-black w-full h-full overflow-hidden shadow-lg'
                 ></div>
 
                 {/* 换源加载蒙层 */}
                 {isVideoLoading && (
-                  <div className='absolute inset-0 bg-black/85 backdrop-blur-sm md:rounded-xl flex items-center justify-center z-[500] transition-all duration-300'>
+                  <div className='absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-[500] transition-all duration-300'>
                     <div className='text-center max-w-md mx-auto px-6'>
                       {/* 动画影院图标 */}
                       <div className='relative mb-8'>

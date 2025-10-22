@@ -322,7 +322,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   );
 
   return (
-    <div className='md:ml-2 px-4 py-0 h-full md:rounded-xl bg-black/10 dark:bg-white/5 flex flex-col border-t border-b md:border-l md:border-r border-white/0 dark:border-white/30 overflow-hidden'>
+    <div className='px-4 py-0 h-full bg-black/10 dark:bg-white/5 flex flex-col border-t border-b md:border-r border-white/0 dark:border-white/30 overflow-hidden'>
       {/* 主要的 Tab 切换 - 无缝融入设计 */}
       <div className='flex mb-1 -mx-6 flex-shrink-0'>
         {totalEpisodes > 1 && (
@@ -398,7 +398,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         <>
           {/* 分类标签 */}
           <div className='flex items-center gap-4 mb-4 border-b border-gray-300 dark:border-gray-700 -mx-6 px-6 flex-shrink-0'>
-            <div className='flex-1 overflow-x-auto' ref={categoryContainerRef}>
+            <div className='flex-1 overflow-x-auto scrollbar-hide' ref={categoryContainerRef}>
               <div className='flex gap-2 min-w-max'>
                 {categories.map((label, idx) => {
                   const isActive = idx === displayPage;
@@ -451,41 +451,43 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           </div>
 
           {/* 集数网格 */}
-          <div className='flex flex-wrap gap-3 overflow-y-auto flex-1 content-start pb-4'>
-            {(() => {
-              const len = currentEnd - currentStart + 1;
-              const episodes = Array.from({ length: len }, (_, i) =>
-                descending ? currentEnd - i : currentStart + i
-              );
-              return episodes;
-            })().map((episodeNumber) => {
-              const isActive = episodeNumber === value;
-              return (
-                <button
-                  key={episodeNumber}
-                  onClick={() => handleEpisodeClick(episodeNumber - 1)}
-                  className={`h-10 min-w-10 px-3 py-2 flex items-center justify-center text-sm font-medium rounded-md transition-all duration-200 whitespace-nowrap font-mono
-                    ${
-                      isActive
-                        ? 'bg-green-500 text-white shadow-lg shadow-green-500/25 dark:bg-green-600'
-                        : 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:scale-105 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20'
-                    }`.trim()}
-                >
-                  {(() => {
-                    const title = episodes_titles?.[episodeNumber - 1];
-                    if (!title) {
-                      return episodeNumber;
-                    }
-                    // 如果匹配"第X集"格式，提取中间的数字
-                    const match = title.match(/第(\d+)集/);
-                    if (match) {
-                      return match[1];
-                    }
-                    return title;
-                  })()}
-                </button>
-              );
-            })}
+          <div className='overflow-y-auto flex-1 pb-4 scrollbar-hide'>
+            <div className='grid grid-cols-3 sm:grid-cols-4 gap-3'>
+              {(() => {
+                const len = currentEnd - currentStart + 1;
+                const episodes = Array.from({ length: len }, (_, i) =>
+                  descending ? currentEnd - i : currentStart + i
+                );
+                return episodes;
+              })().map((episodeNumber) => {
+                const isActive = episodeNumber === value;
+                return (
+                  <button
+                    key={episodeNumber}
+                    onClick={() => handleEpisodeClick(episodeNumber - 1)}
+                    className={`h-9 px-1 py-1 flex items-center justify-center text-xs font-medium rounded transition-all duration-200 whitespace-nowrap font-mono
+                      ${
+                        isActive
+                          ? 'bg-green-500 text-white shadow-lg shadow-green-500/25 dark:bg-green-600'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300 hover:scale-105 dark:bg-white/10 dark:text-gray-300 dark:hover:bg-white/20'
+                      }`.trim()}
+                  >
+                    {(() => {
+                      const title = episodes_titles?.[episodeNumber - 1];
+                      if (!title) {
+                        return episodeNumber;
+                      }
+                      // 如果匹配"第X集"格式，提取中间的数字
+                      const match = title.match(/第(\d+)集/);
+                      if (match) {
+                        return match[1];
+                      }
+                      return title;
+                    })()}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </>
       )}
@@ -529,7 +531,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           {!sourceSearchLoading &&
             !sourceSearchError &&
             availableSources.length > 0 && (
-              <div className='flex-1 overflow-y-auto space-y-2 pb-20'>
+              <div className='flex-1 overflow-y-auto space-y-2 pb-20 scrollbar-hide'>
                 {availableSources
                   .sort((a, b) => {
                     const aIsCurrent =

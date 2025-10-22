@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { Heart, PlayCircleIcon, Trash2 } from 'lucide-react';
+import { ExternalLink, Heart, Link, PlayCircleIcon, Trash2 } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import React, { useCallback,useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 
 import {
   deleteFavorite,
@@ -17,6 +17,7 @@ import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
 import { ImagePlaceholder } from '@/components/ImagePlaceholder';
+import MobileActionSheet from '@/components/MobileActionSheet';
 import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
 
 interface VideoCardProps {
@@ -64,6 +65,8 @@ export default function VideoCard({
   const [isLoading, setIsLoading] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [favoriteChecked, setFavoriteChecked] = useState(false); // 是否已经检查过收藏状态
+  const [isActionOpen, setIsActionOpen] = useState(false);
+  const [longPressTimer, setLongPressTimer] = useState<number | null>(null);
 
   const isAggregate = from === 'search' && !!items?.length;
 
@@ -129,14 +132,15 @@ export default function VideoCard({
         setFavorited(isNowFavorited);
       });
     } catch (err) {
+      // eslint-disable-next-line no-console
       console.error('检查收藏状态失败', err);
     }
   }, [from, actualSource, actualId]);
 
   const handleToggleFavorite = useCallback(
-    async (e: React.MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
+    async (e?: React.MouseEvent) => {
+      e?.preventDefault();
+      e?.stopPropagation();
       if (from === 'douban' || !actualSource || !actualId) return;
       try {
         if (favorited) {
@@ -155,6 +159,7 @@ export default function VideoCard({
           setFavorited(true);
         }
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error('切换收藏状态失败', err);
       }
     },
@@ -167,6 +172,7 @@ export default function VideoCard({
       actualYear,
       actualPoster,
       actualEpisodes,
+      actualQuery,
       favorited,
     ]
   );
@@ -180,6 +186,7 @@ export default function VideoCard({
         await deletePlayRecord(actualSource, actualId);
         onDelete?.();
       } catch (err) {
+        // eslint-disable-next-line no-console
         console.error('删除播放记录失败', err);
       }
     },
@@ -267,6 +274,34 @@ export default function VideoCard({
   return (
     <div
       className="group relative w-full rounded-lg bg-transparent cursor-pointer transition-all duration-300 ease-in-out hover:scale-[1.05] hover:z-[500]"
+      style={{ userSelect: 'none', WebkitUserSelect: 'none', WebkitTouchCallout: 'none' }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsActionOpen(true);
+      }}
+      onTouchStart={(e) => {
+        e.stopPropagation();
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+        }
+        const timerId = window.setTimeout(() => {
+          setIsActionOpen(true);
+        }, 500);
+        setLongPressTimer(timerId);
+      }}
+      onTouchEnd={() => {
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+          setLongPressTimer(null);
+        }
+      }}
+      onTouchCancel={() => {
+        if (longPressTimer) {
+          window.clearTimeout(longPressTimer);
+          setLongPressTimer(null);
+        }
+      }}
       onMouseEnter={() => {
           // 收藏夹里的卡片直接默认已收藏，不检查数据库
         if (from === 'favorite' && !favorited) {
@@ -471,6 +506,102 @@ export default function VideoCard({
           </span>
         )}
       </div>
+
+      {/* 右键 / 长按 操作面板 */}
+      <MobileActionSheet
+        isOpen={isActionOpen}
+        onClose={() => setIsActionOpen(false)}
+        title={actualTitle}
+        poster={processImageUrl(actualPoster)}
+        sourceName={source_name}
+        isAggregate={isAggregate}
+        sources={isAggregate && items ? items.map(i => i.source_name || '').filter(Boolean) : []}
+        currentEpisode={currentEpisode}
+        totalEpisodes={actualEpisodes || undefined}
+        origin="vod"
+        actions={[
+          {
+            id: 'play',
+            label: '播放',
+            icon: <PlayCircleIcon size={20} />,
+            color: 'primary',
+            onClick: () => handleClick(),
+          },
+          {
+            id: 'play-new-tab',
+            label: '在新标签页播放',
+            icon: <ExternalLink size={20} />,
+            color: 'default',
+            onClick: () => {
+              if (from === 'douban') {
+                window.open(
+                  `/play?title=${encodeURIComponent(actualTitle.trim())}${
+                    actualYear ? `&year=${actualYear}` : ''
+                  }${actualSearchType ? `&stype=${actualSearchType}` : ''}`,
+                  '_blank'
+                );
+              } else if (actualSource && actualId) {
+                window.open(
+                  `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
+                    actualTitle
+                  )}${actualYear ? `&year=${actualYear}` : ''}${
+                    isAggregate ? '&prefer=true' : ''
+                  }${
+                    actualQuery ? `&stitle=${encodeURIComponent(actualQuery.trim())}` : ''
+                  }${actualSearchType ? `&stype=${actualSearchType}` : ''}`,
+                  '_blank'
+                );
+              }
+            },
+          },
+          ...(from !== 'douban' && !(from === 'search' && isAggregate) && actualSource && actualId
+            ? [
+                favorited
+                  ? {
+                      id: 'unfavorite',
+                      label: '取消收藏',
+                      icon: <Heart size={18} className="fill-red-600 stroke-red-600" />,
+                      color: 'danger' as const,
+                      onClick: (e?: React.MouseEvent) => handleToggleFavorite(e as React.MouseEvent),
+                    }
+                  : {
+                      id: 'favorite',
+                      label: '加入收藏',
+                      icon: <Heart size={18} className="fill-transparent stroke-gray-600" />,
+                      color: 'primary' as const,
+                      onClick: (e?: React.MouseEvent) => handleToggleFavorite(e as React.MouseEvent),
+                    },
+              ]
+            : []),
+          ...(from === 'playrecord' && actualSource && actualId
+            ? [
+                {
+                  id: 'delete-record',
+                  label: '删除播放记录',
+                  icon: <Trash2 size={18} />,
+                  color: 'danger' as const,
+                  onClick: (e?: React.MouseEvent) => handleDeleteRecord(e as React.MouseEvent),
+                },
+              ]
+            : []),
+          ...(actualDoubanId
+            ? [
+                {
+                  id: 'open-link',
+                  label: isBangumi ? '打开 Bangumi 页面' : '打开豆瓣页面',
+                  icon: <Link size={18} />,
+                  onClick: () => {
+                    if (isBangumi) {
+                      window.open(`https://bangumi.tv/subject/${actualDoubanId}`, '_blank');
+                    } else {
+                      window.open(`https://movie.douban.com/subject/${actualDoubanId}`, '_blank');
+                    }
+                  },
+                },
+              ]
+            : []),
+        ]}
+      />
     </div>
   );
 }

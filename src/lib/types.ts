@@ -79,6 +79,9 @@ export interface IStorage {
   ): Promise<void>;
   deleteSkipConfig(userName: string, source: string, id: string): Promise<void>;
   getAllSkipConfigs(userName: string): Promise<{ [key: string]: SkipConfig }>;
+
+  // 数据清理
+  clearAllData(): Promise<void>;
 }
 
 // 搜索结果数据结构
