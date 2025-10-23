@@ -34,6 +34,10 @@
       "api": "https://www.mdzyapi.com/api.php/provide/vod",
       "name": "魔都资源"
     },
+    "iqiyi": {
+      "api": "https://www.iqiyizyapi.com/api.php/provide/vod",
+      "name": "iqiyi资源"
+    },
     "zy360": {
       "api": "https://360zy.com/api.php/provide/vod",
       "name": "360资源"
@@ -87,3 +91,4 @@
     }
   }
 }
+
