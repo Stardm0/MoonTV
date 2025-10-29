@@ -1,4 +1,3 @@
-/* eslint-disable no-console,@typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
@@ -48,7 +47,14 @@ async function generateAuthCookie(
   role?: 'owner' | 'admin' | 'user',
   includePassword = false
 ): Promise<string> {
-  const authData: any = { role: role || 'user' };
+  type AuthCookieData = {
+    role: 'owner' | 'admin' | 'user';
+    username?: string;
+    password?: string;
+    signature?: string;
+    timestamp?: number;
+  };
+  const authData: AuthCookieData = { role: role || 'user' };
 
   // 只在需要时包含 password
   if (includePassword && password) {
@@ -198,11 +204,9 @@ export async function POST(req: NextRequest) {
 
       return response;
     } catch (err) {
-      console.error('数据库验证失败', err);
       return NextResponse.json({ error: '数据库错误' }, { status: 500 });
     }
   } catch (error) {
-    console.error('登录接口异常', error);
     return NextResponse.json({ error: '服务器错误' }, { status: 500 });
   }
 }

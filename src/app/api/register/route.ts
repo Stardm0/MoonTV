@@ -1,4 +1,3 @@
-/* eslint-disable no-console,@typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getConfig } from '@/lib/config';
@@ -43,7 +42,13 @@ async function generateSignature(
 
 // 生成认证Cookie（带签名）
 async function generateAuthCookie(username: string): Promise<string> {
-  const authData: any = {
+  type AuthCookieData = {
+    role: 'user';
+    username: string;
+    timestamp: number;
+    signature?: string;
+  };
+  const authData: AuthCookieData = {
     role: 'user',
     username,
     timestamp: Date.now(),
@@ -119,11 +124,9 @@ export async function POST(req: NextRequest) {
 
       return response;
     } catch (err) {
-      console.error('数据库注册失败', err);
       return NextResponse.json({ error: '数据库错误' }, { status: 500 });
     }
   } catch (error) {
-    console.error('注册接口异常', error);
     return NextResponse.json({ error: '服务器错误' }, { status: 500 });
   }
 }

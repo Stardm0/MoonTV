@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
@@ -48,7 +46,7 @@ export async function GET(request: NextRequest) {
     password: adminConfig.SiteConfig.TVBoxPassword || '',
     url,
     localMode: false,
-  } as any;
+  };
 
   return NextResponse.json(payload);
 }
@@ -89,10 +87,10 @@ export async function POST(request: NextRequest) {
 
   // 非本地模式：允许修改配置并持久化
   if (typeof enabled === 'boolean') {
-    (adminConfig.SiteConfig as any).TVBoxEnabled = enabled;
+    adminConfig.SiteConfig.TVBoxEnabled = enabled;
   }
 
-  let finalPassword = (adminConfig.SiteConfig as any).TVBoxPassword || '';
+  let finalPassword = adminConfig.SiteConfig.TVBoxPassword || '';
   if (mode === 'random') {
     // 简单随机口令
     const alphabet =
@@ -104,11 +102,11 @@ export async function POST(request: NextRequest) {
     finalPassword = password;
   }
 
-  (adminConfig.SiteConfig as any).TVBoxPassword = finalPassword;
+  adminConfig.SiteConfig.TVBoxPassword = finalPassword;
 
   const storage = getStorage();
-  if (storage && typeof (storage as any).setAdminConfig === 'function') {
-    await (storage as any).setAdminConfig(adminConfig);
+  if (storage && typeof storage.setAdminConfig === 'function') {
+    await storage.setAdminConfig(adminConfig);
   }
 
   const base = new URL(request.url);
@@ -116,8 +114,8 @@ export async function POST(request: NextRequest) {
   base.search = '';
 
   return NextResponse.json({
-    enabled: (adminConfig.SiteConfig as any).TVBoxEnabled === true,
-    password: (adminConfig.SiteConfig as any).TVBoxPassword || '',
+    enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
+    password: adminConfig.SiteConfig.TVBoxPassword || '',
     url: (() => {
       const un = Buffer.from(username, 'utf8').toString('base64');
       return `${base.toString()}?un=${encodeURIComponent(un)}`;

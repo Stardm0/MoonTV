@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { deflate } from 'pako';
 
@@ -56,7 +54,7 @@ export async function POST(req: NextRequest) {
         // 管理员配置
         adminConfig: config,
         // 所有用户数据
-        userData: {} as { [username: string]: any },
+        userData: {} as Record<string, unknown>,
       },
     };
 
@@ -85,8 +83,12 @@ export async function POST(req: NextRequest) {
     }
 
     // 覆盖站长密码
-    exportData.data.userData[process.env.USERNAME].password =
-      process.env.PASSWORD;
+    const ownerKey = process.env.USERNAME as string;
+    const ownerData = exportData.data.userData[ownerKey] as Record<
+      string,
+      unknown
+    >;
+    (ownerData as { password?: string }).password = process.env.PASSWORD;
 
     // 将数据转换为JSON字符串
     const jsonData = JSON.stringify(exportData);
@@ -119,7 +121,6 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('数据导出失败:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '导出失败' },
       { status: 500 }
@@ -131,7 +132,13 @@ export async function POST(req: NextRequest) {
 async function getUserPassword(username: string): Promise<string | null> {
   try {
     // 使用 Redis 存储的直接访问方法
-    const storage = (db as any).storage;
+    const storage = (
+      db as unknown as {
+        storage?: {
+          client?: { get?: (key: string) => Promise<string | null> };
+        };
+      }
+    ).storage;
     if (storage && typeof storage.client?.get === 'function') {
       const passwordKey = `u:${username}:pwd`;
       const password = await storage.client.get(passwordKey);
@@ -139,7 +146,6 @@ async function getUserPassword(username: string): Promise<string | null> {
     }
     return null;
   } catch (error) {
-    console.error(`获取用户 ${username} 密码失败:`, error);
     return null;
   }
 }

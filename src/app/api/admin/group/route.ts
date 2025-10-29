@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
@@ -27,7 +25,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const body = (await request.json()) as Record<string, any>;
+    const body = (await request.json()) as Record<string, unknown>;
     const { action } = body as { action?: Action };
 
     const authInfo = getAuthInfoFromCookie(request);
@@ -87,7 +85,7 @@ export async function POST(request: NextRequest) {
         adminConfig.UserConfig.Groups.splice(idx, 1);
         // 同步清除用户上的该组标记
         adminConfig.UserConfig.Users.forEach((u) => {
-          if (u.group === name) delete (u as any).group;
+          if (u.group === name) delete u.group;
         });
         break;
       }
@@ -109,7 +107,7 @@ export async function POST(request: NextRequest) {
         group.name = newName;
         // 同步用户上的分组名
         adminConfig.UserConfig.Users.forEach((u) => {
-          if (u.group === name) (u as any).group = newName;
+          if (u.group === name) u.group = newName;
         });
         break;
       }
@@ -141,7 +139,7 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ error: '分组不存在' }, { status: 404 });
         const userSet = new Set(users);
         adminConfig.UserConfig.Users.forEach((u) => {
-          if (userSet.has(u.username)) (u as any).group = name;
+          if (userSet.has(u.username)) u.group = name;
         });
         break;
       }
@@ -152,7 +150,7 @@ export async function POST(request: NextRequest) {
         }
         const userSet = new Set(users);
         adminConfig.UserConfig.Users.forEach((u) => {
-          if (userSet.has(u.username)) delete (u as any).group;
+          if (userSet.has(u.username)) delete u.group;
         });
         break;
       }
@@ -160,15 +158,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: '未知操作' }, { status: 400 });
     }
 
-    if (storage && typeof (storage as any).setAdminConfig === 'function') {
-      await (storage as any).setAdminConfig(adminConfig);
+    if (storage && typeof storage.setAdminConfig === 'function') {
+      await storage.setAdminConfig(adminConfig);
     }
     return NextResponse.json(
       { ok: true },
       { headers: { 'Cache-Control': 'no-store' } }
     );
   } catch (error) {
-    console.error('分组管理操作失败:', error);
     return NextResponse.json(
       { error: '分组管理操作失败', details: (error as Error).message },
       { status: 500 }

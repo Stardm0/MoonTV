@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
@@ -86,7 +84,7 @@ export async function GET(request: Request) {
       ext: '',
     };
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       sites: [doubanCustomSite, ...tvboxSites],
       parses: [],
       lives: [],

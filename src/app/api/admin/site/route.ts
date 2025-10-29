@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
@@ -106,12 +104,12 @@ export async function POST(request: NextRequest) {
       configFileData.cache_time = SiteInterfaceCacheTime;
       adminConfig.ConfigFile = JSON.stringify(configFileData);
     } catch (e) {
-      console.error('更新 ConfigFile 中的 cache_time 失败:', e);
+      /* ignore malformed config json */
     }
 
     // 写入数据库
-    if (storage && typeof (storage as any).setAdminConfig === 'function') {
-      await (storage as any).setAdminConfig(adminConfig);
+    if (storage && typeof storage.setAdminConfig === 'function') {
+      await storage.setAdminConfig(adminConfig);
     }
 
     return NextResponse.json(
@@ -123,7 +121,6 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
-    console.error('更新站点配置失败:', error);
     return NextResponse.json(
       {
         error: '更新站点配置失败',

@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console,@typescript-eslint/no-non-null-assertion */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
@@ -131,10 +129,10 @@ export async function POST(request: NextRequest) {
               { status: 500 }
             );
           }
-          await storage.registerUser(targetUsername!, targetPassword);
+          await storage.registerUser(targetUsername as string, targetPassword);
           // 更新配置
           adminConfig.UserConfig.Users.push({
-            username: targetUsername!,
+            username: targetUsername as string,
             role: 'user',
           });
           targetEntry =
@@ -261,7 +259,10 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          await storage.changePassword(targetUsername!, targetPassword);
+          await storage.changePassword(
+            targetUsername as string,
+            targetPassword
+          );
           break;
         }
         case 'deleteUser': {
@@ -294,7 +295,7 @@ export async function POST(request: NextRequest) {
             );
           }
 
-          await storage.deleteUser(targetUsername!);
+          await storage.deleteUser(targetUsername as string);
 
           // 从配置中移除用户
           const userIndex = adminConfig.UserConfig.Users.findIndex(
@@ -312,8 +313,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 将更新后的配置写入数据库
-    if (storage && typeof (storage as any).setAdminConfig === 'function') {
-      await (storage as any).setAdminConfig(adminConfig);
+    if (storage && typeof storage.setAdminConfig === 'function') {
+      await storage.setAdminConfig(adminConfig);
     }
 
     return NextResponse.json(
@@ -325,7 +326,6 @@ export async function POST(request: NextRequest) {
       }
     );
   } catch (error) {
-    console.error('用户管理操作失败:', error);
     return NextResponse.json(
       {
         error: '用户管理操作失败',

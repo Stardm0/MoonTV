@@ -1,12 +1,12 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 import { inflate } from 'pako';
 
+import type { AdminConfig } from '@/lib/admin.types';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { configSelfCheck, setCachedConfig } from '@/lib/config';
 import { SimpleCrypto } from '@/lib/crypto';
 import { db } from '@/lib/db';
+import type { Favorite, PlayRecord, SkipConfig } from '@/lib/types';
 
 export const runtime = 'edge';
 
@@ -70,14 +70,29 @@ export async function POST(req: NextRequest) {
     const decompressedData = new TextDecoder().decode(decompressedBuffer);
 
     // 解析JSON数据
-    let importData: any;
+    let importDataUnknown: unknown;
     try {
-      importData = JSON.parse(decompressedData);
+      importDataUnknown = JSON.parse(decompressedData);
     } catch (error) {
       return NextResponse.json({ error: '备份文件格式错误' }, { status: 400 });
     }
 
     // 验证数据格式
+    type ImportUserData = {
+      password?: string;
+      playRecords?: Record<string, PlayRecord>;
+      favorites?: Record<string, Favorite>;
+      searchHistory?: string[];
+      skipConfigs?: Record<string, SkipConfig>;
+    };
+    const importData = importDataUnknown as {
+      data?: {
+        adminConfig?: AdminConfig;
+        userData?: Record<string, ImportUserData>;
+      };
+      timestamp?: string;
+      serverVersion?: string;
+    };
     if (
       !importData.data ||
       !importData.data.adminConfig ||
@@ -106,15 +121,30 @@ export async function POST(req: NextRequest) {
 
       // 导入播放记录
       if (user.playRecords) {
-        for (const [key, record] of Object.entries(user.playRecords)) {
-          await (db as any).storage.setPlayRecord(username, key, record);
+        if (user.playRecords) {
+          for (const [key, record] of Object.entries(user.playRecords)) {
+            const [source, id] = key.split('+');
+            if (source && id) {
+              await db.savePlayRecord(
+                username,
+                source,
+                id,
+                record as PlayRecord
+              );
+            }
+          }
         }
       }
 
       // 导入收藏夹
       if (user.favorites) {
-        for (const [key, favorite] of Object.entries(user.favorites)) {
-          await (db as any).storage.setFavorite(username, key, favorite);
+        if (user.favorites) {
+          for (const [key, favorite] of Object.entries(user.favorites)) {
+            const [source, id] = key.split('+');
+            if (source && id) {
+              await db.saveFavorite(username, source, id, favorite as Favorite);
+            }
+          }
         }
       }
 
@@ -131,7 +161,12 @@ export async function POST(req: NextRequest) {
         for (const [key, skipConfig] of Object.entries(user.skipConfigs)) {
           const [source, id] = key.split('+');
           if (source && id) {
-            await db.setSkipConfig(username, source, id, skipConfig as any);
+            await db.setSkipConfig(
+              username,
+              source,
+              id,
+              skipConfig as SkipConfig
+            );
           }
         }
       }
@@ -147,7 +182,6 @@ export async function POST(req: NextRequest) {
           : '未知版本',
     });
   } catch (error) {
-    console.error('数据导入失败:', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : '导入失败' },
       { status: 500 }

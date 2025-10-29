@@ -1,5 +1,3 @@
-/* eslint-disable no-console,@typescript-eslint/no-explicit-any */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
@@ -70,8 +68,8 @@ export async function POST(request: NextRequest) {
     };
 
     // 更新配置文件
-    if (storage && typeof (storage as any).setAdminConfig === 'function') {
-      await (storage as any).setAdminConfig(updatedConfig);
+    if (storage && typeof storage.setAdminConfig === 'function') {
+      await storage.setAdminConfig(updatedConfig);
 
       return NextResponse.json({
         success: true,
@@ -81,7 +79,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '存储服务不可用' }, { status: 500 });
     }
   } catch (error) {
-    console.error('更新配置文件失败:', error);
     return NextResponse.json(
       {
         error: '更新配置文件失败',
