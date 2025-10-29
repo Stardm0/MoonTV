@@ -15,10 +15,10 @@ interface ApiSearchItem {
   type_name?: string;
 }
 
-// 匹配 m3u8 链接的正则
+// 匹配 m3u8 連結
 const M3U8_PATTERN = /(https?:\/\/[^"'\s]+?\.m3u8)/g;
 
-/** 封装带超时的 fetch，区分超时和网络错误 */
+/** 包裝 fetch：加入逾時與網路錯誤分類 */
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
@@ -59,7 +59,7 @@ function parseEpisodes(
   let episodes: string[] = [];
   let titles: string[] = [];
 
-  // 1. 优先解析 vod_play_url
+  // 1. 優先解析 vod_play_url
   if (vod_play_url) {
     const sources = vod_play_url.split('$$$');
     sources.forEach((source) => {
@@ -82,7 +82,7 @@ function parseEpisodes(
     });
   }
 
-  // 2. 如果没有解析到，尝试 fallback 内容
+  // 2. 若無可解析連結，則以內容備援擷取
   if (episodes.length === 0 && fallbackContent) {
     episodes = (fallbackContent.match(M3U8_PATTERN) ?? []).map((link: string) =>
       link.replace(/^\$/, '')
@@ -93,7 +93,7 @@ function parseEpisodes(
   return { episodes, titles };
 }
 
-/** 映射 API 数据到 SearchResult */
+/** 對映 API 條目到 SearchResult */
 function mapItemToResult(
   item: ApiSearchItem,
   apiSite: ApiSite,
@@ -330,3 +330,4 @@ async function handleSpecialSourceDetail(
     douban_id: 0,
   };
 }
+

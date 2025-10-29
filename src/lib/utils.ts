@@ -29,10 +29,14 @@ function getDoubanImageProxyConfig(): {
 /**
  * 处理图片 URL，如果设置了图片代理则使用代理
  */
+/**
+ * 處理圖片 URL：若為豆瓣域名則依設定走代理。
+ */
 export function processImageUrl(originalUrl: string): string {
   if (!originalUrl) return originalUrl;
 
   // 仅处理豆瓣图片代理
+  // 非豆瓣域名，直接返回原始連結
   if (!originalUrl.includes('doubanio.com')) {
     return originalUrl;
   }
@@ -259,3 +263,4 @@ export function getRequestTimeout(): number {
 
   return 30; // 默认30秒
 }
+
