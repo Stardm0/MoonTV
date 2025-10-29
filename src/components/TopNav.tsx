@@ -2,7 +2,18 @@
 
 'use client';
 
-import { Cat, Clover, Film, History, Home, Search, Star, Trash2, Tv, X } from 'lucide-react';
+import {
+  Cat,
+  Clover,
+  Film,
+  History,
+  Home,
+  Search,
+  Star,
+  Trash2,
+  Tv,
+  X,
+} from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
@@ -64,8 +75,11 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
 
     // 加载搜索历史
     getSearchHistory().then(setSearchHistory);
-    const unsubscribe = subscribeToDataUpdates('searchHistoryUpdated', setSearchHistory);
-    
+    const unsubscribe = subscribeToDataUpdates(
+      'searchHistoryUpdated',
+      setSearchHistory
+    );
+
     return () => {
       unsubscribe();
     };
@@ -90,7 +104,7 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
       } else {
         setSearchQuery('');
       }
-      
+
       const sources = searchParams.get('sources');
       if (sources) {
         setSearchSources(sources.split(','));
@@ -142,12 +156,12 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
     if (trimmedQuery) {
       // 添加到搜索历史
       addSearchHistory(trimmedQuery);
-      
+
       // 如果不在搜索页面，触发加载动画
       if (pathname !== '/search') {
         startLoading();
       }
-      
+
       const params = new URLSearchParams();
       params.set('q', trimmedQuery);
       if (searchSources.length > 0) {
@@ -170,15 +184,15 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
     setSearchQuery(suggestion);
     setShowSuggestions(false);
     setShowHistory(false); // 选择建议时关闭历史记录
-    
+
     // 添加到搜索历史
     addSearchHistory(suggestion);
-    
+
     // 如果不在搜索页面，触发加载动画
     if (pathname !== '/search') {
       startLoading();
     }
-    
+
     const params = new URLSearchParams();
     params.set('q', suggestion);
     if (searchSources.length > 0) {
@@ -203,15 +217,15 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
   const handleHistoryClick = (item: string) => {
     setSearchQuery(item);
     setShowHistory(false);
-    
+
     // 添加到搜索历史（更新时间戳）
     addSearchHistory(item);
-    
+
     // 如果不在搜索页面，触发加载动画
     if (pathname !== '/search') {
       startLoading();
     }
-    
+
     const params = new URLSearchParams();
     params.set('q', item);
     if (searchSources.length > 0) {
@@ -270,49 +284,51 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
 
         {/* 导航菜单 */}
         <nav className='flex items-center gap-1 flex-shrink-0'>
-        <Link
-          href='/'
-          onClick={() => {
-            if (active !== '/') {
-              startLoading();
-            }
-            setActive('/');
-          }}
-          data-active={active === '/'}
-          className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
-        >
-          <Home className='h-4 w-4' />
-          <span>首页</span>
-        </Link>
+          <Link
+            href='/'
+            onClick={() => {
+              if (active !== '/') {
+                startLoading();
+              }
+              setActive('/');
+            }}
+            data-active={active === '/'}
+            className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
+          >
+            <Home className='h-4 w-4' />
+            <span>首页</span>
+          </Link>
 
-          {isClient && !simpleMode && menuItems.map((item) => {
-            const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
-            const decodedActive = decodeURIComponent(active);
-            const decodedItemHref = decodeURIComponent(item.href);
-            const isActive =
-              decodedActive === decodedItemHref ||
-              (decodedActive.startsWith('/douban') &&
-                decodedActive.includes(`type=${typeMatch}`));
-            const Icon = item.icon;
+          {isClient &&
+            !simpleMode &&
+            menuItems.map((item) => {
+              const typeMatch = item.href.match(/type=([^&]+)/)?.[1];
+              const decodedActive = decodeURIComponent(active);
+              const decodedItemHref = decodeURIComponent(item.href);
+              const isActive =
+                decodedActive === decodedItemHref ||
+                (decodedActive.startsWith('/douban') &&
+                  decodedActive.includes(`type=${typeMatch}`));
+              const Icon = item.icon;
 
-            return (
-              <Link
-                key={item.label}
-                href={item.href}
-                onClick={() => {
-                  if (!isActive) {
-                    startLoading();
-                  }
-                  setActive(item.href);
-                }}
-                data-active={isActive}
-                className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
-              >
-                <Icon className='h-4 w-4' />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
+              return (
+                <Link
+                  key={item.label}
+                  href={item.href}
+                  onClick={() => {
+                    if (!isActive) {
+                      startLoading();
+                    }
+                    setActive(item.href);
+                  }}
+                  data-active={isActive}
+                  className='group flex items-center gap-2 px-4 py-2 rounded-lg text-gray-700 hover:bg-gray-100/50 hover:text-green-600 data-[active=true]:bg-green-500/10 data-[active=true]:text-green-600 font-medium transition-colors duration-200 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-gray-700/50 dark:data-[active=true]:bg-green-500/10 dark:data-[active=true]:text-green-400'
+                >
+                  <Icon className='h-4 w-4' />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
         </nav>
 
         {/* 搜索栏 */}
@@ -426,4 +442,3 @@ const TopNav = ({ activePath = '/' }: TopNavProps) => {
 };
 
 export default TopNav;
-

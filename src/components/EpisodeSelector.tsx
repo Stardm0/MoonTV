@@ -48,7 +48,9 @@ interface EpisodeSelectorProps {
   /** 设置视频是否正在加载中的状态 */
   setIsVideoLoading: (loading: boolean) => void;
   /** 设置视频加载阶段的状态 */
-  setVideoLoadingStage: (stage: 'initing' | 'sourceChanging' | 'optimizing') => void;
+  setVideoLoadingStage: (
+    stage: 'initing' | 'sourceChanging' | 'optimizing'
+  ) => void;
 }
 
 /**
@@ -71,7 +73,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   preferBestSource,
   setLoading,
   setIsVideoLoading,
-  setVideoLoadingStage
+  setVideoLoadingStage,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -350,46 +352,53 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
           `.trim()}
         >
           <span>换源</span>
-          {preferBestSource && availableSources && availableSources.length > 0 && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                if (!availableSources || availableSources.length === 0) return;
-                setVideoLoadingStage('optimizing');
-                setIsVideoLoading(true);
-                preferBestSource(availableSources)
-                  .then((bestSource) => {
-                    // 确保bestSource有效
-                    if (bestSource && bestSource.source !== currentSource && bestSource.id !== currentId) {
-                      // 无论是否是当前源，都调用handleSourceClick重新加载播放器
-                      handleSourceClick(bestSource);
-                    }else{
-                      setIsVideoLoading(false);
-                    }
-                  })
-                  .catch((_err: Error) => {
-                    // 静默处理错误，因为已经有UI提示
-                  })
-                  .finally(() => {
-                    if (setLoading) setLoading(false);
-                  });
-              }}
-              className="ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-out"
-              title="优选播放源"
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          {preferBestSource &&
+            availableSources &&
+            availableSources.length > 0 && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!availableSources || availableSources.length === 0)
+                    return;
+                  setVideoLoadingStage('optimizing');
+                  setIsVideoLoading(true);
+                  preferBestSource(availableSources)
+                    .then((bestSource) => {
+                      // 确保bestSource有效
+                      if (
+                        bestSource &&
+                        bestSource.source !== currentSource &&
+                        bestSource.id !== currentId
+                      ) {
+                        // 无论是否是当前源，都调用handleSourceClick重新加载播放器
+                        handleSourceClick(bestSource);
+                      } else {
+                        setIsVideoLoading(false);
+                      }
+                    })
+                    .catch((_err: Error) => {
+                      // 静默处理错误，因为已经有UI提示
+                    })
+                    .finally(() => {
+                      if (setLoading) setLoading(false);
+                    });
+                }}
+                className='ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md hover:bg-blue-600 hover:scale-110 transition-all duration-300 ease-out'
+                title='优选播放源'
               >
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </div>
-          )}
+                <svg
+                  className='w-3.5 h-3.5'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z' />
+                </svg>
+              </div>
+            )}
         </div>
       </div>
 
@@ -398,7 +407,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         <>
           {/* 分类标签 */}
           <div className='flex items-center gap-4 mb-4 border-b border-gray-300 dark:border-gray-700 -mx-6 px-6 flex-shrink-0'>
-            <div className='flex-1 overflow-x-auto scrollbar-hide' ref={categoryContainerRef}>
+            <div
+              className='flex-1 overflow-x-auto scrollbar-hide'
+              ref={categoryContainerRef}
+            >
               <div className='flex gap-2 min-w-max'>
                 {categories.map((label, idx) => {
                   const isActive = idx === displayPage;

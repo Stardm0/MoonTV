@@ -28,7 +28,12 @@ export async function fetchVideoDetail({
   // 使用流式搜索尝试精确匹配
   if (fallbackTitle) {
     try {
-      for await (const results of searchFromApiStream(apiSite, fallbackTitle.trim(), true, timeout)) {
+      for await (const results of searchFromApiStream(
+        apiSite,
+        fallbackTitle.trim(),
+        true,
+        timeout
+      )) {
         const exactMatch = results.find(
           (item: SearchResult) =>
             item.source.toString() === source.toString() &&

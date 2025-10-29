@@ -65,9 +65,7 @@ async function fetchWithTimeout(
   const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超时
 
   // 检查是否使用代理
-  const finalUrl = proxyUrl
-    ? `${proxyUrl}${encodeURIComponent(url)}`
-    : url;
+  const finalUrl = proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
 
   const fetchOptions: RequestInit = {
     signal: controller.signal,

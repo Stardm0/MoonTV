@@ -31,7 +31,9 @@ export async function POST(request: NextRequest) {
     const storage = getStorage();
 
     if (username !== process.env.USERNAME) {
-      const user = adminConfig.UserConfig.Users.find((u) => u.username === username);
+      const user = adminConfig.UserConfig.Users.find(
+        (u) => u.username === username
+      );
       if (!user || user.role !== 'admin' || user.banned) {
         return NextResponse.json(
           { error: '权限不足，只有管理员可以修改配置文件' },
@@ -64,9 +66,9 @@ export async function POST(request: NextRequest) {
     // 创建新的配置对象，避免直接修改原对象
     const updatedConfig = {
       ...adminConfig,
-      ConfigFile: configFile
+      ConfigFile: configFile,
     };
-    
+
     // 更新配置文件
     if (storage && typeof (storage as any).setAdminConfig === 'function') {
       await (storage as any).setAdminConfig(updatedConfig);
@@ -76,10 +78,7 @@ export async function POST(request: NextRequest) {
         message: '配置文件更新成功',
       });
     } else {
-      return NextResponse.json(
-        { error: '存储服务不可用' },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: '存储服务不可用' }, { status: 500 });
     }
   } catch (error) {
     console.error('更新配置文件失败:', error);

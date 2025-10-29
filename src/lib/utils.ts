@@ -240,18 +240,22 @@ export function getRequestTimeout(): number {
   if (typeof window === 'undefined') {
     return 30; // 服务器端返回默认值
   }
-  
+
   try {
     const savedTimeout = localStorage.getItem('requestTimeout');
     if (savedTimeout) {
       const timeoutSeconds = parseInt(savedTimeout, 10);
-      if (!isNaN(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 60) {
+      if (
+        !isNaN(timeoutSeconds) &&
+        timeoutSeconds >= 1 &&
+        timeoutSeconds <= 60
+      ) {
         return timeoutSeconds;
       }
     }
   } catch (error) {
     console.warn('Failed to read timeout from localStorage:', error);
   }
-  
+
   return 30; // 默认30秒
 }

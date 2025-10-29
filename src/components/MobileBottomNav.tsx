@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 'use client';
 
 import { Cat, Clover, Film, Home, Search, Star, Tv } from 'lucide-react';
@@ -106,12 +104,12 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       <ul className='flex items-center overflow-x-auto scrollbar-hide'>
         {navItems.map((item) => {
           const active = isActive(item.href);
-          
+
           // 简洁模式下只显示首页和搜索，但在服务器端渲染时先不渲染
           if (!isClient) {
             return null; // 服务器端渲染时不显示任何内容，避免闪烁
           }
-          
+
           if (simpleMode && !['/', '/search'].includes(item.href)) {
             return null;
           }
@@ -122,13 +120,13 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
               className='flex-shrink-0'
               style={{
                 width: simpleMode ? '50vw' : '20vw',
-                minWidth: simpleMode ? '50vw' : '20vw'
+                minWidth: simpleMode ? '50vw' : '20vw',
               }}
             >
               <Link
                 href={item.href}
                 className='flex flex-col items-center justify-center w-full h-14 gap-1 text-xs'
-                onClick={(e) => {
+                onClick={() => {
                   // 如果不是当前激活的链接，则触发加载动画
                   if (!active) {
                     startLoading();
@@ -136,10 +134,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
                 }}
               >
                 <item.icon
-                  className={`h-6 w-6 ${active
+                  className={`h-6 w-6 ${
+                    active
                       ? 'text-green-600 dark:text-green-400'
                       : 'text-gray-500 dark:text-gray-400'
-                    }`}
+                  }`}
                 />
                 <span
                   className={

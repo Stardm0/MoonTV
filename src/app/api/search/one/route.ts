@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
+import { SearchResult } from '@/lib/types';
 import { yellowWords } from '@/lib/yellow';
 import { normalizeForCompare, toSimplified } from '@/lib/zh';
 
@@ -53,8 +54,13 @@ export async function GET(request: NextRequest) {
     }
 
     // 聚合搜索（使用流式实现做非流式聚合）
-    const allResults: any[] = [];
-    for await (const batch of searchFromApiStream(targetSite, queryForSearch, true, timeout)) {
+    const allResults: SearchResult[] = [];
+    for await (const batch of searchFromApiStream(
+      targetSite,
+      queryForSearch,
+      true,
+      timeout
+    )) {
       allResults.push(...batch);
     }
 

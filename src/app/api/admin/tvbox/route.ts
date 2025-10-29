@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
     base.search = '';
     return NextResponse.json({
       enabled:
-        (process.env.TVBOX_ENABLED == null || String(process.env.TVBOX_ENABLED).trim() === '')
+        process.env.TVBOX_ENABLED == null ||
+        String(process.env.TVBOX_ENABLED).trim() === ''
           ? true
           : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true',
       password: process.env.PASSWORD || '',
@@ -43,8 +44,7 @@ export async function GET(request: NextRequest) {
   const url = `${base.toString()}?un=${encodeURIComponent(un)}`;
 
   const payload = {
-    enabled:
-      adminConfig.SiteConfig.TVBoxEnabled === true,
+    enabled: adminConfig.SiteConfig.TVBoxEnabled === true,
     password: adminConfig.SiteConfig.TVBoxPassword || '',
     url,
     localMode: false,
@@ -62,7 +62,9 @@ export async function POST(request: NextRequest) {
   const adminConfig = await getConfig();
   const username = authInfo.username;
   if (username !== process.env.USERNAME) {
-    const user = adminConfig.UserConfig.Users.find((u) => u.username === username);
+    const user = adminConfig.UserConfig.Users.find(
+      (u) => u.username === username
+    );
     if (!user || user.role !== 'admin' || user.banned) {
       return NextResponse.json({ error: '权限不足' }, { status: 403 });
     }
@@ -93,7 +95,8 @@ export async function POST(request: NextRequest) {
   let finalPassword = (adminConfig.SiteConfig as any).TVBoxPassword || '';
   if (mode === 'random') {
     // 简单随机口令
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const alphabet =
+      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
     finalPassword = Array.from({ length: 16 })
       .map(() => alphabet[Math.floor(Math.random() * alphabet.length)])
       .join('');
@@ -121,5 +124,3 @@ export async function POST(request: NextRequest) {
     })(),
   });
 }
-
-

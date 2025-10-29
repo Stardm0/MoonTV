@@ -11,7 +11,9 @@ interface FailedSourcesDisplayProps {
   failedSources: FailedSource[];
 }
 
-export default function FailedSourcesDisplay({ failedSources }: FailedSourcesDisplayProps) {
+export default function FailedSourcesDisplay({
+  failedSources,
+}: FailedSourcesDisplayProps) {
   const [showDetails, setShowDetails] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -37,7 +39,10 @@ export default function FailedSourcesDisplay({ failedSources }: FailedSourcesDis
   // 点击外部关闭详情
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(event.target as Node)
+      ) {
         setShowDetails(false);
       }
     };
@@ -54,42 +59,46 @@ export default function FailedSourcesDisplay({ failedSources }: FailedSourcesDis
   if (failedSources.length === 0) return null;
 
   return (
-    <div className="relative" ref={containerRef}>
-      <button 
-        className="flex items-center gap-2 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-2 py-1 rounded transition-colors"
+    <div className='relative' ref={containerRef}>
+      <button
+        className='flex items-center gap-2 hover:bg-amber-50 dark:hover:bg-amber-900/20 px-2 py-1 rounded transition-colors'
         onClick={() => setShowDetails(!showDetails)}
       >
-        <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0" />
-        <span className="text-sm text-amber-700 dark:text-amber-300 whitespace-nowrap">
+        <AlertTriangle className='w-4 h-4 text-amber-600 dark:text-amber-400 flex-shrink-0' />
+        <span className='text-sm text-amber-700 dark:text-amber-300 whitespace-nowrap'>
           失败源 ({failedSources.length})
         </span>
         {showDetails ? (
-          <ChevronUp className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+          <ChevronUp className='w-3 h-3 text-amber-600 dark:text-amber-400' />
         ) : (
-          <ChevronDown className="w-3 h-3 text-amber-600 dark:text-amber-400" />
+          <ChevronDown className='w-3 h-3 text-amber-600 dark:text-amber-400' />
         )}
       </button>
 
       {showDetails && (
-        <div className="absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-10 min-w-[190px] max-w-[300px] bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700/30 rounded-lg shadow-lg p-4">
-          <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200 mb-3">
+        <div className='absolute top-full left-1/2 transform -translate-x-1/2 mt-2 z-10 min-w-[190px] max-w-[300px] bg-white dark:bg-gray-800 border border-amber-200 dark:border-amber-700/30 rounded-lg shadow-lg p-4'>
+          <h3 className='text-sm font-medium text-amber-800 dark:text-amber-200 mb-3'>
             搜索失败的数据源详情
           </h3>
-          <div className="space-y-2 max-h-60 overflow-y-auto">
+          <div className='space-y-2 max-h-60 overflow-y-auto'>
             {failedSources.map((source, index) => (
               <div
                 key={`${source.key}-${index}`}
-                className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-100 dark:border-amber-800/30"
+                className='p-3 bg-amber-50 dark:bg-amber-900/20 rounded border border-amber-100 dark:border-amber-800/30'
               >
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="font-medium text-amber-800 dark:text-amber-200 text-sm">
+                <div className='flex items-center gap-2 mb-1'>
+                  <span className='font-medium text-amber-800 dark:text-amber-200 text-sm'>
                     {source.name}
                   </span>
-                  <span className="text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-800/50 px-2 py-0.5 rounded">
+                  <span className='text-xs text-amber-600 dark:text-amber-400 bg-amber-100 dark:bg-amber-800/50 px-2 py-0.5 rounded'>
                     {source.key}
                   </span>
                 </div>
-                <p className={`text-xs break-words ${getErrorColor(source.error)}`}>
+                <p
+                  className={`text-xs break-words ${getErrorColor(
+                    source.error
+                  )}`}
+                >
                   错误信息: {source.error}
                 </p>
               </div>

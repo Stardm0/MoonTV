@@ -39,7 +39,7 @@ function HomeClient() {
   const { announcement } = useSite();
 
   const [showAnnouncement, setShowAnnouncement] = useState(false);
-  
+
   // 检查是否启用简洁模式
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -87,7 +87,9 @@ function HomeClient() {
 
         // 检查是否启用简洁模式
         const savedSimpleMode = localStorage.getItem('simpleMode');
-        const isSimpleMode = savedSimpleMode ? JSON.parse(savedSimpleMode) : false;
+        const isSimpleMode = savedSimpleMode
+          ? JSON.parse(savedSimpleMode)
+          : false;
 
         if (isSimpleMode) {
           // 简洁模式下跳过豆瓣数据获取

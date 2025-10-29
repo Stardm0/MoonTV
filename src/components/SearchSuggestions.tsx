@@ -33,29 +33,29 @@ export default function SearchSuggestions({
     }
     const controller = new AbortController();
     abortControllerRef.current = controller;
-  
+
     try {
       const response = await fetch(
         `/api/search/suggestions?q=${encodeURIComponent(searchQuery)}`,
         { signal: controller.signal }
       );
-  
+
       if (!response.body) return;
-  
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
       let done = false;
-  
+
       while (!done) {
         const { value, done: readerDone } = await reader.read();
         done = readerDone;
         if (done) break;
-  
+
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
-  
+
         for (const line of lines) {
           if (!line.trim()) continue;
           try {
@@ -63,13 +63,13 @@ export default function SearchSuggestions({
             if (parsed.suggestions && Array.isArray(parsed.suggestions)) {
               setSuggestions((prev) => [
                 ...prev,
-                ...parsed.suggestions.map((s: any) => ({
+                ...parsed.suggestions.map((s: { text: string }) => ({
                   text: s.text,
                 })),
               ]);
             }
           } catch (err) {
-            console.error('解析流式数据失败', err);
+            /* ignore malformed line */ void 0;
           }
         }
       }
@@ -79,28 +79,34 @@ export default function SearchSuggestions({
       setSelectedIndex(-1);
     }
   }, []);
-  
 
   // 加载搜索建议设置
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const savedEnableSearchSuggestions = localStorage.getItem('enableSearchSuggestions');
+      const savedEnableSearchSuggestions = localStorage.getItem(
+        'enableSearchSuggestions'
+      );
       if (savedEnableSearchSuggestions !== null) {
         setIsEnabled(savedEnableSearchSuggestions === 'true');
       }
-      
+
       // 监听设置变化事件，实现实时更新
       const handleSettingsChange = (event: Event) => {
-        const customEvent = event as CustomEvent<{ enableSearchSuggestions: boolean }>;
+        const customEvent = event as CustomEvent<{
+          enableSearchSuggestions: boolean;
+        }>;
         if (customEvent.detail?.enableSearchSuggestions !== undefined) {
           setIsEnabled(customEvent.detail.enableSearchSuggestions);
         }
       };
-      
+
       window.addEventListener('searchSettingsChanged', handleSettingsChange);
-      
+
       return () => {
-        window.removeEventListener('searchSettingsChanged', handleSettingsChange);
+        window.removeEventListener(
+          'searchSettingsChanged',
+          handleSettingsChange
+        );
       };
     }
   }, []);
@@ -193,7 +199,7 @@ export default function SearchSuggestions({
   return (
     <div
       ref={containerRef}
-      className="absolute top-full left-0 right-0 z-50 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto"
+      className='absolute top-full left-0 right-0 z-50 mt-1 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 max-h-80 overflow-y-auto'
     >
       {suggestions.map((suggestion, index) => (
         <button
@@ -204,7 +210,7 @@ export default function SearchSuggestions({
             selectedIndex === index ? 'bg-gray-100 dark:bg-gray-700' : ''
           }`}
         >
-          <span className="flex-1 text-sm text-gray-700 dark:text-gray-300 truncate">
+          <span className='flex-1 text-sm text-gray-700 dark:text-gray-300 truncate'>
             {suggestion.text}
           </span>
         </button>

@@ -1,10 +1,8 @@
-/* eslint-disable @typescript-eslint/no-explicit-any,no-console */
-
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getCacheTime, getConfig } from '@/lib/config';
-import { searchFromApiStream } from '@/lib/downstream'; // 改用流式方法
-
+import { searchFromApiStream } from '@/lib/downstream';
+import { SearchResult } from '@/lib/types';
 import { toSimplified } from '@/lib/zh';
 export const runtime = 'edge';
 
@@ -13,7 +11,9 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get('q')?.trim();
     const timeoutParam = searchParams.get('timeout');
-    const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 转换为毫秒
+    const timeout = timeoutParam
+      ? parseInt(timeoutParam, 10) * 1000
+      : undefined; // 转换为毫秒
 
     if (!query) {
       return NextResponse.json({ suggestions: [] });
@@ -26,7 +26,10 @@ export async function GET(request: NextRequest) {
       async start(controller) {
         const encoder = new TextEncoder();
 
-        const suggestionsStream = generateSuggestionsStream(toSimplified(query || ''), timeout);
+        const suggestionsStream = generateSuggestionsStream(
+          toSimplified(query || ''),
+          timeout
+        );
 
         for await (const suggestions of suggestionsStream) {
           controller.enqueue(
@@ -45,7 +48,6 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('获取搜索建议失败', error);
     return NextResponse.json({ error: '获取搜索建议失败' }, { status: 500 });
   }
 }
@@ -53,35 +55,43 @@ export async function GET(request: NextRequest) {
 async function* generateSuggestionsStream(query: string, timeout?: number) {
   const queryLower = toSimplified(query).toLowerCase();
   const config = await getConfig();
-  const apiSites = config.SourceConfig.filter((site: any) => !site.disabled);
+  const apiSites = config.SourceConfig.filter((site) => !site.disabled);
 
   if (apiSites.length > 0) {
     // 使用第一个可用的数据源进行流式搜索
     const site = apiSites[0];
-    
-    for await (const results of searchFromApiStream(site, toSimplified(query), true, timeout)) {
+
+    for await (const results of searchFromApiStream(
+      site,
+      toSimplified(query),
+      true,
+      timeout
+    )) {
       // 统计关键词出现频率
       const keywordFrequency = new Map<string, number>();
       const allKeywords = results
-        .map((r: any) => r.title)
+        .map((r: SearchResult) => r.title)
         .filter(Boolean)
         .flatMap((title: string) => title.split(/[ -:：·、-]/))
-        .filter((w: string) => w.length > 1 && w.toLowerCase().includes(queryLower));
-      
+        .filter(
+          (w: string) => w.length > 1 && w.toLowerCase().includes(queryLower)
+        );
+
       allKeywords.forEach((word) => {
         const lower = word.toLowerCase();
         keywordFrequency.set(lower, (keywordFrequency.get(lower) || 0) + 1);
       });
-      
-      const realKeywords: string[] = Array.from(
-        new Set(allKeywords)
-      ).slice(0, 8);
+
+      const realKeywords: string[] = Array.from(new Set(allKeywords)).slice(
+        0,
+        8
+      );
 
       const realSuggestions = realKeywords.map((word) => {
         const wordLower = word.toLowerCase();
         const queryWords = queryLower.split(/[ -:：·、-]/);
         const frequency = keywordFrequency.get(wordLower) || 1;
-        
+
         // 计算基础匹配分数
         let score = 1.0;
         if (wordLower === queryLower) {
@@ -95,16 +105,16 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
         } else if (queryWords.some((qw) => wordLower.includes(qw))) {
           score = 1.5; // 包含查询词
         }
-        
+
         // 长度相似度加分（长度接近查询的更相关）
         const lengthDiff = Math.abs(wordLower.length - queryLower.length);
         const lengthSimilarity = 1 / (1 + lengthDiff * 0.1);
         score += lengthSimilarity * 0.3;
-        
+
         // 频率加分（出现次数多的更相关，但使用对数避免过度影响）
         const frequencyBonus = Math.log(frequency + 1) * 0.2;
         score += frequencyBonus;
-        
+
         // 长度惩罚（过长的关键词稍微降权）
         if (wordLower.length > queryLower.length * 2) {
           score -= 0.2;

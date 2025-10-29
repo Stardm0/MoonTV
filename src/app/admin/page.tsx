@@ -142,7 +142,8 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   });
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set());
   const [batchGroupName, setBatchGroupName] = useState<string>('');
-  const [_selectedGroupInDialog, setSelectedGroupInDialog] = useState<string>('');
+  const [_selectedGroupInDialog, setSelectedGroupInDialog] =
+    useState<string>('');
   // 弹窗编辑，删除内联编辑状态
   const [showAddUserForm, setShowAddUserForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
@@ -264,11 +265,13 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const toggleSelectAllUsers = () => {
     const all = config?.UserConfig.Users ?? [];
     if (selectedUsers.size === all.length) setSelectedUsers(new Set());
-    else setSelectedUsers(new Set(all.map(u => u.username)));
+    else setSelectedUsers(new Set(all.map((u) => u.username)));
   };
 
   // 批量分组与移出组
-  const _openGroupPicker = async () => { /* replaced by inline chips */ };
+  const _openGroupPicker = async () => {
+    /* replaced by inline chips */
+  };
 
   const createGroupPrompt = async () => {
     const allSources = config?.SourceConfig || [];
@@ -279,7 +282,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
             (s) => `
             <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer">
               <input type="checkbox" name="groupSources" value="${s.key}" />
-              <span style="font-size:13px"><strong>${s.name || s.key}</strong> <span style="opacity:.7">(${s.key})</span></span>
+              <span style="font-size:13px"><strong>${
+                s.name || s.key
+              }</strong> <span style="opacity:.7">(${s.key})</span></span>
             </label>`
           )
           .join('')}
@@ -298,8 +303,12 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         '</div>' +
         sourceListHtml,
       didOpen: (el) => {
-        const toggleAll = el.querySelector('#swal-group-select-all') as HTMLInputElement | null;
-        const itemNodes = Array.from(el.querySelectorAll('input[name="groupSources"]')) as HTMLInputElement[];
+        const toggleAll = el.querySelector(
+          '#swal-group-select-all'
+        ) as HTMLInputElement | null;
+        const itemNodes = Array.from(
+          el.querySelectorAll('input[name="groupSources"]')
+        ) as HTMLInputElement[];
         if (toggleAll) {
           toggleAll.addEventListener('change', () => {
             itemNodes.forEach((n) => {
@@ -313,7 +322,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       confirmButtonText: '创建',
       cancelButtonText: '取消',
       preConfirm: () => {
-        const nameEl = document.getElementById('swal-input-group-name') as HTMLInputElement | null;
+        const nameEl = document.getElementById(
+          'swal-input-group-name'
+        ) as HTMLInputElement | null;
         const name = nameEl?.value?.trim();
         if (!name) {
           Swal.showValidationMessage('分组名称不能为空');
@@ -327,7 +338,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       },
     });
     if (!isConfirmed || !value) return;
-    const { name, sourceKeys } = value as { name: string; sourceKeys: string[] };
+    const { name, sourceKeys } = value as {
+      name: string;
+      sourceKeys: string[];
+    };
     try {
       const resp = await fetch('/api/admin/group', {
         method: 'POST',
@@ -351,12 +365,16 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       showError('请先选择要分配的用户');
       return;
     }
-    
+
     try {
       const resp = await fetch('/api/admin/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'assignUsers', name: groupName, users: Array.from(selectedUsers) }),
+        body: JSON.stringify({
+          action: 'assignUsers',
+          name: groupName,
+          users: Array.from(selectedUsers),
+        }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -376,7 +394,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       const resp = await fetch('/api/admin/group', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'removeUsers', users: Array.from(selectedUsers) }),
+        body: JSON.stringify({
+          action: 'removeUsers',
+          users: Array.from(selectedUsers),
+        }),
       });
       if (!resp.ok) {
         const data = await resp.json().catch(() => ({}));
@@ -428,7 +449,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
   const openGroupManagementDialog = async () => {
     const groups = config?.UserConfig?.Groups || [];
     setSelectedGroupInDialog(''); // 重置选中状态
-    
+
     await Swal.fire({
       title: '分组管理',
       html: `
@@ -436,7 +457,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           <div class="mb-4">
             <h4 class="text-sm font-medium text-gray-700 mb-2">已创建的分组</h4>
             <div class="grid gap-3" style="grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));">
-              ${groups.map(g => `
+              ${groups
+                .map(
+                  (g) => `
                 <div 
                   onclick="window.selectGroupInDialog('${g.name}')"
                   class="p-3 rounded-lg border cursor-pointer transition-colors hover:shadow-sm"
@@ -444,7 +467,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                   id="group-card-${g.name}"
                 >
                   <div class="flex items-center justify-between gap-2 mb-2">
-                    <span class="text-sm font-medium text-gray-800">${g.name}</span>
+                    <span class="text-sm font-medium text-gray-800">${
+                      g.name
+                    }</span>
                     <div class="flex items-center gap-2">
                       <span class="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">
                         ${g.sourceKeys?.length || 0} 源
@@ -452,21 +477,37 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                     </div>
                   </div>
                   <div class="flex flex-wrap gap-2">
-                    ${(g.sourceKeys || []).map(k => `
+                    ${(g.sourceKeys || [])
+                      .map(
+                        (k) => `
                       <span class="px-2 py-1 text-xs rounded border bg-gray-50 border-gray-300 text-gray-700">
                         ${k}
                       </span>
-                    `).join('')}
-                    ${(!g.sourceKeys || g.sourceKeys.length === 0) ? '<span class="text-xs text-gray-500">未配置源</span>' : ''}
+                    `
+                      )
+                      .join('')}
+                    ${
+                      !g.sourceKeys || g.sourceKeys.length === 0
+                        ? '<span class="text-xs text-gray-500">未配置源</span>'
+                        : ''
+                    }
                   </div>
                 </div>
-              `).join('')}
-              ${groups.length === 0 ? '<div class="col-span-full text-center text-gray-500 py-4">暂无分组</div>' : ''}
+              `
+                )
+                .join('')}
+              ${
+                groups.length === 0
+                  ? '<div class="col-span-full text-center text-gray-500 py-4">暂无分组</div>'
+                  : ''
+              }
             </div>
           </div>
           <div class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <div class="text-sm text-blue-800">
-              已选中 ${selectedUsers.size} 个用户，选择分组和用户后可进行分配操作
+              已选中 ${
+                selectedUsers.size
+              } 个用户，选择分组和用户后可进行分配操作
             </div>
           </div>
         </div>
@@ -510,9 +551,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         (window as any).selectGroupInDialog = (groupName: string) => {
           setSelectedGroupInDialog(groupName);
           (window as any).currentSelectedGroup = groupName; // 设置全局变量
-          
+
           // 更新UI
-          groups.forEach(g => {
+          groups.forEach((g) => {
             const card = document.getElementById(`group-card-${g.name}`);
             if (card) {
               if (g.name === groupName) {
@@ -524,64 +565,84 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
               }
             }
           });
-          
+
           // 更新文本和按钮状态
           const selectedText = document.getElementById('selected-group-text');
-          const editBtn = document.getElementById('edit-group-btn') as HTMLButtonElement;
-          const assignBtn = document.getElementById('assign-group-btn') as HTMLButtonElement;
-          const deleteBtn = document.getElementById('delete-group-btn') as HTMLButtonElement;
-          
+          const editBtn = document.getElementById(
+            'edit-group-btn'
+          ) as HTMLButtonElement;
+          const assignBtn = document.getElementById(
+            'assign-group-btn'
+          ) as HTMLButtonElement;
+          const deleteBtn = document.getElementById(
+            'delete-group-btn'
+          ) as HTMLButtonElement;
+
           if (selectedText) selectedText.textContent = `已选择: ${groupName}`;
           if (editBtn) editBtn.disabled = false;
           if (assignBtn) assignBtn.disabled = selectedUsers.size === 0;
           if (deleteBtn) deleteBtn.disabled = false;
         };
-        
+
         (window as any).editSelectedGroup = async () => {
           const groupName = (window as any).currentSelectedGroup;
           if (!groupName) return;
-          const group = groups.find(g => g.name === groupName);
+          const group = groups.find((g) => g.name === groupName);
           if (group) {
             await openEditGroupDialog(groupName, group.sourceKeys || []);
             // 编辑完成后重新打开分组管理弹窗
             openGroupManagementDialog();
           }
         };
-        
+
         (window as any).assignToSelectedGroup = async () => {
           const groupName = (window as any).currentSelectedGroup;
           if (!groupName) return;
           await performBatchAssignGroup(groupName);
         };
-        
+
         (window as any).deleteSelectedGroup = async () => {
           const groupName = (window as any).currentSelectedGroup;
           if (!groupName) return;
           await handleDeleteGroup(groupName);
         };
-        
+
         // 绑定按钮事件
         setTimeout(() => {
           const editBtn = document.getElementById('edit-group-btn');
           const assignBtn = document.getElementById('assign-group-btn');
           const deleteBtn = document.getElementById('delete-group-btn');
-          
-          if (editBtn) editBtn.onclick = () => (window as any).editSelectedGroup();
-          if (assignBtn) assignBtn.onclick = () => (window as any).assignToSelectedGroup();
-          if (deleteBtn) deleteBtn.onclick = () => (window as any).deleteSelectedGroup();
+
+          if (editBtn)
+            editBtn.onclick = () => (window as any).editSelectedGroup();
+          if (assignBtn)
+            assignBtn.onclick = () => (window as any).assignToSelectedGroup();
+          if (deleteBtn)
+            deleteBtn.onclick = () => (window as any).deleteSelectedGroup();
         }, 100);
-      }
+      },
     });
   };
 
-  const openEditGroupDialog = async (groupName: string, currentKeys: string[]) => {
+  const openEditGroupDialog = async (
+    groupName: string,
+    currentKeys: string[]
+  ) => {
     const allSources = config?.SourceConfig || [];
     const sourceListHtml = `
       <div style="text-align:left;max-height:260px;overflow:auto;border:1px solid var(--swal2-border,#e5e7eb);border-radius:8px;padding:8px;margin-top:8px;display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">
         ${allSources
           .map(
             (s) => `
-            <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer">\n              <input type="checkbox" name="editGroupSources" value="${s.key}" ${currentKeys?.includes(s.key) ? 'checked' : ''}/>\n              <span style="font-size:13px"><strong>${s.name || s.key}</strong> <span style="opacity:.7">(${s.key})</span></span>\n            </label>`
+            <label style="display:flex;align-items:center;gap:8px;padding:8px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer">\n              <input type="checkbox" name="editGroupSources" value="${
+              s.key
+            }" ${
+              currentKeys?.includes(s.key) ? 'checked' : ''
+            }/>\n              <span style="font-size:13px"><strong>${
+              s.name || s.key
+            }</strong> <span style="opacity:.7">(${
+              s.key
+            })</span></span>\n            </label>`
           )
           .join('')}
       </div>`;
@@ -603,8 +664,12 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       confirmButtonText: '保存',
       cancelButtonText: '取消',
       didOpen: (el) => {
-        const toggleAll = el.querySelector('#swal-edit-group-select-all') as HTMLInputElement | null;
-        const itemNodes = Array.from(el.querySelectorAll('input[name="editGroupSources"]')) as HTMLInputElement[];
+        const toggleAll = el.querySelector(
+          '#swal-edit-group-select-all'
+        ) as HTMLInputElement | null;
+        const itemNodes = Array.from(
+          el.querySelectorAll('input[name="editGroupSources"]')
+        ) as HTMLInputElement[];
         if (toggleAll) {
           toggleAll.addEventListener('change', () => {
             itemNodes.forEach((n) => {
@@ -614,7 +679,9 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
         }
       },
       preConfirm: () => {
-        const nameEl = document.getElementById('swal-edit-group-name') as HTMLInputElement | null;
+        const nameEl = document.getElementById(
+          'swal-edit-group-name'
+        ) as HTMLInputElement | null;
         const name = nameEl?.value?.trim();
         if (!name) {
           Swal.showValidationMessage('分组名称不能为空');
@@ -628,7 +695,10 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
       },
     });
     if (!isConfirmed || !value) return;
-    const { name, sourceKeys } = value as { name: string; sourceKeys: string[] };
+    const { name, sourceKeys } = value as {
+      name: string;
+      sourceKeys: string[];
+    };
     if (name !== groupName) {
       await callGroupApi({ action: 'rename', name: groupName, newName: name });
     }
@@ -682,7 +752,6 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
 
   return (
     <div className='space-y-6'>
-      
       {/* 用户统计 */}
       <div>
         <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300 mb-3'>
@@ -708,17 +777,21 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
             允许新用户注册
           </label>
           <button
-            onClick={() => toggleAllowRegister(!userSettings.enableRegistration)}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${userSettings.enableRegistration
-              ? 'bg-green-600'
-              : 'bg-gray-200 dark:bg-gray-700'
-              }`}
+            onClick={() =>
+              toggleAllowRegister(!userSettings.enableRegistration)
+            }
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+              userSettings.enableRegistration
+                ? 'bg-green-600'
+                : 'bg-gray-200 dark:bg-gray-700'
+            }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${userSettings.enableRegistration
-                ? 'translate-x-6'
-                : 'translate-x-1'
-                }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                userSettings.enableRegistration
+                  ? 'translate-x-6'
+                  : 'translate-x-1'
+              }`}
             />
           </button>
         </div>
@@ -750,7 +823,11 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
             <label className='flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
               <input
                 type='checkbox'
-                checked={selectedUsers.size === (config?.UserConfig.Users.length || 0) && (config?.UserConfig.Users.length || 0) > 0}
+                checked={
+                  selectedUsers.size ===
+                    (config?.UserConfig.Users.length || 0) &&
+                  (config?.UserConfig.Users.length || 0) > 0
+                }
                 onChange={toggleSelectAllUsers}
                 className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
               />
@@ -864,7 +941,7 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
           <table className='min-w-full divide-y divide-gray-200 dark:divide-gray-700'>
             <thead className='bg-gray-50 dark:bg-gray-900'>
               <tr>
-              <th className='w-8' />
+                <th className='w-8' />
                 <th
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
@@ -877,12 +954,12 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                 >
                   角色
                 </th>
-              <th
-                scope='col'
-                className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
-              >
-                分组
-              </th>
+                <th
+                  scope='col'
+                  className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
+                >
+                  分组
+                </th>
                 <th
                   scope='col'
                   className='px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider'
@@ -949,18 +1026,19 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
                           <span
-                            className={`px-2 py-1 text-xs rounded-full ${user.role === 'owner'
-                              ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300'
-                              : user.role === 'admin'
+                            className={`px-2 py-1 text-xs rounded-full ${
+                              user.role === 'owner'
+                                ? 'bg-yellow-100 dark:bg-yellow-900/20 text-yellow-800 dark:text-yellow-300'
+                                : user.role === 'admin'
                                 ? 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300'
                                 : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
-                              }`}
+                            }`}
                           >
                             {user.role === 'owner'
                               ? '站长'
                               : user.role === 'admin'
-                                ? '管理员'
-                                : '普通用户'}
+                              ? '管理员'
+                              : '普通用户'}
                           </span>
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
@@ -968,10 +1046,11 @@ const UserConfig = ({ config, role, refreshConfig }: UserConfigProps) => {
                         </td>
                         <td className='px-6 py-4 whitespace-nowrap'>
                           <span
-                            className={`px-2 py-1 text-xs rounded-full ${!user.banned
-                              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-                              : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
-                              }`}
+                            className={`px-2 py-1 text-xs rounded-full ${
+                              !user.banned
+                                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                                : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+                            }`}
                           >
                             {!user.banned ? '正常' : '已封禁'}
                           </span>
@@ -1071,9 +1150,11 @@ const VideoSourceConfig = ({
     disabled: false,
     from: 'config',
   });
-  
+
   // 批量操作相关状态
-  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(
+    new Set()
+  );
 
   // dnd-kit 传感器
   const sensors = useSensors(
@@ -1189,7 +1270,7 @@ const VideoSourceConfig = ({
     if (selectedSources.size === sources.length) {
       setSelectedSources(new Set());
     } else {
-      setSelectedSources(new Set(sources.map(s => s.key)));
+      setSelectedSources(new Set(sources.map((s) => s.key)));
     }
   };
 
@@ -1205,7 +1286,7 @@ const VideoSourceConfig = ({
 
   const handleBatchDisable = async () => {
     if (selectedSources.size === 0) return;
-    
+
     const { isConfirmed } = await Swal.fire({
       title: '确认批量禁用',
       text: `确定要禁用选中的 ${selectedSources.size} 个视频源吗？`,
@@ -1219,9 +1300,9 @@ const VideoSourceConfig = ({
     if (!isConfirmed) return;
 
     try {
-      await callSourceApi({ 
-        action: 'batchDisable', 
-        keys: Array.from(selectedSources) 
+      await callSourceApi({
+        action: 'batchDisable',
+        keys: Array.from(selectedSources),
       });
     } catch (err) {
       console.error('批量禁用失败', err);
@@ -1230,7 +1311,7 @@ const VideoSourceConfig = ({
 
   const handleBatchEnable = async () => {
     if (selectedSources.size === 0) return;
-    
+
     const { isConfirmed } = await Swal.fire({
       title: '确认批量启用',
       text: `确定要启用选中的 ${selectedSources.size} 个视频源吗？`,
@@ -1244,9 +1325,9 @@ const VideoSourceConfig = ({
     if (!isConfirmed) return;
 
     try {
-      await callSourceApi({ 
-        action: 'batchEnable', 
-        keys: Array.from(selectedSources) 
+      await callSourceApi({
+        action: 'batchEnable',
+        keys: Array.from(selectedSources),
       });
       // 批量启用后保持选中状态，不清空
     } catch (err) {
@@ -1256,18 +1337,18 @@ const VideoSourceConfig = ({
 
   const handleBatchDelete = async () => {
     if (selectedSources.size === 0) return;
-    
+
     // 检查是否有不可删除的源
-    const deletableSources = sources.filter(s => 
-      selectedSources.has(s.key) && s.from !== 'config'
+    const deletableSources = sources.filter(
+      (s) => selectedSources.has(s.key) && s.from !== 'config'
     );
     const nonDeletableCount = selectedSources.size - deletableSources.length;
-    
+
     let confirmText = `确定要删除选中的 ${deletableSources.length} 个自定义视频源吗？`;
     if (nonDeletableCount > 0) {
       confirmText += `\n注意：有 ${nonDeletableCount} 个系统默认源无法删除，将被跳过。`;
     }
-    
+
     const { isConfirmed } = await Swal.fire({
       title: '确认批量删除',
       text: confirmText,
@@ -1281,9 +1362,9 @@ const VideoSourceConfig = ({
     if (!isConfirmed) return;
 
     try {
-      await callSourceApi({ 
-        action: 'batchDelete', 
-        keys: deletableSources.map(s => s.key) 
+      await callSourceApi({
+        action: 'batchDelete',
+        keys: deletableSources.map((s) => s.key),
       });
       setSelectedSources(new Set());
     } catch (err) {
@@ -1316,7 +1397,7 @@ const VideoSourceConfig = ({
         >
           <GripVertical size={16} />
         </td>
-        
+
         {/* 复选框列 */}
         <td className='px-2 py-4'>
           <input
@@ -1346,10 +1427,11 @@ const VideoSourceConfig = ({
         </td>
         <td className='px-6 py-4 whitespace-nowrap max-w-[1rem]'>
           <span
-            className={`px-2 py-1 text-xs rounded-full ${!source.disabled
-              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-              : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
-              }`}
+            className={`px-2 py-1 text-xs rounded-full ${
+              !source.disabled
+                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+            }`}
           >
             {!source.disabled ? '启用中' : '已禁用'}
           </span>
@@ -1357,10 +1439,11 @@ const VideoSourceConfig = ({
         <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
           <button
             onClick={() => handleToggleEnable(source.key)}
-            className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${!source.disabled
-              ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
-              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
-              } transition-colors`}
+            className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${
+              !source.disabled
+                ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
+                : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
+            } transition-colors`}
           >
             {!source.disabled ? '禁用' : '启用'}
           </button>
@@ -1409,7 +1492,10 @@ const VideoSourceConfig = ({
               <label className='flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300'>
                 <input
                   type='checkbox'
-                  checked={selectedSources.size === sources.length && sources.length > 0}
+                  checked={
+                    selectedSources.size === sources.length &&
+                    sources.length > 0
+                  }
                   onChange={toggleSelectAll}
                   className='w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 dark:focus:ring-blue-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600'
                 />
@@ -1707,7 +1793,7 @@ const CategoryConfig = ({
         className='hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors select-none'
       >
         <td
-          className="px-2 py-4 cursor-grab text-gray-400"
+          className='px-2 py-4 cursor-grab text-gray-400'
           style={{ touchAction: 'none' }}
           {...{ ...attributes, ...listeners }}
         >
@@ -1718,10 +1804,11 @@ const CategoryConfig = ({
         </td>
         <td className='px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100'>
           <span
-            className={`px-2 py-1 text-xs rounded-full ${category.type === 'movie'
-              ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300'
-              : 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300'
-              }`}
+            className={`px-2 py-1 text-xs rounded-full ${
+              category.type === 'movie'
+                ? 'bg-blue-100 dark:bg-blue-900/20 text-blue-800 dark:text-blue-300'
+                : 'bg-purple-100 dark:bg-purple-900/20 text-purple-800 dark:text-purple-300'
+            }`}
           >
             {category.type === 'movie' ? '电影' : '电视剧'}
           </span>
@@ -1734,10 +1821,11 @@ const CategoryConfig = ({
         </td>
         <td className='px-6 py-4 whitespace-nowrap max-w-[1rem]'>
           <span
-            className={`px-2 py-1 text-xs rounded-full ${!category.disabled
-              ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
-              : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
-              }`}
+            className={`px-2 py-1 text-xs rounded-full ${
+              !category.disabled
+                ? 'bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-300'
+                : 'bg-red-100 dark:bg-red-900/20 text-red-800 dark:text-red-300'
+            }`}
           >
             {!category.disabled ? '启用中' : '已禁用'}
           </span>
@@ -1745,10 +1833,11 @@ const CategoryConfig = ({
         <td className='px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2'>
           <button
             onClick={() => handleToggleEnable(category.query, category.type)}
-            className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${!category.disabled
-              ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
-              : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
-              } transition-colors`}
+            className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-medium ${
+              !category.disabled
+                ? 'bg-red-100 dark:bg-red-900/40 text-red-800 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/60'
+                : 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/60'
+            } transition-colors`}
           >
             {!category.disabled ? '禁用' : '启用'}
           </button>
@@ -1785,15 +1874,15 @@ const CategoryConfig = ({
             </span>
           )}
         </h4>
-            <button
-              onClick={() => setShowAddForm(!showAddForm)}
-              className='px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors'
-            >
-              {showAddForm ? '取消' : '添加分类'}
-            </button>
+        <button
+          onClick={() => setShowAddForm(!showAddForm)}
+          className='px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg transition-colors'
+        >
+          {showAddForm ? '取消' : '添加分类'}
+        </button>
       </div>
 
-          {showAddForm && (
+      {showAddForm && (
         <div className='p-4 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 space-y-4'>
           <div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
             <input
@@ -1903,7 +1992,13 @@ const CategoryConfig = ({
 };
 
 // 新增配置文件组件
-const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | null; refreshConfig: () => Promise<void> }) => {
+const ConfigFileComponent = ({
+  config,
+  refreshConfig,
+}: {
+  config: AdminConfig | null;
+  refreshConfig: () => Promise<void>;
+}) => {
   const [configContent, setConfigContent] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -1920,13 +2015,11 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
     }
   }, [config]);
 
-
-
   // 保存配置文件
   const handleSave = async () => {
     try {
       setSaving(true);
-      
+
       // 验证并格式化 JSON
       let formattedConfig;
       try {
@@ -1935,7 +2028,7 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
       } catch (e) {
         throw new Error('配置文件格式错误，请检查 JSON 语法');
       }
-      
+
       const resp = await fetch('/api/admin/config_file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1955,8 +2048,6 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
       setSaving(false);
     }
   };
-
-
 
   if (!config) {
     return (
@@ -1978,7 +2069,8 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
             placeholder='请输入配置文件内容（JSON 格式）...'
             className='w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-mono text-sm leading-relaxed resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 hover:border-gray-400 dark:hover:border-gray-500'
             style={{
-              fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace'
+              fontFamily:
+                'ui-monospace, SFMono-Regular, "SF Mono", Consolas, "Liberation Mono", Menlo, monospace',
             }}
             spellCheck={false}
             data-gramm={false}
@@ -1992,10 +2084,11 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
           <button
             onClick={handleSave}
             disabled={saving}
-            className={`px-4 py-2 rounded-lg transition-colors ${saving
-              ? 'bg-gray-400 cursor-not-allowed text-white'
-              : 'bg-green-600 hover:bg-green-700 text-white'
-              }`}
+            className={`px-4 py-2 rounded-lg transition-colors ${
+              saving
+                ? 'bg-gray-400 cursor-not-allowed text-white'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            }`}
           >
             {saving ? '保存中…' : '保存配置文件'}
           </button>
@@ -2022,10 +2115,11 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
-  
+
   // TVBox 密码生成
   const generateRandomPassword = () => {
-    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    const alphabet =
+      'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
     return Array.from({ length: 16 })
       .map(() => alphabet[Math.floor(Math.random() * alphabet.length)])
       .join('');
@@ -2192,8 +2286,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       {/* 站点名称 */}
       <div>
         <label
-          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''
-            }`}
+          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+            isLocalStorage ? 'opacity-50' : ''
+          }`}
         >
           站点名称
           {isLocalStorage && (
@@ -2210,16 +2305,18 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             setSiteSettings((prev) => ({ ...prev, SiteName: e.target.value }))
           }
           disabled={isLocalStorage}
-          className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+          className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+            isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         />
       </div>
 
       {/* 站点公告 */}
       <div>
         <label
-          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''
-            }`}
+          className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+            isLocalStorage ? 'opacity-50' : ''
+          }`}
         >
           站点公告
           {isLocalStorage && (
@@ -2239,8 +2336,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           }
           disabled={isLocalStorage}
           rows={3}
-          className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-            }`}
+          className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+            isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+          }`}
         />
       </div>
 
@@ -2248,8 +2346,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       <div className='space-y-3'>
         <div>
           <label
-            className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''
-              }`}
+            className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+              isLocalStorage ? 'opacity-50' : ''
+            }`}
           >
             豆瓣数据代理
             {isLocalStorage && (
@@ -2264,8 +2363,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
               type='button'
               onClick={() => setIsDoubanDropdownOpen(!isDoubanDropdownOpen)}
               disabled={isLocalStorage}
-              className={`w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left ${isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+              className={`w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             >
               {
                 doubanDataSourceOptions.find(
@@ -2277,8 +2377,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             {/* 下拉箭头 */}
             <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
               <ChevronDown
-                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isDoubanDropdownOpen ? 'rotate-180' : ''
-                  }`}
+                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                  isDoubanDropdownOpen ? 'rotate-180' : ''
+                }`}
               />
             </div>
 
@@ -2293,10 +2394,11 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                       handleDoubanDataSourceChange(option.value);
                       setIsDoubanDropdownOpen(false);
                     }}
-                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${siteSettings.DoubanProxyType === option.value
-                      ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                      : 'text-gray-900 dark:text-gray-100'
-                      }`}
+                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                      siteSettings.DoubanProxyType === option.value
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                        : 'text-gray-900 dark:text-gray-100'
+                    }`}
                   >
                     <span className='truncate'>{option.label}</span>
                     {siteSettings.DoubanProxyType === option.value && (
@@ -2337,8 +2439,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         {siteSettings.DoubanProxyType === 'custom' && (
           <div>
             <label
-              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''
-                }`}
+              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+                isLocalStorage ? 'opacity-50' : ''
+              }`}
             >
               豆瓣代理地址
             </label>
@@ -2354,8 +2457,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 }))
               }
               disabled={isLocalStorage}
-              className={`w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 ${isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-                }`}
+              className={`w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
             />
             <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
               自定义代理服务器地址
@@ -2367,9 +2471,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       {/* 豆瓣图片代理设置 */}
       <div className='space-y-3'>
         <div>
-          <label
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-          >
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
             豆瓣图片代理
             {false && (
               <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
@@ -2386,7 +2488,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                   !isDoubanImageProxyDropdownOpen
                 )
               }
-              className="w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left"
+              className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left'
             >
               {
                 doubanImageProxyTypeOptions.find(
@@ -2398,8 +2500,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             {/* 下拉箭头 */}
             <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none'>
               <ChevronDown
-                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${isDoubanImageProxyDropdownOpen ? 'rotate-180' : ''
-                  }`}
+                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                  isDoubanImageProxyDropdownOpen ? 'rotate-180' : ''
+                }`}
               />
             </div>
 
@@ -2414,10 +2517,11 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                       handleDoubanImageProxyChange(option.value);
                       setIsDoubanImageProxyDropdownOpen(false);
                     }}
-                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${siteSettings.DoubanImageProxyType === option.value
-                      ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
-                      : 'text-gray-900 dark:text-gray-100'
-                      }`}
+                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                      siteSettings.DoubanImageProxyType === option.value
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                        : 'text-gray-900 dark:text-gray-100'
+                    }`}
                   >
                     <span className='truncate'>{option.label}</span>
                     {siteSettings.DoubanImageProxyType === option.value && (
@@ -2457,9 +2561,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         {/* 豆瓣代理地址设置 - 仅在选择自定义代理时显示 */}
         {siteSettings.DoubanImageProxyType === 'custom' && (
           <div>
-            <label
-              className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-            >
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
               豆瓣图片代理地址
             </label>
             <input
@@ -2472,7 +2574,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                   DoubanImageProxy: e.target.value,
                 }))
               }
-              className="w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500"
+              className='w-full px-3 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400 shadow-sm hover:border-gray-400 dark:hover:border-gray-500'
             />
             <p className='mt-1 text-xs text-gray-500 dark:text-gray-400'>
               自定义图片代理服务器地址
@@ -2522,9 +2624,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       {/* 禁用黄色过滤器 */}
       <div>
         <div className='flex items-center justify-between'>
-          <label
-            className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
-          >
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
             禁用黄色过滤器
             {false && (
               <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
@@ -2540,16 +2640,18 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 DisableYellowFilter: !prev.DisableYellowFilter,
               }))
             }
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${siteSettings.DisableYellowFilter
-              ? 'bg-green-600'
-              : 'bg-gray-200 dark:bg-gray-700'
-              }`}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+              siteSettings.DisableYellowFilter
+                ? 'bg-green-600'
+                : 'bg-gray-200 dark:bg-gray-700'
+            }`}
           >
             <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${siteSettings.DisableYellowFilter
-                ? 'translate-x-6'
-                : 'translate-x-1'
-                }`}
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                siteSettings.DisableYellowFilter
+                  ? 'translate-x-6'
+                  : 'translate-x-1'
+              }`}
             />
           </button>
         </div>
@@ -2563,12 +2665,14 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
           TVBox 接口配置
         </h3>
-        
+
         {/* TVBox 开关 */}
         <div>
           <div className='flex items-center justify-between'>
             <label
-              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${isLocalStorage ? 'opacity-50' : ''}`}
+              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+                isLocalStorage ? 'opacity-50' : ''
+              }`}
             >
               启用 TVBox 接口
               {isLocalStorage && (
@@ -2620,15 +2724,21 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 value={
                   typeof window !== 'undefined'
                     ? (() => {
-                        const uname = getAuthInfoFromBrowserCookie()?.username || '';
+                        const uname =
+                          getAuthInfoFromBrowserCookie()?.username || '';
                         const un = (() => {
                           if (!uname) return '';
                           const bytes = new TextEncoder().encode(uname);
                           let binary = '';
-                          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                          for (let i = 0; i < bytes.length; i++)
+                            binary += String.fromCharCode(bytes[i]);
                           return btoa(binary);
                         })();
-                        return `${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}${un ? `&un=${encodeURIComponent(un)}` : ''}`;
+                        return `${
+                          window.location.origin
+                        }/api/tvbox/config?pwd=${encodeURIComponent(
+                          siteSettings.TVBoxPassword || ''
+                        )}${un ? `&un=${encodeURIComponent(un)}` : ''}`;
                       })()
                     : ''
                 }
@@ -2639,15 +2749,23 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 type='button'
                 onClick={() => {
                   if (typeof window !== 'undefined') {
-                    const uname = getAuthInfoFromBrowserCookie()?.username || '';
+                    const uname =
+                      getAuthInfoFromBrowserCookie()?.username || '';
                     const un = (() => {
                       if (!uname) return '';
                       const bytes = new TextEncoder().encode(uname);
                       let binary = '';
-                      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+                      for (let i = 0; i < bytes.length; i++)
+                        binary += String.fromCharCode(bytes[i]);
                       return btoa(binary);
                     })();
-                    navigator.clipboard.writeText(`${window.location.origin}/api/tvbox/config?pwd=${encodeURIComponent(siteSettings.TVBoxPassword || '')}${un ? `&un=${encodeURIComponent(un)}` : ''}`);
+                    navigator.clipboard.writeText(
+                      `${
+                        window.location.origin
+                      }/api/tvbox/config?pwd=${encodeURIComponent(
+                        siteSettings.TVBoxPassword || ''
+                      )}${un ? `&un=${encodeURIComponent(un)}` : ''}`
+                    );
                   }
                 }}
                 className='px-3 py-2 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm'
@@ -2720,10 +2838,11 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         <button
           onClick={handleSave}
           disabled={saving}
-          className={`px-4 py-2 ${saving
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-green-600 hover:bg-green-700'
-            } text-white rounded-lg transition-colors`}
+          className={`px-4 py-2 ${
+            saving
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-green-600 hover:bg-green-700'
+          } text-white rounded-lg transition-colors`}
         >
           {saving ? '保存中…' : '保存'}
         </button>
@@ -2857,10 +2976,10 @@ function AdminPageClient() {
                   confirmButtonColor: '#3b82f6',
                 });
               }}
-              className="w-8 h-8 p-1.5 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors"
-              aria-label="缓存提示"
+              className='w-8 h-8 p-1.5 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
+              aria-label='缓存提示'
             >
-              <Bell className="w-full h-full" />
+              <Bell className='w-full h-full' />
             </button>
             {config && role === 'owner' && (
               <button

@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 
 import { getCacheTime, getConfig } from '@/lib/config';
+import type { DoubanItem, DoubanResult } from '@/lib/types';
 
 export const runtime = 'edge';
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
-  let inputPassword = url.searchParams.get('pwd') || url.searchParams.get('password') || '';
+  let inputPassword =
+    url.searchParams.get('pwd') || url.searchParams.get('password') || '';
 
   const adminConfig = await getConfig();
   const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
@@ -14,30 +16,24 @@ export async function GET(request: Request) {
   if (storageType === 'localstorage' && !inputPassword) {
     inputPassword = process.env.PASSWORD || '';
   }
-  const enabled = storageType === 'localstorage'
-    ? (process.env.TVBOX_ENABLED == null
+  const enabled =
+    storageType === 'localstorage'
+      ? process.env.TVBOX_ENABLED == null
         ? true
-        : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true')
-    : adminConfig.SiteConfig.TVBoxEnabled === true;
+        : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true'
+      : adminConfig.SiteConfig.TVBoxEnabled === true;
 
   if (!enabled) {
     return NextResponse.json({ error: 'TVBox 接口未开启' }, { status: 403 });
   }
 
   try {
-    const [cfg, cacheTime] = await Promise.all([
-      getConfig(),
-      getCacheTime(),
-    ]);
+    const [cfg, cacheTime] = await Promise.all([getConfig(), getCacheTime()]);
 
     // 豆瓣默认分类（来源于 README 可用分类）
     const doubanDefaults = {
-      movie: [
-        '热门','最新','经典','豆瓣高分',
-      ],
-      tv: [
-        '热门','美剧','英剧','韩剧','日剧','国产剧','日本动画',
-      ],
+      movie: ['热门', '最新', '经典', '豆瓣高分'],
+      tv: ['热门', '美剧', '英剧', '韩剧', '日剧', '国产剧', '日本动画'],
     };
 
     // 用户自定义分类（从配置获取）
@@ -65,13 +61,24 @@ export async function GET(request: Request) {
     const tParam = Number(url.searchParams.get('t') || '');
     const wdParam = url.searchParams.get('wd') || '';
     const pgParam = Math.max(1, parseInt(url.searchParams.get('pg') || '1'));
-    const pageSize = Math.max(1, Math.min(50, parseInt(url.searchParams.get('pagesize') || '20')));
+    const pageSize = Math.max(
+      1,
+      Math.min(50, parseInt(url.searchParams.get('pagesize') || '20'))
+    );
 
     if (tParam || wdParam) {
       // 重建与 classes 相同顺序的选择器映射
-      const selectors: Array<{ kind: 'movie' | 'tv'; category?: string; label?: string }> = [];
-      doubanDefaults.movie.forEach((name) => selectors.push({ kind: 'movie', category: name }));
-      doubanDefaults.tv.forEach((name) => selectors.push({ kind: 'tv', category: name }));
+      const selectors: Array<{
+        kind: 'movie' | 'tv';
+        category?: string;
+        label?: string;
+      }> = [];
+      doubanDefaults.movie.forEach((name) =>
+        selectors.push({ kind: 'movie', category: name })
+      );
+      doubanDefaults.tv.forEach((name) =>
+        selectors.push({ kind: 'tv', category: name })
+      );
       custom.forEach((c) => selectors.push({ kind: c.type, label: c.query }));
 
       let kind: 'movie' | 'tv' = 'movie';
@@ -112,9 +119,11 @@ export async function GET(request: Request) {
       qs.set('limit', String(pageSize));
       if (sort) qs.set('sort', sort);
 
-      const resp = await fetch(`${origin}/api/douban/recommends?${qs.toString()}`);
-      const data = await resp.json();
-      const list = Array.isArray((data as any).list) ? (data as any).list : [];
+      const resp = await fetch(
+        `${origin}/api/douban/recommends?${qs.toString()}`
+      );
+      const data: DoubanResult = await resp.json();
+      const list: DoubanItem[] = Array.isArray(data.list) ? data.list : [];
 
       const payload = {
         code: 1,
@@ -123,7 +132,7 @@ export async function GET(request: Request) {
         pagecount: 999,
         limit: pageSize,
         total: 0,
-        list: list.map((item: any) => ({
+        list: list.map((item) => ({
           vod_id: item.id,
           vod_name: item.title,
           vod_pic: item.poster,
@@ -149,8 +158,9 @@ export async function GET(request: Request) {
       }
     );
   } catch (e) {
-    return NextResponse.json({ code: 0, msg: 'error', class: [], list: [] }, { status: 500 });
+    return NextResponse.json(
+      { code: 0, msg: 'error', class: [], list: [] },
+      { status: 500 }
+    );
   }
 }
-
-

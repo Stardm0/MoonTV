@@ -27,7 +27,7 @@ export async function GetBangumiCalendarData(): Promise<BangumiCalendarData[]> {
   const data = await response.json();
   const filteredData = data.map((item: BangumiCalendarData) => ({
     ...item,
-    items: item.items.filter(bangumiItem => bangumiItem.images)
+    items: item.items.filter((bangumiItem) => bangumiItem.images),
   }));
 
   return filteredData;

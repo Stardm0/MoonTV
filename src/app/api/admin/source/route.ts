@@ -10,7 +10,15 @@ import { IStorage } from '@/lib/types';
 export const runtime = 'edge';
 
 // 支持的操作类型
-type Action = 'add' | 'disable' | 'enable' | 'delete' | 'sort' | 'batchDisable' | 'batchEnable' | 'batchDelete';
+type Action =
+  | 'add'
+  | 'disable'
+  | 'enable'
+  | 'delete'
+  | 'sort'
+  | 'batchDisable'
+  | 'batchEnable'
+  | 'batchDelete';
 
 interface BaseBody {
   action?: Action;
@@ -38,7 +46,16 @@ export async function POST(request: NextRequest) {
     const username = authInfo.username;
 
     // 基础校验
-    const ACTIONS: Action[] = ['add', 'disable', 'enable', 'delete', 'sort', 'batchDisable', 'batchEnable', 'batchDelete'];
+    const ACTIONS: Action[] = [
+      'add',
+      'disable',
+      'enable',
+      'delete',
+      'sort',
+      'batchDisable',
+      'batchEnable',
+      'batchDelete',
+    ];
     if (!username || !action || !ACTIONS.includes(action)) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -142,7 +159,10 @@ export async function POST(request: NextRequest) {
       case 'batchDisable': {
         const { keys } = body as { keys?: string[] };
         if (!Array.isArray(keys) || keys.length === 0) {
-          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+          return NextResponse.json(
+            { error: '缺少 keys 参数或列表为空' },
+            { status: 400 }
+          );
         }
         keys.forEach((key) => {
           const entry = adminConfig.SourceConfig.find((s) => s.key === key);
@@ -155,7 +175,10 @@ export async function POST(request: NextRequest) {
       case 'batchEnable': {
         const { keys } = body as { keys?: string[] };
         if (!Array.isArray(keys) || keys.length === 0) {
-          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+          return NextResponse.json(
+            { error: '缺少 keys 参数或列表为空' },
+            { status: 400 }
+          );
         }
         keys.forEach((key) => {
           const entry = adminConfig.SourceConfig.find((s) => s.key === key);
@@ -168,7 +191,10 @@ export async function POST(request: NextRequest) {
       case 'batchDelete': {
         const { keys } = body as { keys?: string[] };
         if (!Array.isArray(keys) || keys.length === 0) {
-          return NextResponse.json({ error: '缺少 keys 参数或列表为空' }, { status: 400 });
+          return NextResponse.json(
+            { error: '缺少 keys 参数或列表为空' },
+            { status: 400 }
+          );
         }
         // 只删除自定义源，系统默认源不可删除
         keys.forEach((key) => {

@@ -1,7 +1,13 @@
 'use client';
 
 import { usePathname, useSearchParams } from 'next/navigation';
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
+} from 'react';
 
 interface NavigationLoadingContextType {
   isLoading: boolean;
@@ -21,7 +27,11 @@ const NavigationLoadingContext = createContext<NavigationLoadingContextType>({
 
 export const useNavigationLoading = () => useContext(NavigationLoadingContext);
 
-export function NavigationLoadingProvider({ children }: { children: React.ReactNode }) {
+export function NavigationLoadingProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [isLoading, setIsLoading] = useState(false);
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -45,9 +55,10 @@ export function NavigationLoadingProvider({ children }: { children: React.ReactN
   }, [pathname, searchParams]);
 
   return (
-    <NavigationLoadingContext.Provider value={{ isLoading, startLoading, stopLoading }}>
+    <NavigationLoadingContext.Provider
+      value={{ isLoading, startLoading, stopLoading }}
+    >
       {children}
     </NavigationLoadingContext.Provider>
   );
 }
-

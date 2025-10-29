@@ -20,4 +20,3 @@ export function toSimplified(input: string | null | undefined): string {
 export function normalizeForCompare(input: string | null | undefined): string {
   return toSimplified(input || '').toLowerCase();
 }
-

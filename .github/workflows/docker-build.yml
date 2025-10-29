@@ -24,7 +24,7 @@ jobs:
     permissions:
       contents: read
       packages: write
-      
+
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
@@ -78,4 +78,3 @@ jobs:
           else
             echo "**包含latest标签：** 否" >> $GITHUB_STEP_SUMMARY
           fi
-

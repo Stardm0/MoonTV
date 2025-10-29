@@ -36,9 +36,12 @@ export async function GET(request: NextRequest) {
   if (!auth || !auth.username) {
     const cfg = await getConfig();
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
-    const enabled = storageType === 'localstorage'
-      ? (process.env.TVBOX_ENABLED == null ? true : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true')
-      : cfg.SiteConfig.TVBoxEnabled === true;
+    const enabled =
+      storageType === 'localstorage'
+        ? process.env.TVBOX_ENABLED == null
+          ? true
+          : String(process.env.TVBOX_ENABLED).toLowerCase() === 'true'
+        : cfg.SiteConfig.TVBoxEnabled === true;
     if (!enabled) {
       return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
