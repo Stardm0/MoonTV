@@ -4,6 +4,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
+import { normalizeForCompare, toSimplified } from '@/lib/zh';
 
 export const runtime = 'edge';
 
@@ -16,6 +17,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
+  const queryForSearch = toSimplified(query || '');
   const resourceId = searchParams.get('resourceId');
   const timeoutParam = searchParams.get('timeout');
   const timeout = timeoutParam ? parseInt(timeoutParam, 10) * 1000 : undefined; // 毫秒
@@ -52,12 +54,13 @@ export async function GET(request: NextRequest) {
 
     // 聚合搜索（使用流式实现做非流式聚合）
     const allResults: any[] = [];
-    for await (const batch of searchFromApiStream(targetSite, query!, true, timeout)) {
+    for await (const batch of searchFromApiStream(targetSite, queryForSearch, true, timeout)) {
       allResults.push(...batch);
     }
 
     // OrionTV 行为：按标题完全匹配过滤
-    let result = allResults.filter((r) => r.title === query);
+    const cmp = normalizeForCompare(query || '');
+    let result = allResults.filter((r) => normalizeForCompare(r.title) === cmp);
     if (!config.SiteConfig.DisableYellowFilter) {
       result = result.filter((item) => {
         const typeName = item.type_name || '';

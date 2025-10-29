@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream'; // 改用流式方法
 
+import { toSimplified } from '@/lib/zh';
 export const runtime = 'edge';
 
 export async function GET(request: NextRequest) {
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
       async start(controller) {
         const encoder = new TextEncoder();
 
-        const suggestionsStream = generateSuggestionsStream(query, timeout);
+        const suggestionsStream = generateSuggestionsStream(toSimplified(query || ''), timeout);
 
         for await (const suggestions of suggestionsStream) {
           controller.enqueue(
@@ -50,7 +51,7 @@ export async function GET(request: NextRequest) {
 }
 
 async function* generateSuggestionsStream(query: string, timeout?: number) {
-  const queryLower = query.toLowerCase();
+  const queryLower = toSimplified(query).toLowerCase();
   const config = await getConfig();
   const apiSites = config.SourceConfig.filter((site: any) => !site.disabled);
 
@@ -58,7 +59,7 @@ async function* generateSuggestionsStream(query: string, timeout?: number) {
     // 使用第一个可用的数据源进行流式搜索
     const site = apiSites[0];
     
-    for await (const results of searchFromApiStream(site, query, true, timeout)) {
+    for await (const results of searchFromApiStream(site, toSimplified(query), true, timeout)) {
       // 统计关键词出现频率
       const keywordFrequency = new Map<string, number>();
       const allKeywords = results

@@ -31,6 +31,7 @@
     "@upstash/redis": "^1.25.0",
     "@vidstack/react": "^1.12.13",
     "artplayer": "^5.2.5",
+    "chinese-conv": "^1.1.0",
     "clsx": "^2.0.0",
     "crypto-js": "^4.2.0",
     "framer-motion": "^12.18.1",

@@ -6,6 +6,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
+import { toSimplified } from '@/lib/zh';
 
 export const runtime = 'edge';
 
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
+  const queryForSearch = toSimplified(query || '');
 
   if (!query) {
     return new Response(
@@ -79,7 +81,7 @@ export async function GET(request: NextRequest) {
         try {
           // 添加超时控制
           const searchPromise = Promise.race([
-            searchFromApiStream(site, query),
+            searchFromApiStream(site, queryForSearch),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error(`${site.name} timeout`)), 20000)
             ),

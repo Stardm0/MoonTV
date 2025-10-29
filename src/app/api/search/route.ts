@@ -6,6 +6,7 @@ import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
 import { yellowWords } from '@/lib/yellow';
+import { toSimplified } from '@/lib/zh';
 
 export const runtime = 'edge';
 
@@ -28,6 +29,7 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const query = searchParams.get('q');
+  const queryForSearch = toSimplified(query || '');
   const streamParam = searchParams.get('stream');
   const enableStream = streamParam ? streamParam !== '0' : false; // 无该参数关闭流式
   const timeoutParam = searchParams.get('timeout');
@@ -92,7 +94,7 @@ export async function GET(request: NextRequest) {
       const siteResults: any[] = [];
       let hasResults = false;
       try {
-        const generator = searchFromApiStream(site, query, true, timeout);
+        const generator = searchFromApiStream(site, queryForSearch, true, timeout);
         for await (const pageResults of generator) {
           let filteredResults = pageResults;
           if (filteredResults.length !== 0) {
@@ -167,7 +169,7 @@ export async function GET(request: NextRequest) {
 
     const tasks = apiSites.map(async (site) => {
       try {
-        const generator = searchFromApiStream(site, query, true, timeout);
+        const generator = searchFromApiStream(site, queryForSearch, true, timeout);
         let hasResults = false;
 
         for await (const pageResults of generator) {
