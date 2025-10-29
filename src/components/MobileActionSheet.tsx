@@ -239,8 +239,8 @@ const MobileActionSheet: React.FC<MobileActionSheetProps> = ({
           {actions.map((action, index) => (
             <div key={action.id}>
               <button
-                onClick={() => {
-                  action.onClick();
+                onClick={(e) => {
+                  action.onClick(e);
                   onClose();
                 }}
                 disabled={action.disabled}
