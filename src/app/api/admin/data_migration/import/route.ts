@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
 
       // 重新注册用户（包含密码）
       if (user.password) {
-        await db.registerUser(username, user.password);
+        await db.registerUser(username, String(user.password));
       }
 
       // 导入播放记录
