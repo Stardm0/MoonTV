@@ -22,7 +22,7 @@
 
 ## ✨ 功能特性
 
-- 🔍 **多源聚合搜索**：增加流式搜索快速返回结果。
+- 🔍 **多源聚合搜索**：快速返回结果。
 - 📄 **丰富详情页**：支持剧集列表、演员、年份、简介等完整信息展示。
 - ▶️ **流畅在线播放**：集成 HLS.js & ArtPlayer。
 - ❤️ **收藏 + 继续观看**：支持 Redis/Upstash 存储，多端同步进度。
@@ -30,6 +30,7 @@
 - 🌗 **响应式布局**：桌面侧边栏 + 移动底部导航，自适应各种屏幕尺寸。
 - 🚀 **极简部署**：一条 Docker 命令即可将完整服务跑起来，或免费部署到 Vercel、Netlify、cloudflare。
 - 👿 **智能去广告**：自动跳过视频中的切片广告（实验性）
+- 💬 **弹幕支持**：以[danmu_api](https://github.com/huangxd-/danmu_api)为后端
 
 <details>
   <summary>点击查看项目截图</summary>
@@ -233,6 +234,7 @@ services:
 | NEXT_PUBLIC_DOUBAN_IMAGE_PROXY_TYPE | 豆瓣图片代理类型                             | 见下方                           | direct                                                                                                                     |
 | NEXT_PUBLIC_DOUBAN_IMAGE_PROXY      | 自定义豆瓣图片代理 URL                       | url prefix                       | (空)                                                                                                                       |
 | NEXT_PUBLIC_DISABLE_YELLOW_FILTER   | 关闭色情内容过滤                             | true/false                       | false                                                                                                                      |
+| NEXT_PUBLIC_DANMU_API_BASE_URL      | 弹幕接口地址                             | 接口地址                       | https://thriving-dragon-80fe24.netlify.app                                                                                                                      |
 
 NEXT_PUBLIC_DOUBAN_PROXY_TYPE 选项解释：
 
