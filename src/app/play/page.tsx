@@ -5,6 +5,7 @@ import { Heart } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useRef, useState } from 'react';
 
+import { AnimeOption, extractEpisodeNumber } from '@/lib/danmaku.client';
 import {
   deleteFavorite,
   deletePlayRecord,
@@ -21,6 +22,8 @@ import {
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout,getVideoResolutionFromM3u8 } from '@/lib/utils';
 
+import Danmaku from '@/components/Danmaku';
+import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
 
@@ -93,6 +96,65 @@ function PlayPageClient() {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
 
+  // 弹幕开关（从 localStorage 继承，默认 true）
+  const [danmakuEnabled, setDanmakuEnabled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('enable_danmaku');
+      if (v !== null) return v === 'true';
+    }
+    return true;
+  });
+
+  // 弹幕密度（从 localStorage 继承，默认 100%）
+  const [danmakuDensity, setDanmakuDensity] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('danmaku_density');
+      if (v !== null) {
+        const density = parseInt(v, 10);
+        if (!isNaN(density) && density >= 0 && density <= 100) {
+          return density;
+        }
+      }
+    }
+    return 100;
+  });
+  const danmakuDensityRef = useRef(danmakuDensity);
+  useEffect(() => {
+    danmakuDensityRef.current = danmakuDensity;
+  }, [danmakuDensity]);
+
+  // 弹幕行数（从 localStorage 继承，默认 0 表示不限制）
+  const [danmakuMaxTracks, setDanmakuMaxTracks] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const v = localStorage.getItem('danmaku_max_tracks');
+      if (v !== null) {
+        const tracks = parseInt(v, 10);
+        if (!isNaN(tracks) && tracks >= 0) {
+          return tracks;
+        }
+      }
+    }
+    return 0; // 0 表示不限制
+  });
+  const danmakuMaxTracksRef = useRef(danmakuMaxTracks);
+  useEffect(() => {
+    danmakuMaxTracksRef.current = danmakuMaxTracks;
+  }, [danmakuMaxTracks]);
+
+  // 当前播放时间（用于弹幕同步）
+  const [currentPlayTime, setCurrentPlayTime] = useState(0);
+
+  // 弹幕源选择相关
+  const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<string | null>(null);
+  const [selectedDanmakuAnime, setSelectedDanmakuAnime] = useState<AnimeOption | null>(null);
+  const [showDanmakuSelector, setShowDanmakuSelector] = useState(false);
+  const selectedDanmakuSourceRef = useRef<string | null>(null);
+  
+  // 同步 ref
+  useEffect(() => {
+    selectedDanmakuSourceRef.current = selectedDanmakuSource;
+  }, [selectedDanmakuSource]);
+
   // 视频基本信息
   const [videoTitle, setVideoTitle] = useState(searchParams.get('title') || '');
   const [videoYear, setVideoYear] = useState(searchParams.get('year') || '');
@@ -118,6 +180,68 @@ function PlayPageClient() {
   }, [needPrefer]);
   // 集数相关
   const [currentEpisodeIndex, setCurrentEpisodeIndex] = useState(0);
+
+  // 当集数变化时，如果有选中的弹幕源，自动切换弹幕
+  useEffect(() => {
+    if (!selectedDanmakuAnime || !detail) return;
+    
+    const currentEpisode = currentEpisodeIndex + 1;
+    const currentEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
+    
+    if (!currentEpisodeTitle) return;
+
+    // 从当前集数标题中提取集数
+    const extractedNumber = extractEpisodeNumber(currentEpisodeTitle);
+    
+    // 尝试找到匹配的集数
+    let matchedEpisode = selectedDanmakuAnime.episodes.find((ep) => {
+      // 1. 完全匹配标题
+      if (ep.episodeTitle === currentEpisodeTitle) {
+        return true;
+      }
+      return false;
+    });
+    
+    // 2. 如果完全匹配失败，但提取到了集数，使用集数匹配
+    if (!matchedEpisode && extractedNumber !== null) {
+      matchedEpisode = selectedDanmakuAnime.episodes.find((ep) => {
+        const epNumber = extractEpisodeNumber(ep.episodeTitle);
+        return epNumber === extractedNumber;
+      });
+    }
+    
+    // 3. 如果还是找不到，使用索引匹配（如果索引在范围内）
+    if (!matchedEpisode && currentEpisode <= selectedDanmakuAnime.episodes.length) {
+      matchedEpisode = selectedDanmakuAnime.episodes[currentEpisode - 1];
+    }
+    
+    if (matchedEpisode) {
+      // 找到匹配的集数索引
+      const episodeIndex = selectedDanmakuAnime.episodes.indexOf(matchedEpisode);
+      const episodeNumber = episodeIndex + 1;
+      const episodeTitle = matchedEpisode.episodeTitle;
+      
+      // 更新设置菜单中的 tooltip
+      setTimeout(() => {
+        if (artPlayerRef.current) {
+          const tooltipText = `${selectedDanmakuSource} - 第${episodeNumber}集`;
+          artPlayerRef.current.setting.update({
+            name: '弹幕源',
+            tooltip: tooltipText,
+          });
+        }
+      }, 100);
+      
+      // 触发弹幕组件重新加载
+      if (typeof window !== 'undefined' && (window as any).__setDanmakuSource) {
+        (window as any).__setDanmakuSource(selectedDanmakuAnime);
+        // 更新集数信息
+        if ((window as any).__setDanmakuEpisode) {
+          (window as any).__setDanmakuEpisode(episodeNumber, episodeTitle);
+        }
+      }
+    }
+  }, [currentEpisodeIndex, selectedDanmakuAnime, detail, selectedDanmakuSource]);
 
   const currentSourceRef = useRef(currentSource);
   const currentIdRef = useRef(currentId);
@@ -1503,6 +1627,113 @@ function PlayPageClient() {
               }
             },
           },
+          {
+            name: '弹幕源',
+            html: '弹幕源',
+            tooltip: selectedDanmakuSourceRef.current || '未选择',
+            onClick: function () {
+              setShowDanmakuSelector(true);
+              const currentSource = selectedDanmakuSourceRef.current || '未选择';
+              // 更新 tooltip
+              if (artPlayerRef.current) {
+                artPlayerRef.current.setting.update({
+                  name: '弹幕源',
+                  tooltip: currentSource,
+                });
+              }
+              return currentSource;
+            },
+          },
+          {
+            name: '弹幕密度',
+            html: '弹幕密度',
+            tooltip: `${danmakuDensityRef.current}%`,
+            onClick: function () {
+              // 弹出输入框让用户输入百分比
+              const currentDensity = danmakuDensityRef.current;
+              const input = prompt(`请输入弹幕密度 (0-100):`, String(currentDensity));
+              
+              if (input !== null) {
+                const value = parseInt(input, 10);
+                
+                // 验证输入值
+                if (!isNaN(value) && value >= 0 && value <= 100) {
+                  try {
+                    localStorage.setItem('danmaku_density', String(value));
+                    setDanmakuDensity(value);
+                    if (artPlayerRef.current) {
+                      artPlayerRef.current.setting.update({
+                        name: '弹幕密度',
+                        tooltip: `${value}%`
+                      });
+                    }
+                    return `${value}%`;
+                  } catch (_) {
+                    // ignore
+                  }
+                } else {
+                  alert('请输入 0-100 之间的数字');
+                }
+              }
+              
+              return `${danmakuDensityRef.current}%`;
+            },
+          },
+          {
+            name: '弹幕行数',
+            html: '弹幕行数',
+            tooltip: danmakuMaxTracksRef.current === 0 ? '不限制' : `${danmakuMaxTracksRef.current}行`,
+            onClick: function () {
+              // 弹出输入框让用户输入行数
+              const currentTracks = danmakuMaxTracksRef.current;
+              const input = prompt(`请输入弹幕行数 (0表示不限制):`, String(currentTracks));
+              
+              if (input !== null) {
+                const value = parseInt(input, 10);
+                
+                // 验证输入值
+                if (!isNaN(value) && value >= 0) {
+                  try {
+                    localStorage.setItem('danmaku_max_tracks', String(value));
+                    setDanmakuMaxTracks(value);
+                    // 调用弹幕组件的设置方法
+                    if (typeof window !== 'undefined' && (window as any).__setDanmakuMaxTracks) {
+                      (window as any).__setDanmakuMaxTracks(value);
+                    }
+                    if (artPlayerRef.current) {
+                      artPlayerRef.current.setting.update({
+                        name: '弹幕行数',
+                        tooltip: value === 0 ? '不限制' : `${value}行`
+                      });
+                    }
+                    return value === 0 ? '不限制' : `${value}行`;
+                  } catch (_) {
+                    // ignore
+                  }
+                } else {
+                  alert('请输入大于等于 0 的数字');
+                }
+              }
+              
+              return danmakuMaxTracksRef.current === 0 ? '不限制' : `${danmakuMaxTracksRef.current}行`;
+            },
+          },
+          {
+            html: '弹幕',
+            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" fill="#ffffff"/></svg>',
+            tooltip: danmakuEnabled ? '已开启' : '已关闭',
+            switch: danmakuEnabled,
+            onSwitch: function (item: any) {
+              const newVal = !item.switch;
+              try {
+                localStorage.setItem('enable_danmaku', String(newVal));
+                setDanmakuEnabled(newVal);
+              } catch (_) {
+                // ignore
+              }
+              return !item.switch;
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -1664,6 +1895,10 @@ function PlayPageClient() {
         if (now - lastSaveTimeRef.current > interval) {
           saveCurrentPlayProgress();
           lastSaveTimeRef.current = now;
+        }
+        // 更新当前播放时间（用于弹幕同步）
+        if (artPlayerRef.current) {
+          setCurrentPlayTime(artPlayerRef.current.currentTime || 0);
         }
       });
 
@@ -1873,6 +2108,59 @@ function PlayPageClient() {
                   className='bg-black w-full h-full overflow-hidden shadow-lg'
                 ></div>
 
+                {/* 弹幕组件 */}
+                <Danmaku
+                  videoTitle={videoTitle}
+                  currentEpisode={currentEpisodeIndex + 1}
+                  currentEpisodeTitle={detail?.episodes_titles?.[currentEpisodeIndex]}
+                  currentTime={currentPlayTime}
+                  enabled={danmakuEnabled}
+                  playerContainer={artRef.current}
+                  onSourceSelected={(sourceName: string) => setSelectedDanmakuSource(sourceName)}
+                  density={danmakuDensity}
+                  maxTracks={danmakuMaxTracks}
+                />
+
+                {/* 弹幕选择器 */}
+                {showDanmakuSelector && (
+                  <DanmakuSelector
+                    videoTitle={videoTitle}
+                    currentEpisode={currentEpisodeIndex + 1}
+                    currentEpisodeTitle={detail?.episodes_titles?.[currentEpisodeIndex]}
+                    onSelect={(anime: AnimeOption, episodeNumber?: number, episodeTitle?: string) => {
+                      const sourceName = anime.animeTitle;
+                      setSelectedDanmakuSource(sourceName);
+                      setSelectedDanmakuAnime(anime);
+                      selectedDanmakuSourceRef.current = sourceName;
+                      setShowDanmakuSelector(false);
+                      // 更新设置菜单中的 tooltip
+                      setTimeout(() => {
+                        if (artPlayerRef.current) {
+                          const tooltipText = episodeNumber 
+                            ? `${sourceName} - 第${episodeNumber}集`
+                            : sourceName;
+                          artPlayerRef.current.setting.update({
+                            name: '弹幕源',
+                            tooltip: tooltipText,
+                          });
+                        }
+                      }, 100);
+                      // 触发弹幕组件重新加载
+                      if (typeof window !== 'undefined' && (window as any).__setDanmakuSource) {
+                        (window as any).__setDanmakuSource(anime);
+                        // 如果选择了集数，也更新集数信息
+                        if (episodeNumber && episodeTitle) {
+                          // 通过全局函数设置集数信息（如果需要）
+                          if ((window as any).__setDanmakuEpisode) {
+                            (window as any).__setDanmakuEpisode(episodeNumber, episodeTitle);
+                          }
+                        }
+                      }
+                    }}
+                    onClose={() => setShowDanmakuSelector(false)}
+                  />
+                )}
+
                 {/* 换源加载蒙层 */}
                 {isVideoLoading && (
                   <div className='absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-[500] transition-all duration-300'>
@@ -1949,7 +2237,7 @@ function PlayPageClient() {
                 {videoTitle || '影片标题'}
                 {totalEpisodes > 1 && (
                   <span className='text-gray-500 dark:text-gray-400 text-2xl ml-3'>
-                    第 {currentEpisodeIndex + 1} 集
+                    {detail?.episodes_titles?.[currentEpisodeIndex] || `第 ${currentEpisodeIndex + 1} 集`}
                   </span>
                 )}
                 <button

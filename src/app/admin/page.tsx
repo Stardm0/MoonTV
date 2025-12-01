@@ -70,6 +70,7 @@ interface SiteConfig {
   DisableYellowFilter: boolean;
   TVBoxEnabled?: boolean;
   TVBoxPassword?: string;
+  DanmakuApiBaseUrl?: string;
 }
 
 // 视频源数据类型
@@ -2019,6 +2020,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     DisableYellowFilter: false,
     TVBoxEnabled: false,
     TVBoxPassword: '',
+    DanmakuApiBaseUrl: 'https://thriving-dragon-80fe24.netlify.app/',
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
@@ -2097,6 +2099,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         DisableYellowFilter: config.SiteConfig.DisableYellowFilter || false,
         TVBoxEnabled: config.SiteConfig.TVBoxEnabled || false,
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
+        DanmakuApiBaseUrl:
+          config.SiteConfig.DanmakuApiBaseUrl ||
+          'https://thriving-dragon-80fe24.netlify.app/',
       });
     }
   }, [config]);
@@ -2362,6 +2367,30 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             </p>
           </div>
         )}
+      </div>
+
+      {/* 弹幕接口配置 */}
+      <div className='space-y-3'>
+        <div>
+          <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+            弹幕接口基础地址
+            <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+              （如使用第三方弹幕服务，可在此填写其 API 根地址）
+            </span>
+          </label>
+          <input
+            type='text'
+            value={siteSettings.DanmakuApiBaseUrl || ''}
+            onChange={(e) =>
+              setSiteSettings((prev) => ({
+                ...prev,
+                DanmakuApiBaseUrl: e.target.value,
+              }))
+            }
+            className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+            placeholder='https://thriving-dragon-80fe24.netlify.app/'
+          />
+        </div>
       </div>
 
       {/* 豆瓣图片代理设置 */}

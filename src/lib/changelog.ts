@@ -11,6 +11,23 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "3.5.0",
+    date: "2025-11-30",
+    added: [
+    "加入视频播放弹幕功能"
+    ],
+    changed: [
+    "可手动搜索弹幕源",
+    "可控制弹幕的显示行数",
+    "可控制弹幕的显示密度",
+    "分页渲染搜索结果"
+    ],
+    fixed: [
+    "修复CF数据导出的不完整",
+    "修复docker非本地存储管理员配置的读取修改"
+    ]
+  },
+  {
     version: "3.4.2",
     date: "2025-10-21",
     added: [

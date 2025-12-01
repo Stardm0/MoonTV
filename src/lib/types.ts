@@ -121,3 +121,30 @@ export interface SkipConfig {
   intro_time: number; // 片头时间（秒）
   outro_time: number; // 片尾时间（秒）
 }
+
+// 弹幕数据结构
+export interface DanmakuItem {
+  time: number; // 弹幕出现时间（秒）
+  type: number; // 弹幕类型：1-滚动，2-顶部，3-底部
+  color: number; // 弹幕颜色（十进制）
+  text: string; // 弹幕文本
+  size?: number; // 字体大小（可选）
+  pool?: number; // 弹幕池（可选）
+}
+
+// 弹幕 API 响应数据结构（实际格式）
+export interface DanmakuComment {
+  cid: number;
+  p: string; // 属性字符串，格式: "时间,类型,颜色,作者"
+  m: string; // 弹幕文本内容
+  t: number; // 时间（秒）
+}
+
+export interface DanmakuResponse {
+  count?: number;
+  comments?: DanmakuComment[]; // 实际的弹幕数组
+  // 兼容其他格式
+  code?: number;
+  message?: string;
+  data?: DanmakuItem[];
+}

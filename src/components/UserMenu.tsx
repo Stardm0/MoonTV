@@ -13,7 +13,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -30,6 +30,7 @@ interface AuthInfo {
 
 export const UserMenu: React.FC = () => {
   const router = useRouter();
+  const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
   const [isOpen, setIsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -267,6 +268,11 @@ export const UserMenu: React.FC = () => {
   };
 
   const handleAdminPanel = () => {
+    // 如果已经在管理页面，直接关闭菜单，不触发加载动画
+    if (pathname === '/admin') {
+      setIsOpen(false);
+      return;
+    }
     startLoading();
     router.push('/admin');
   };
