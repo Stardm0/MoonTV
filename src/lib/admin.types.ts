@@ -44,6 +44,13 @@ export interface AdminConfig {
     from: 'config' | 'custom';
     disabled?: boolean;
   }[];
+  SubscriptionConfig?: {
+    subscriptionUrl?: string;
+    autoUpdate?: boolean;
+    updateInterval?: number; // seconds
+    lastUpdated?: number; // timestamp in seconds
+    importMode?: 'overwrite' | 'merge';
+  };
 }
 
 export interface AdminConfigResult {

@@ -50,8 +50,25 @@ export const UserMenu: React.FC = () => {
   const [doubanImageProxyType, setDoubanImageProxyType] = useState('direct');
   const [doubanImageProxyUrl, setDoubanImageProxyUrl] = useState('');
   const [isDoubanDropdownOpen, setIsDoubanDropdownOpen] = useState(false);
-  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] =
-    useState(false);
+  const [isDoubanImageProxyDropdownOpen, setIsDoubanImageProxyDropdownOpen] = useState(false);
+
+  const [autoDanmakuEnabled, setAutoDanmakuEnabled] = useState(false);
+  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] = useState("bilibili1");
+  const [isDanmakuPlatformDropdownOpen, setIsDanmakuPlatformDropdownOpen] = useState(false);
+
+  // 优选弹幕平台
+  const danmakuPlatformOptions = [
+    { value: "qiyi", label: "qiyi（爱奇艺）" },
+    { value: "bilibili1", label: "bilibili1（哔哩哔哩）" },
+    { value: "imgo", label: "imgo（芒果）" },
+    { value: "youku", label: "youku（优酷）" },
+    { value: "qq", label: "qq（腾讯）" },
+    { value: "renren", label: "renren（人人）" },
+    { value: "hanjutv", label: "hanjutv（韩剧TV）" },
+    { value: "bahamut", label: "bahamut（巴哈姆特）" },
+    { value: "dandan", label: "dandan（弹弹）" },
+  ];
+  
 
   // 豆瓣数据源选项
   const doubanDataSourceOptions = [
@@ -192,6 +209,15 @@ export const UserMenu: React.FC = () => {
         setDoubanImageProxyUrl(defaultDoubanImageProxyUrl);
       }
 
+      const savedAutoDanmakuEnabled = localStorage.getItem('autoDanmakuEnabled');
+      if (savedAutoDanmakuEnabled !== null) {
+        setAutoDanmakuEnabled(JSON.parse(savedAutoDanmakuEnabled));
+      }
+
+      const savedPreferredPlatform = localStorage.getItem("preferredDanmakuPlatform");
+      if (savedPreferredPlatform) {
+        setPreferredDanmakuPlatform(savedPreferredPlatform);
+      }
 
     }
   }, []);
@@ -346,6 +372,16 @@ export const UserMenu: React.FC = () => {
   };
 
   // 设置相关的处理函数
+  const handleAutoDanmakuToggle = (value: boolean) => {
+    setAutoDanmakuEnabled(value);
+    localStorage.setItem('autoDanmakuEnabled', JSON.stringify(value));
+  };
+  
+  const handlePreferredPlatformChange = (value: string) => {
+    setPreferredDanmakuPlatform(value);
+    localStorage.setItem("preferredDanmakuPlatform", value);
+  };
+
   const handleAggregateToggle = (value: boolean) => {
     setDefaultAggregateSearch(value);
     if (typeof window !== 'undefined') {
@@ -449,6 +485,9 @@ export const UserMenu: React.FC = () => {
       localStorage.setItem('doubanDataSource', defaultDoubanProxyType);
       localStorage.setItem('doubanImageProxyType', defaultDoubanImageProxyType);
       localStorage.setItem('doubanImageProxyUrl', defaultDoubanImageProxyUrl);
+      
+      localStorage.setItem('autoDanmakuEnabled', JSON.stringify(false));
+      localStorage.setItem('preferredDanmakuPlatform', 'bilibili1');
     }
   };
 
@@ -897,6 +936,90 @@ export const UserMenu: React.FC = () => {
               </div>
             </label>
           </div>
+
+          {/* 自动匹配弹幕 */}
+          <div className='flex items-center justify-between'>
+            <div>
+              <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+                自动匹配弹幕
+              </h4>
+              <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+                在进入播放页面时自动匹配并加载弹幕（推荐）
+              </p>
+            </div>
+            <label className='flex items-center cursor-pointer'>
+              <div className='relative'>
+                <input
+                  type='checkbox'
+                  className='sr-only peer'
+                  checked={autoDanmakuEnabled}
+                  onChange={(e) => handleAutoDanmakuToggle(e.target.checked)}
+                />
+                <div className='w-11 h-6 bg-gray-300 rounded-full peer-checked:bg-green-500 transition-colors dark:bg-gray-600'></div>
+                <div className='absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform peer-checked:translate-x-5'></div>
+              </div>
+            </label>
+          </div>
+
+          {/* 优选弹幕平台 */}
+          <div className='mt-3 relative'>
+            <h4 className='text-sm font-medium text-gray-700 dark:text-gray-300'>
+              优先弹幕平台
+            </h4>
+
+            {/* 自定义下拉选择框 */}
+            <button
+              type='button'
+              onClick={() => setIsDanmakuPlatformDropdownOpen(!isDanmakuPlatformDropdownOpen)}
+              className='w-full px-3 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-200 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 shadow-sm hover:border-gray-400 dark:hover:border-gray-500 text-left mt-2'
+            >
+              {
+                danmakuPlatformOptions.find(
+                  (option) => option.value === preferredDanmakuPlatform
+                )?.label
+              }
+            </button>
+
+            {/* 下拉箭头 */}
+            <div className='absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none mt-2'>
+              <ChevronDown
+                className={`w-4 h-4 text-gray-400 dark:text-gray-500 transition-transform duration-200 ${
+                  isDanmakuPlatformDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </div>
+
+            {/* 下拉选项列表 */}
+            {isDanmakuPlatformDropdownOpen && (
+              <div className='absolute z-50 w-full mt-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg max-h-60 overflow-auto'>
+                {danmakuPlatformOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type='button'
+                    onClick={() => {
+                      handlePreferredPlatformChange(option.value);
+                      setIsDanmakuPlatformDropdownOpen(false);
+                    }}
+                    className={`w-full px-3 py-2.5 text-left text-sm transition-colors duration-150 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-700 ${
+                      preferredDanmakuPlatform === option.value
+                        ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400'
+                        : 'text-gray-900 dark:text-gray-100'
+                    }`}
+                  >
+                    <span className='truncate'>{option.label}</span>
+                    {preferredDanmakuPlatform === option.value && (
+                      <Check className='w-4 h-4 text-green-600 dark:text-green-400 flex-shrink-0 ml-2' />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <p className='text-xs text-gray-500 dark:text-gray-400 mt-1'>
+              自动匹配弹幕时优先使用此平台
+            </p>
+          </div>
+
 
           {/* 分割线 */}
           <div className='border-t border-gray-200 dark:border-gray-700'></div>

@@ -2005,6 +2005,195 @@ const ConfigFileComponent = ({ config, refreshConfig }: { config: AdminConfig | 
     </div>
   );
 };
+// 订阅配置组件
+const SubscriptionConfig = ({ config, refreshConfig }: { config: AdminConfig | null; refreshConfig: () => Promise<void> }) => {
+  const [subscriptionUrl, setSubscriptionUrl] = useState('');
+  const [autoUpdate, setAutoUpdate] = useState(false);
+  const [updateInterval, setUpdateInterval] = useState(86400); // 默认一天
+  const [importMode, setImportMode] = useState<'overwrite' | 'merge'>('merge');
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+
+  useEffect(() => {
+    if (config?.SubscriptionConfig) {
+      const sub = config.SubscriptionConfig;
+      setSubscriptionUrl(sub.subscriptionUrl || '');
+      setAutoUpdate(sub.autoUpdate || false);
+      setUpdateInterval(sub.updateInterval || 86400);
+      setImportMode(sub.importMode || 'merge');
+      setLastUpdated(sub.lastUpdated || null);
+    }
+  }, [config]);
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const resp = await fetch('/api/admin/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'update',
+          subscriptionUrl,
+          autoUpdate,
+          updateInterval,
+          importMode,
+        }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || '保存失败');
+      }
+      showSuccess('订阅配置已保存');
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      setImporting(true);
+      const resp = await fetch('/api/admin/subscription', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'import',
+          subscriptionUrl: subscriptionUrl || undefined,
+          importMode,
+        }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || '导入失败');
+      }
+      showSuccess('订阅数据导入成功');
+      await refreshConfig();
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '导入失败');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const formatTime = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleString('zh-CN');
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            订阅地址 URL
+          </label>
+          <input
+            type="text"
+            value={subscriptionUrl}
+            onChange={(e) => setSubscriptionUrl(e.target.value)}
+            placeholder="https://example.com/subscription.json"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            订阅地址返回的数据应为 JSON 格式，支持 Base58 编码。
+          </p>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              自动更新
+            </label>
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              用户/管理员登录时检查更新，若超过更新周期则自动导入。
+            </p>
+          </div>
+          <button
+            onClick={() => setAutoUpdate(!autoUpdate)}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full ${autoUpdate ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'}`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition ${autoUpdate ? 'translate-x-6' : 'translate-x-1'}`}
+            />
+          </button>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            更新周期（秒）
+          </label>
+          <input
+            type="number"
+            value={updateInterval}
+            onChange={(e) => setUpdateInterval(Number(e.target.value))}
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+            min="60"
+          />
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+            例如：86400 秒 = 1 天
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+            导入模式
+          </label>
+          <div className="flex space-x-4">
+            <label className="inline-flex items-center">
+              <input
+                type="radio"
+                checked={importMode === 'merge'}
+                onChange={() => setImportMode('merge')}
+                className="form-radio"
+              />
+              <span className="ml-2">合并（根据key值合并）</span>
+            </label>
+            <label className="inline-flex items-center">
+              <input
+                type="radio"
+                checked={importMode === 'overwrite'}
+                onChange={() => setImportMode('overwrite')}
+                className="form-radio"
+              />
+              <span className="ml-2">覆盖（清空现有源）</span>
+            </label>
+          </div>
+        </div>
+
+        {lastUpdated && (
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            最后更新时间：{formatTime(lastUpdated)}
+          </div>
+        )}
+      </div>
+
+      <div className="flex space-x-4">
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className={`px-4 py-2 rounded-lg transition-colors ${saving
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-blue-600 hover:bg-blue-700'
+            } text-white`}
+        >
+          {saving ? '保存中...' : '保存配置'}
+        </button>
+        <button
+          onClick={handleImport}
+          disabled={importing || !subscriptionUrl}
+          className={`px-4 py-2 rounded-lg transition-colors ${importing || !subscriptionUrl
+            ? 'bg-gray-400 cursor-not-allowed'
+            : 'bg-green-600 hover:bg-green-700'
+            } text-white`}
+        >
+          {importing ? '导入中...' : '立即导入'}
+        </button>
+      </div>
+    </div>
+  );
+};
 
 // 新增站点配置组件
 const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
@@ -2020,7 +2209,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     DisableYellowFilter: false,
     TVBoxEnabled: false,
     TVBoxPassword: '',
-    DanmakuApiBaseUrl: 'https://thriving-dragon-80fe24.netlify.app/',
+    DanmakuApiBaseUrl: 'https://dm.stardm.us.kg',
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
@@ -2101,7 +2290,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         TVBoxPassword: config.SiteConfig.TVBoxPassword || '',
         DanmakuApiBaseUrl:
           config.SiteConfig.DanmakuApiBaseUrl ||
-          'https://thriving-dragon-80fe24.netlify.app/',
+          'https://dm.stardm.us.kg',
       });
     }
   }, [config]);
@@ -2388,7 +2577,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
               }))
             }
             className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            placeholder='https://thriving-dragon-80fe24.netlify.app/'
+            placeholder='https://dm.stardm.us.kg'
           />
         </div>
       </div>
@@ -2772,6 +2961,7 @@ function AdminPageClient() {
     siteConfig: false,
     categoryConfig: false,
     configFile: false,
+    subscriptionConfig: false,
   });
 
   // 获取管理员配置
@@ -2900,6 +3090,21 @@ function AdminPageClient() {
               </button>
             )}
           </div>
+
+          {/* 订阅配置标签 */}
+          <CollapsibleTab
+            title='订阅配置'
+            icon={
+              <Bell
+                size={20}
+                className='text-gray-600 dark:text-gray-400'
+              />
+            }
+            isExpanded={expandedTabs.subscriptionConfig}
+            onToggle={() => toggleTab('subscriptionConfig')}
+          >
+            <SubscriptionConfig config={config} refreshConfig={fetchConfig} />
+          </CollapsibleTab>
 
           {/* 配置文件标签 */}
           <CollapsibleTab

@@ -332,7 +332,7 @@ async function initConfig() {
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
             DanmakuApiBaseUrl:
               process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-              'https://thriving-dragon-80fe24.netlify.app/',
+              'https://dm.stardm.us.kg',
         TVBoxEnabled: false,
         TVBoxPassword: '',
           },
@@ -356,6 +356,7 @@ async function initConfig() {
             from: 'config',
             disabled: false,
           })),
+          SubscriptionConfig: {},
         };
       }
   
@@ -391,7 +392,7 @@ async function initConfig() {
           process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
         DanmakuApiBaseUrl:
           process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-          'https://thriving-dragon-80fe24.netlify.app/',
+          'https://dm.stardm.us.kg',
         TVBoxEnabled: false,
         TVBoxPassword: '',
       },
@@ -416,6 +417,7 @@ async function initConfig() {
           from: 'config',
           disabled: false,
         })) || [],
+      SubscriptionConfig: {},
     } as AdminConfig;
   }
 }
@@ -468,7 +470,7 @@ export async function getConfig(): Promise<AdminConfig> {
     adminConfig.SiteConfig.DanmakuApiBaseUrl =
       adminConfig.SiteConfig.DanmakuApiBaseUrl ||
       process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-      'https://thriving-dragon-80fe24.netlify.app/';
+      'https://dm.stardm.us.kg';
     // TVBox 开关与密码默认值
     const storageType = process.env.NEXT_PUBLIC_STORAGE_TYPE || 'localstorage';
     if (storageType === 'localstorage') {
@@ -628,6 +630,9 @@ export function configSelfCheck(adminConfig: AdminConfig): AdminConfig {
   if (!adminConfig.CustomCategories || !Array.isArray(adminConfig.CustomCategories)) {
     adminConfig.CustomCategories = [];
   }
+  if (!adminConfig.SubscriptionConfig) {
+    adminConfig.SubscriptionConfig = {};
+  }
 
   // 站长变更自检
   const ownerUser = process.env.USERNAME;
@@ -741,7 +746,7 @@ export async function resetConfig() {
         process.env.NEXT_PUBLIC_DISABLE_YELLOW_FILTER === 'true',
         DanmakuApiBaseUrl:
           process.env.NEXT_PUBLIC_DANMU_API_BASE_URL ||
-          'https://thriving-dragon-80fe24.netlify.app/',
+          'https://dm.stardm.us.kg',
         TVBoxEnabled: false,
         TVBoxPassword: '',
     },
@@ -767,6 +772,7 @@ export async function resetConfig() {
             disabled: false,
           })) || []
         : [],
+    SubscriptionConfig: {},
   } as AdminConfig;
 
   if (storage && typeof (storage as any).setAdminConfig === 'function') {
@@ -781,6 +787,7 @@ export async function resetConfig() {
   cachedConfig.UserConfig = adminConfig.UserConfig;
   cachedConfig.SourceConfig = adminConfig.SourceConfig;
   cachedConfig.CustomCategories = adminConfig.CustomCategories || [];
+  cachedConfig.SubscriptionConfig = adminConfig.SubscriptionConfig;
 }
 
 export async function getCacheTime(): Promise<number> {

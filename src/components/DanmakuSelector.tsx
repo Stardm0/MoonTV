@@ -13,6 +13,7 @@ interface DanmakuSelectorProps {
   currentEpisodeTitle?: string; // 当前集数标题
   onSelect: (anime: AnimeOption, episodeNumber?: number, episodeTitle?: string) => void;
   onClose: () => void;
+  isVisible?: boolean; // 弹幕选择器是否可见（用于控制自动搜索时机）
 }
 
 /**
@@ -25,6 +26,7 @@ export default function DanmakuSelector({
   currentEpisodeTitle,
   onSelect,
   onClose,
+  isVisible = false,
 }: DanmakuSelectorProps) {
   const [animeOptions, setAnimeOptions] = useState<AnimeOption[]>([]);
   const [loading, setLoading] = useState(false);
@@ -61,22 +63,25 @@ export default function DanmakuSelector({
     }
   };
 
-  // 初始加载：使用 videoTitle 自动搜索
+  // 当 videoTitle 变化时，重置状态（无论可见性如何）
   useEffect(() => {
     if (videoTitle && videoTitle !== lastAutoSearchTitleRef.current) {
-      // 如果 videoTitle 变化了，重置手动搜索状态并自动搜索
       lastAutoSearchTitleRef.current = videoTitle;
       setHasManualSearched(false);
       setHasSearched(false); // 重置搜索状态
       setSearchKeyword(''); // 清空搜索框
-      performSearch(videoTitle, false);
-    } else if (videoTitle && !hasManualSearched && lastAutoSearchTitleRef.current === '') {
-      // 首次加载时自动搜索
-      lastAutoSearchTitleRef.current = videoTitle;
-      performSearch(videoTitle, false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoTitle]);
+
+  // 当弹幕选择器变为可见时，执行自动搜索（如果尚未手动搜索）
+  useEffect(() => {
+    if (!isVisible) return;
+    if (!videoTitle) return;
+    if (hasManualSearched) return;
+
+    performSearch(videoTitle, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, videoTitle, hasManualSearched]);
 
   // 处理手动搜索
   const handleSearch = (e?: React.FormEvent) => {
