@@ -119,9 +119,9 @@ export async function GET(request: NextRequest) {
         // 根据错误类型提供更具体的错误信息
         if (err.message === '请求超时') {
           errorMessage = '请求超时';
-        } else if (err.message === '网络连接失败') {
-          errorMessage = '网络连接失败';
-        } else if (err.message.includes('网络错误')) {
+        } else if (err.message === '请求失败') {
+          errorMessage = '请求失败';
+        } else if (err.message?.includes('网络错误')) {
           errorMessage = '网络错误';
         }
         

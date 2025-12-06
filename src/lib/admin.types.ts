@@ -10,6 +10,8 @@ export interface AdminConfig {
     DoubanImageProxyType: string;
     DoubanImageProxy: string;
     DisableYellowFilter: boolean;
+    // 弹幕接口配置
+    DanmakuApiBaseUrl?: string;
     // TVBox 接口开关与访问密码
     TVBoxEnabled?: boolean;
     TVBoxPassword?: string;
@@ -42,6 +44,13 @@ export interface AdminConfig {
     from: 'config' | 'custom';
     disabled?: boolean;
   }[];
+  SubscriptionConfig?: {
+    subscriptionUrl?: string;
+    autoUpdate?: boolean;
+    updateInterval?: number; // seconds
+    lastUpdated?: number; // timestamp in seconds
+    importMode?: 'overwrite' | 'merge';
+  };
 }
 
 export interface AdminConfigResult {
