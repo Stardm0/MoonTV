@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Cat, Clover, Download, Film, History, Home, Search, Star, Trash2, Tv, X } from 'lucide-react';
+import { Cat, Clapperboard, Clover, Download, Film, History, Home, Search, Star, Trash2, Tv, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -163,6 +163,11 @@ const TopNav = ({ activePath }: TopNavProps) => {
       icon: Tv,
       label: '剧集',
       href: '/douban?type=tv',
+    },
+    {
+      icon: Clapperboard,
+      label: '短剧',
+      href: '/douban?type=short',
     },
     {
       icon: Cat,

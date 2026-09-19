@@ -55,6 +55,7 @@ function DoubanPageClient() {
     if (type === 'movie') return '热门';
     if (type === 'tv' || type === 'show') return '最近热门';
     if (type === 'anime') return '每日放送';
+    if (type === 'short') return '热门短剧';
     return '';
   });
   const [secondarySelection, setSecondarySelection] = useState<string>(() => {
@@ -160,6 +161,9 @@ function DoubanPageClient() {
       } else if (type === 'anime') {
         setPrimarySelection('每日放送');
         setSecondarySelection('全部');
+      } else if (type === 'short') {
+        setPrimarySelection('热门短剧');
+        setSecondarySelection('全部');
       } else {
         setPrimarySelection('');
         setSecondarySelection('全部');
@@ -246,6 +250,34 @@ function DoubanPageClient() {
     [type, primarySelection, secondarySelection]
   );
 
+  // 短剧：豆瓣「类型=短剧」的推荐接口（rexxar tv recommend，实测有 500+ 条目，
+  // 自带海报/评分/年份）。排序由一级分类决定：热门=T(综合)、高分=S、最新=R(首播时间)。
+  const getShortDramaData = useCallback(
+    (pageStart: number) =>
+      getDoubanRecommends({
+        kind: 'tv',
+        pageLimit: 25,
+        pageStart,
+        category: '短剧',
+        format: '',
+        region: multiLevelValues.region
+          ? (multiLevelValues.region as string)
+          : '',
+        year: multiLevelValues.year ? (multiLevelValues.year as string) : '',
+        platform: multiLevelValues.platform
+          ? (multiLevelValues.platform as string)
+          : '',
+        sort:
+          primarySelection === '高分短剧'
+            ? 'S'
+            : primarySelection === '最新短剧'
+              ? 'R'
+              : '',
+        label: multiLevelValues.label ? (multiLevelValues.label as string) : '',
+      }),
+    [multiLevelValues, primarySelection]
+  );
+
   // 防抖的数据加载函数
   const loadInitialData = useCallback(async () => {
     // 创建当前参数的快照
@@ -329,6 +361,8 @@ function DoubanPageClient() {
             ? (multiLevelValues.label as string)
             : '',
         });
+      } else if (type === 'short') {
+        data = await getShortDramaData(0);
       } else if (primarySelection === '全部') {
         data = await getDoubanRecommends({
           kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
@@ -381,6 +415,7 @@ function DoubanPageClient() {
     multiLevelValues,
     selectedWeekday,
     getRequestParams,
+    getShortDramaData,
     customCategories,
   ]);
 
@@ -483,6 +518,8 @@ function DoubanPageClient() {
                 ? (multiLevelValues.label as string)
                 : '',
             });
+          } else if (type === 'short') {
+            data = await getShortDramaData(currentPage * 25);
           } else if (primarySelection === '全部') {
             data = await getDoubanRecommends({
               kind: type === 'show' ? 'tv' : (type as 'tv' | 'movie'),
@@ -545,6 +582,7 @@ function DoubanPageClient() {
     customCategories,
     multiLevelValues,
     selectedWeekday,
+    getShortDramaData,
   ]);
 
   // 设置滚动监听
@@ -691,12 +729,17 @@ function DoubanPageClient() {
           ? '动漫'
           : type === 'show'
             ? '综艺'
-            : '自定义';
+            : type === 'short'
+              ? '短剧'
+              : '自定义';
   };
 
   const getPageDescription = () => {
     if (type === 'anime' && primarySelection === '每日放送') {
       return '来自 Bangumi 番组计划的精选内容';
+    }
+    if (type === 'short') {
+      return '来自豆瓣的精选短剧内容';
     }
     return '来自豆瓣的精选内容';
   };
@@ -729,7 +772,9 @@ function DoubanPageClient() {
           {type !== 'custom' ? (
             <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
               <DoubanSelector
-                type={type as 'movie' | 'tv' | 'show' | 'anime'}
+                type={
+                  type as 'movie' | 'tv' | 'show' | 'anime' | 'short'
+                }
                 primarySelection={primarySelection}
                 secondarySelection={secondarySelection}
                 onPrimaryChange={handlePrimaryChange}

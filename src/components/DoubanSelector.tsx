@@ -13,7 +13,7 @@ interface SelectorOption {
 }
 
 interface DoubanSelectorProps {
-  type: 'movie' | 'tv' | 'show' | 'anime';
+  type: 'movie' | 'tv' | 'show' | 'anime' | 'short';
   primarySelection?: string;
   secondarySelection?: string;
   onPrimaryChange: (value: string) => void;
@@ -101,6 +101,13 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     { label: '剧场版', value: '剧场版' },
   ];
 
+  // 短剧一级选择器选项（映射到豆瓣推荐接口的排序参数）
+  const shortPrimaryOptions: SelectorOption[] = [
+    { label: '热门短剧', value: '热门短剧' },
+    { label: '高分短剧', value: '高分短剧' },
+    { label: '最新短剧', value: '最新短剧' },
+  ];
+
   // 处理多级选择器变化
   const handleMultiLevelChange = (values: Record<string, string>) => {
     onMultiLevelChange?.(values);
@@ -184,6 +191,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
         primaryButtonRefs,
         setPrimaryIndicatorStyle
       );
+    } else if (type === 'short') {
+      const activeIndex = shortPrimaryOptions.findIndex(
+        (opt) =>
+          opt.value === (primarySelection || shortPrimaryOptions[0].value)
+      );
+      updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
     }
 
     // 副选择器初始位置
@@ -252,6 +270,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
       return cleanup;
     } else if (type === 'show') {
       const activeIndex = showPrimaryOptions.findIndex(
+        (opt) => opt.value === primarySelection
+      );
+      const cleanup = updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
+      return cleanup;
+    } else if (type === 'short') {
+      const activeIndex = shortPrimaryOptions.findIndex(
         (opt) => opt.value === primarySelection
       );
       const cleanup = updateIndicatorPosition(
@@ -558,6 +587,38 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* 短剧类型 - 分类(排序) + 筛选(地区/年代/平台) */}
+      {type === 'short' && (
+        <div className='space-y-3 sm:space-y-4'>
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              分类
+            </span>
+            <div className='overflow-x-auto'>
+              {renderCapsuleSelector(
+                shortPrimaryOptions,
+                primarySelection || shortPrimaryOptions[0].value,
+                onPrimaryChange,
+                true
+              )}
+            </div>
+          </div>
+
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              筛选
+            </span>
+            <div className='overflow-x-auto'>
+              <MultiLevelSelector
+                key={`${type}-${primarySelection}`}
+                onChange={handleMultiLevelChange}
+                contentType='short'
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>

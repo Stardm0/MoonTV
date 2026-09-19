@@ -563,9 +563,27 @@ async function fetchWithAuth(
   return res;
 }
 
-async function fetchFromApi<T>(path: string): Promise<T> {
-  const res = await fetchWithAuth(path);
-  return (await res.json()) as T;
+/**
+ * 并发去重的 GET 请求。
+ *
+ * 首页每张卡片都会调 isFollowing/isFavorited → 各自触发一次
+ * /api/followings、/api/favorites：20 张卡片就是 40 个相同请求，
+ * 接口一旦失败还会连环弹错。这里按 path 合并并发中的相同请求，
+ * 共享同一个 Promise（连同解析后的 JSON 一起共享，避免 Response 只能读一次）。
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+function fetchFromApi<T>(path: string): Promise<T> {
+  const existing = inflightGets.get(path) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const request = fetchWithAuth(path).then((res) => res.json() as Promise<T>);
+  inflightGets.set(path, request);
+  const clear = () => {
+    inflightGets.delete(path);
+  };
+  request.then(clear, clear);
+  return request;
 }
 
 /**
@@ -621,8 +639,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
         cacheManager.cachePlayRecords(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取播放记录失败:', err);
-        triggerGlobalError('获取播放记录失败');
+        console.warn('获取播放记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -634,8 +651,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, PlayRecord>;
   } catch (err) {
-    console.error('读取播放记录失败:', err);
-    triggerGlobalError('读取播放记录失败');
+    console.warn('读取播放记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -827,8 +843,7 @@ export async function getSearchHistory(): Promise<string[]> {
         cacheManager.cacheSearchHistory(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取搜索历史失败:', err);
-        triggerGlobalError('获取搜索历史失败');
+        console.warn('获取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return [];
       }
     }
@@ -842,8 +857,7 @@ export async function getSearchHistory(): Promise<string[]> {
     // 仅返回字符串数组
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    console.error('读取搜索历史失败:', err);
-    triggerGlobalError('读取搜索历史失败');
+    console.warn('读取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return [];
   }
 }
@@ -1049,8 +1063,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
         cacheManager.cacheFavorites(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取收藏失败:', err);
-        triggerGlobalError('获取收藏失败');
+        console.warn('获取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -1062,8 +1075,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, Favorite>;
   } catch (err) {
-    console.error('读取收藏失败:', err);
-    triggerGlobalError('读取收藏失败');
+    console.warn('读取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -1109,8 +1121,7 @@ export async function getAllFollowings(
         cacheManager.cacheFollowings(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取追更失败:', err);
-        triggerGlobalError('获取追更失败');
+        console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -1141,8 +1152,7 @@ export async function getAllFollowings(
       cacheManager.cacheFollowings(freshData);
       return freshData;
     } catch (err) {
-      console.error('获取追更失败:', err);
-      triggerGlobalError('获取追更失败');
+      console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
       return {};
     }
   }
@@ -1152,8 +1162,7 @@ export async function getAllFollowings(
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, Following>;
   } catch (err) {
-    console.error('读取追更列表失败:', err);
-    triggerGlobalError('读取追更列表失败');
+    console.warn('读取追更列表失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -1617,8 +1626,7 @@ export async function isFavorited(
         cacheManager.cacheFavorites(freshData);
         return !!freshData[key];
       } catch (err) {
-        console.error('检查收藏状态失败:', err);
-        triggerGlobalError('检查收藏状态失败');
+        console.warn('检查收藏状态失败:', err);
         return false;
       }
     }
@@ -1887,7 +1895,6 @@ export async function preloadUserData(): Promise<void> {
   // 后台静默预加载，不阻塞界面
   refreshAllCache().catch((err) => {
     console.warn('预加载用户数据失败:', err);
-    triggerGlobalError('预加载用户数据失败');
   });
 }
 
@@ -1942,8 +1949,7 @@ export async function getSkipConfig(
         cacheManager.cacheSkipConfigs(freshData);
         return freshData[key] || null;
       } catch (err) {
-        console.error('获取跳过片头片尾配置失败:', err);
-        triggerGlobalError('获取跳过片头片尾配置失败');
+        console.warn('获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return null;
       }
     }
@@ -1956,8 +1962,7 @@ export async function getSkipConfig(
     const configs = JSON.parse(raw) as Record<string, SkipConfig>;
     return configs[key] || null;
   } catch (err) {
-    console.error('读取跳过片头片尾配置失败:', err);
-    triggerGlobalError('读取跳过片头片尾配置失败');
+    console.warn('读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return null;
   }
 }
@@ -2070,8 +2075,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
         cacheManager.cacheSkipConfigs(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取跳过片头片尾配置失败:', err);
-        triggerGlobalError('获取跳过片头片尾配置失败');
+        console.warn('获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -2083,8 +2087,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, SkipConfig>;
   } catch (err) {
-    console.error('读取跳过片头片尾配置失败:', err);
-    triggerGlobalError('读取跳过片头片尾配置失败');
+    console.warn('读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -2200,8 +2203,7 @@ export async function getTodayUpdated(): Promise<TodayUpdatedRecord | null> {
         cacheManager.cacheTodayUpdated(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取“今日新更”记录失败:', err);
-        triggerGlobalError('获取“今日新更”记录失败');
+        console.warn('获取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return null;
       }
     }
@@ -2213,8 +2215,7 @@ export async function getTodayUpdated(): Promise<TodayUpdatedRecord | null> {
     if (!raw) return null;
     return JSON.parse(raw) as TodayUpdatedRecord;
   } catch (err) {
-    console.error('读取“今日新更”记录失败:', err);
-    triggerGlobalError('读取“今日新更”记录失败');
+    console.warn('读取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return null;
   }
 }

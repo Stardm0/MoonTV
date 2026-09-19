@@ -17,7 +17,13 @@ interface MultiLevelCategory {
 
 interface MultiLevelSelectorProps {
   onChange: (values: Record<string, string>) => void;
-  contentType?: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie';
+  contentType?:
+    | 'movie'
+    | 'tv'
+    | 'show'
+    | 'anime-tv'
+    | 'anime-movie'
+    | 'short';
 }
 
 const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
@@ -36,7 +42,13 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
   // 根据内容类型获取对应的类型选项
   const getTypeOptions = (
-    contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
+    contentType:
+      | 'movie'
+      | 'tv'
+      | 'show'
+      | 'anime-tv'
+      | 'anime-movie'
+      | 'short'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -107,7 +119,13 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
   // 根据内容类型获取对应的地区选项
   const getRegionOptions = (
-    contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
+    contentType:
+      | 'movie'
+      | 'tv'
+      | 'show'
+      | 'anime-tv'
+      | 'anime-movie'
+      | 'short'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -142,6 +160,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'tv':
       case 'anime-tv':
       case 'show':
+      case 'short':
         return [
           ...baseOptions,
           { label: '华语', value: 'chinese' },
@@ -230,7 +249,13 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
 
   // 根据内容类型获取对应的平台选项
   const getPlatformOptions = (
-    contentType: 'movie' | 'tv' | 'show' | 'anime-tv' | 'anime-movie'
+    contentType:
+      | 'movie'
+      | 'tv'
+      | 'show'
+      | 'anime-tv'
+      | 'anime-movie'
+      | 'short'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -240,6 +265,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'tv':
       case 'anime-tv':
       case 'show':
+      case 'short':
         return [
           ...baseOptions,
           { label: '腾讯视频', value: 'tencent' },
@@ -260,62 +286,70 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
   };
 
   // 分类配置
-  const categories: MultiLevelCategory[] = [
-    ...(contentType !== 'anime-tv' && contentType !== 'anime-movie'
-      ? [
-          {
-            key: 'type',
-            label: '类型',
-            options: getTypeOptions(contentType),
-          },
-        ]
-      : [
-          {
-            key: 'label',
-            label: '类型',
-            options: getLabelOptions(contentType),
-          },
-        ]),
-    {
-      key: 'region',
-      label: '地区',
-      options: getRegionOptions(contentType),
-    },
-    {
-      key: 'year',
-      label: '年代',
-      options: [
-        { label: '全部', value: 'all' },
-        { label: '2020年代', value: '2020s' },
-        { label: '2025', value: '2025' },
-        { label: '2024', value: '2024' },
-        { label: '2023', value: '2023' },
-        { label: '2022', value: '2022' },
-        { label: '2021', value: '2021' },
-        { label: '2020', value: '2020' },
-        { label: '2019', value: '2019' },
-        { label: '2010年代', value: '2010s' },
-        { label: '2000年代', value: '2000s' },
-        { label: '90年代', value: '1990s' },
-        { label: '80年代', value: '1980s' },
-        { label: '70年代', value: '1970s' },
-        { label: '60年代', value: '1960s' },
-        { label: '更早', value: 'earlier' },
-      ],
-    },
-    // 只在电视剧和综艺时显示平台选项
-    ...(contentType === 'tv' ||
+  // short（短剧）：豆瓣的"类型=短剧"已固定为数据源，因此不提供类型与排序行，
+  // 只保留 地区/年代/平台 三个真正可叠加的筛选维度
+  const categories: MultiLevelCategory[] = [];
+
+  if (contentType === 'anime-tv' || contentType === 'anime-movie') {
+    categories.push({
+      key: 'label',
+      label: '类型',
+      options: getLabelOptions(contentType),
+    });
+  } else if (contentType !== 'short') {
+    categories.push({
+      key: 'type',
+      label: '类型',
+      options: getTypeOptions(contentType),
+    });
+  }
+
+  categories.push({
+    key: 'region',
+    label: '地区',
+    options: getRegionOptions(contentType),
+  });
+
+  categories.push({
+    key: 'year',
+    label: '年代',
+    options: [
+      { label: '全部', value: 'all' },
+      { label: '2020年代', value: '2020s' },
+      { label: '2025', value: '2025' },
+      { label: '2024', value: '2024' },
+      { label: '2023', value: '2023' },
+      { label: '2022', value: '2022' },
+      { label: '2021', value: '2021' },
+      { label: '2020', value: '2020' },
+      { label: '2019', value: '2019' },
+      { label: '2010年代', value: '2010s' },
+      { label: '2000年代', value: '2000s' },
+      { label: '90年代', value: '1990s' },
+      { label: '80年代', value: '1980s' },
+      { label: '70年代', value: '1970s' },
+      { label: '60年代', value: '1960s' },
+      { label: '更早', value: 'earlier' },
+    ],
+  });
+
+  // 只在电视剧/综艺/短剧时显示平台选项
+  if (
+    contentType === 'tv' ||
     contentType === 'show' ||
-    contentType === 'anime-tv'
-      ? [
-          {
-            key: 'platform',
-            label: '平台',
-            options: getPlatformOptions(contentType),
-          },
-        ]
-      : []),
-    {
+    contentType === 'anime-tv' ||
+    contentType === 'short'
+  ) {
+    categories.push({
+      key: 'platform',
+      label: '平台',
+      options: getPlatformOptions(contentType),
+    });
+  }
+
+  // 短剧的排序由一级分类（热门/高分/最新）决定，不提供排序行
+  if (contentType !== 'short') {
+    categories.push({
       key: 'sort',
       label: '排序',
       options: [
@@ -330,8 +364,8 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
         },
         { label: '高分优先', value: 'S' },
       ],
-    },
-  ];
+    });
+  }
 
   // 计算下拉框位置
   const calculateDropdownPosition = (categoryKey: string) => {

@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.1.4",
+    date: "2026-09-19",
+    added: [
+    "首页导航新增「短剧」分类: 数据来自豆瓣, 支持热门/高分/最新排序与地区/年代/平台筛选",
+    "播放页新增弱网自动降档: 反复卡顿自动降低画质, 已到最低档则提示换源",
+    "管理面板新增返回按钮"
+    ],
+    changed: [
+    "视频前向缓冲目标 60 秒 → 120 秒, 预取并发 2 → 3"
+    ],
+    fixed: [
+    "修复切换页面反复弹出「获取追更失败」红字的问题"
+    ]
+  },
+  {
     version: "4.1.3",
     date: "2026-09-19",
     added: [

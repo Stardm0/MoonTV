@@ -181,9 +181,13 @@ export function usePlayEngine() {
 
   // 跳过检查的时间间隔控制
   const lastSkipCheckRef = useRef(0);
-
   // 预缓存窗口续跑的时间间隔控制（播放自然推进时定期检查窗口余量）
   const lastPrefetchCheckRef = useRef(0);
+  // —— 弱网自动降档 ——
+  // 最近 2 分钟内的卡顿时间戳；反复卡顿时把 ABR 上限压一档，宁可糊一点不要一直转圈
+  const stallTimesRef = useRef<number[]>([]);
+  // 记录已提示过的降档状态，避免 notice 反复弹
+  const downshiftNoticeRef = useRef<string | null>(null);
 
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
   // 去广告开关（从 localStorage 继承，默认 true）
@@ -2009,8 +2013,10 @@ export function usePlayEngine() {
               /* 缓冲/内存相关 */
               // 真正的"缓存后面的"由 VideoPrefetcher 写入 Cache Storage 承担，
               // 这里只需一个适度的内存缓冲，避免移动端内存压力。
-              maxBufferLength: 60, // 前向缓冲目标 60s
-              maxMaxBufferLength: 300, // 前向缓冲硬上限 300s
+              // 弱网优化：缓冲拉长到 2 分钟，网络抖动时不容易转圈；
+              // 实际内存占用仍由 maxBufferSize（90MB）兜底。
+              maxBufferLength: 120, // 前向缓冲目标 120s
+              maxMaxBufferLength: 600, // 前向缓冲硬上限 600s
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
               maxBufferSize: 90 * 1000 * 1000, // 约 90MB，超出后触发清理
 
@@ -2033,6 +2039,11 @@ export function usePlayEngine() {
             const recovery = new PlaybackRecovery();
             recoveryRef.current?.dispose();
             recoveryRef.current = recovery;
+
+            // 新实例 = 新的 ABR 环境：清掉上一集的卡顿记录与降档上限，
+            // 否则换源后 ABR 会被上一个源的网络状况压着
+            stallTimesRef.current = [];
+            downshiftNoticeRef.current = null;
 
             // 播放列表解析成功：建立画质档位，并确认链路可用
             hls.on(Hls.Events.MANIFEST_PARSED, function () {
@@ -2258,10 +2269,17 @@ export function usePlayEngine() {
               }
 
               try {
-                if (hls) hls.currentLevel = nextLevel;
+                if (hls) {
+                  hls.currentLevel = nextLevel;
+                  // 用户手动选了档位 = 明确表达意愿，清掉自动降档的上限，
+                  // 否则 ABR 会被之前的卡顿记录一直压着达不到所选档位
+                  hls.autoLevelCapping = -1;
+                }
               } catch {
                 // 忽略：极端情况下 levels 正在重建
               }
+              stallTimesRef.current = [];
+              downshiftNoticeRef.current = null;
 
               // 记忆的是"画面高度"而非档位下标：换集/换源后档位数量与顺序都会变，
               // 记下标会指向错误的档位。
@@ -2419,6 +2437,51 @@ export function usePlayEngine() {
       // 注意：这是"临时让路"，不是"视频暂停就停缓存"。
       artPlayerRef.current.on('video:waiting', () => {
         prefetcherRef.current.setThrottled(true);
+
+        // —— 弱网自动降档 ——
+        // seek/换源也会触发 waiting，因此 5 秒内的重复事件只记一次；
+        // 2 分钟内累计 4 次视为网络跟不上当前档位，把 ABR 上限压一档。
+        const now = Date.now();
+        const stalls = stallTimesRef.current;
+        if (stalls.length === 0 || now - stalls[stalls.length - 1] >= 5_000) {
+          stalls.push(now);
+        }
+        while (stalls.length > 0 && now - stalls[0] > 120_000) {
+          stalls.shift();
+        }
+
+        const hls = artPlayerRef.current?.video?.hls;
+        if (!hls || !hls.autoLevelEnabled) return; // 手动档位由用户自己负责
+        if (stalls.length < 4) return;
+
+        const currentLevel =
+          typeof hls.loadLevel === 'number' && hls.loadLevel >= 0
+            ? hls.loadLevel
+            : typeof hls.currentLevel === 'number' && hls.currentLevel >= 0
+              ? hls.currentLevel
+              : 0;
+        const cap =
+          typeof hls.autoLevelCapping === 'number' && hls.autoLevelCapping >= 0
+            ? hls.autoLevelCapping
+            : Number.POSITIVE_INFINITY;
+        const nextCap = Math.max(0, Math.min(currentLevel, cap) - 1);
+
+        if (cap === 0) {
+          // 已经是最低档还在卡：提示换源，不再重复弹
+          if (downshiftNoticeRef.current !== 'min') {
+            downshiftNoticeRef.current = 'min';
+            artPlayerRef.current.notice.show =
+              '已降至最低画质仍卡顿，建议在右侧换一个播放源';
+          }
+          return;
+        }
+
+        hls.autoLevelCapping = nextCap;
+        if (downshiftNoticeRef.current !== `cap-${nextCap}`) {
+          downshiftNoticeRef.current = `cap-${nextCap}`;
+          artPlayerRef.current.notice.show =
+            '检测到网络较慢，已自动降低画质以减少卡顿';
+        }
       });
       artPlayerRef.current.on('video:playing', () => {
         prefetcherRef.current.setThrottled(false);

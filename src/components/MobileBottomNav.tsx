@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Cat, Clover, Film, Home, Search, Star, Tv } from 'lucide-react';
+import { Cat, Clapperboard, Clover, Film, Home, Search, Star, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { memo, useEffect, useState } from 'react';
@@ -37,6 +37,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       icon: Tv,
       label: '剧集',
       href: '/douban?type=tv',
+    },
+    {
+      icon: Clapperboard,
+      label: '短剧',
+      href: '/douban?type=short',
     },
     {
       icon: Cat,
@@ -128,7 +133,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
               <Link
                 href={item.href}
                 className='flex flex-col items-center justify-center w-full h-14 gap-1 text-xs'
-                onClick={(e) => {
+                onClick={() => {
                   // 如果不是当前激活的链接，则触发加载动画
                   if (!active) {
                     startLoading();

@@ -54,7 +54,7 @@ export interface PrefetchOptions {
   horizonSeconds?: number;
   /** 回看保护时长（秒），默认 30 */
   lookBehindSeconds?: number;
-  /** 并发数，默认 2 */
+  /** 并发数，默认 3（上限 4）：并发太高会抢播放的带宽 */
   concurrency?: number;
   /** 覆盖 settings.useProxy */
   useProxy?: boolean;
@@ -299,7 +299,7 @@ export class VideoPrefetcher {
     signal: AbortSignal
   ): Promise<void> {
     const useProxy = options.useProxy ?? settings.useProxy;
-    const concurrency = Math.max(1, Math.min(4, options.concurrency ?? 2));
+    const concurrency = Math.max(1, Math.min(4, options.concurrency ?? 3));
     const lookBehind = Math.max(0, options.lookBehindSeconds ?? 30);
 
     const horizonSeconds = options.horizonSeconds ?? settings.horizonSeconds;
