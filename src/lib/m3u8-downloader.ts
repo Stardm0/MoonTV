@@ -85,22 +85,17 @@ export interface M3U8Task {
 
 /**
  * 应用URL - 处理相对路径和绝对路径
+ *
+ * 必须使用标准 URL 解析：手写字符串拼接不会归一化 `../`，也不会剥离 base 的
+ * query，导致解析结果与 hls.js（内部用 `new URL(target, base)`）不一致。
+ * 一旦不一致，播放器请求的片段 URL 与预取写入缓存的 key 就对不上，缓存永远 0 命中。
  */
 export function applyURL(targetURL: string, baseURL: string): string {
-  if (/^http/.test(targetURL)) {
+  try {
+    return new URL(targetURL, baseURL).href;
+  } catch {
     return targetURL;
   }
-  const urlObj = new URL(baseURL);
-  const protocol = urlObj.protocol;
-  const host = urlObj.host;
-  
-  if (targetURL.startsWith('/')) {
-    return `${protocol}//${host}${targetURL}`;
-  }
-  
-  const pathArr = baseURL.split('/');
-  pathArr.pop();
-  return `${pathArr.join('/')}/${targetURL}`;
 }
 
 /**

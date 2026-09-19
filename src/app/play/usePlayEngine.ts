@@ -23,6 +23,14 @@ import {
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
+import {
+  clearVideoCache,
+  getSegmentProbe,
+  loadCacheSettings,
+  resetSegmentProbe,
+  saveCacheSettings,
+} from '@/lib/video-cache';
+import { getVideoPrefetcher, PrefetchStats } from '@/lib/video-prefetcher';
 
 import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
 
@@ -45,6 +53,45 @@ declare global {
   interface HTMLVideoElement {
     hls?: any;
   }
+}
+
+/**
+ * 暂停期间预取窗口的放大倍数。
+ *
+ * 播放中预取需要给当前播放让带宽，窗口取保守值（默认 10 分钟）；
+ * 暂停后带宽完全空闲，把前向视野放大到 3 倍，让"暂停也继续缓存后面"更有价值。
+ */
+const PAUSED_HORIZON_MULTIPLIER = 3;
+
+/**
+ * 组装「视频缓存」设置项的 tooltip 文案。
+ *
+ * `hitRate` 为 null 表示还没有任何片段请求，因此没有命中率可展示。
+ */
+function buildCacheTooltip(
+  stats: PrefetchStats,
+  hitRate: number | null
+): string {
+  switch (stats.state) {
+    case 'disabled':
+      return stats.message || '已关闭';
+    case 'parsing':
+      return '解析播放列表中...';
+    case 'error':
+      return stats.message || '缓存不可用';
+    case 'idle':
+      return '未开始';
+    default:
+      break;
+  }
+
+  if (stats.total === 0) return '未开始';
+
+  const coverPart =
+    stats.coverTo > 0 ? ` · 已覆盖 ${formatTime(stats.coverTo)}` : '';
+  const hitPart =
+    hitRate === null ? '' : ` · 命中 ${Math.round(hitRate * 100)}%`;
+  return `${stats.cached}/${stats.total} 段${coverPart}${hitPart}`;
 }
 
 /**
@@ -90,6 +137,9 @@ export function usePlayEngine() {
   // 跳过检查的时间间隔控制
   const lastSkipCheckRef = useRef(0);
 
+  // 预缓存窗口续跑的时间间隔控制（播放自然推进时定期检查窗口余量）
+  const lastPrefetchCheckRef = useRef(0);
+
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
   // 去广告开关（从 localStorage 继承，默认 true）
   const [blockAdEnabled, setBlockAdEnabled] = useState<boolean>(() => {
@@ -103,6 +153,12 @@ export function usePlayEngine() {
   useEffect(() => {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
+
+  // 视频预缓存（Cache Storage）。
+  // 预取器与播放状态完全解耦：视频暂停、页面切后台时仍会继续把前向片段写进缓存。
+  // 进度不走 React state——它会以 250ms 的节奏回调，走 state 会让整页高频重渲染，
+  // 这里直接更新 ArtPlayer 的设置项 tooltip。
+  const prefetcherRef = useRef(getVideoPrefetcher());
 
   // 弹幕源选择相关
   const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<
@@ -1579,8 +1635,55 @@ export function usePlayEngine() {
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       Artplayer.USE_RAF = true;
 
-      // 在这里定义自定义 Loader，确保 Hls 已就绪
-      const CustomHlsJsLoader = createCustomHlsLoader(Hls);
+      // 当前剧集的缓存标识，用于分集统计与 LRU 淘汰
+      const episodeCacheKey = `${currentSource}:${currentId}:${currentEpisodeIndex}`;
+
+      // 在这里定义自定义 Loader，确保 Hls 已就绪。
+      // blockAd 反映当前开关（切换时会重建播放器），useProxy 需与预取器保持一致。
+      const CustomHlsJsLoader = createCustomHlsLoader(Hls, {
+        blockAd: blockAdEnabledRef.current,
+        useProxy: loadCacheSettings().useProxy,
+      });
+
+      /** 刷新「视频缓存」设置项的进度提示 */
+      const updateCacheTooltip = (
+        text: string,
+        switchState?: boolean
+      ) => {
+        try {
+          artPlayerRef.current?.setting.update({
+            name: '视频缓存',
+            tooltip: text,
+            ...(switchState === undefined ? {} : { switch: switchState }),
+          });
+        } catch (_) {
+          // 播放器可能已销毁，忽略
+        }
+      };
+
+      /**
+       * 启动 / 续跑前向预缓存。
+       * ensure 是幂等的：窗口仍然够用时直接返回，可以放心高频调用。
+       */
+      const ensurePrefetch = (
+        m3u8Url: string,
+        currentTime: number,
+        horizonSeconds?: number
+      ) => {
+        prefetcherRef.current.ensure({
+          m3u8Url,
+          currentTime,
+          episodeKey: episodeCacheKey,
+          ...(horizonSeconds === undefined ? {} : { horizonSeconds }),
+          onProgress: (stats) => {
+            const probe = getSegmentProbe();
+            const probed = probe.hits + probe.misses;
+            updateCacheTooltip(
+              buildCacheTooltip(stats, probed > 0 ? probe.hitRate : null)
+            );
+          },
+        });
+      };
 
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
@@ -1633,17 +1736,20 @@ export function usePlayEngine() {
             const hls = new Hls({
               debug: false, // 关闭日志
               enableWorker: true, // WebWorker 解码，降低主线程压力
-              lowLatencyMode: true, // 开启低延迟 LL-HLS
+
+              // VOD 场景关闭低延迟模式：LL-HLS 会主动压缩前向缓冲，与"多缓存"目标相悖
+              lowLatencyMode: false,
 
               /* 缓冲/内存相关 */
-              maxBufferLength: 30, // 前向缓冲最大 30s，过大容易导致高延迟
+              // 真正的"缓存后面的"由 VideoPrefetcher 写入 Cache Storage 承担，
+              // 这里只需一个适度的内存缓冲，避免移动端内存压力。
+              maxBufferLength: 60, // 前向缓冲目标 60s
+              maxMaxBufferLength: 300, // 前向缓冲硬上限 300s
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
-              maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
+              maxBufferSize: 90 * 1000 * 1000, // 约 90MB，超出后触发清理
 
-              /* 自定义loader */
-              loader: blockAdEnabledRef.current
-                ? CustomHlsJsLoader
-                : Hls.DefaultConfig.loader,
+              /* 自定义 loader：去广告 + 缓存优先 */
+              loader: CustomHlsJsLoader,
             });
 
             hls.loadSource(url);
@@ -1651,6 +1757,10 @@ export function usePlayEngine() {
             video.hls = hls;
 
             ensureVideoSource(video, url);
+
+            // 启动前向预缓存。注意：这里只读取一次当前时间用于计算窗口起点，
+            // 之后的预取循环不会再读取任何播放状态，因此暂停后仍会继续缓存。
+            ensurePrefetch(url, video.currentTime || 0);
 
             hls.on(Hls.Events.ERROR, function (event: any, data: any) {
               console.error('HLS Error:', event, data);
@@ -1782,6 +1892,34 @@ export function usePlayEngine() {
               setShowDanmakuSelector(true);
             },
           },
+          {
+            name: '视频缓存',
+            html: '视频缓存',
+            switch: loadCacheSettings().enabled,
+            tooltip: loadCacheSettings().enabled ? '未开始' : '已关闭',
+            onSwitch: function (item: any) {
+              const enabled = !item.switch;
+              saveCacheSettings({ enabled });
+              if (enabled) {
+                updateCacheTooltip('未开始');
+                ensurePrefetch(videoUrl, artPlayerRef.current?.currentTime || 0);
+              } else {
+                prefetcherRef.current.stop();
+                updateCacheTooltip('已关闭');
+              }
+              return enabled;
+            },
+          },
+          {
+            html: '清空视频缓存',
+            onClick: function () {
+              prefetcherRef.current.stop();
+              resetSegmentProbe();
+              void clearVideoCache();
+              updateCacheTooltip('未开始');
+              return '';
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -1864,10 +2002,35 @@ export function usePlayEngine() {
       artPlayerRef.current.on('pause', () => {
         releaseWakeLock();
         saveCurrentPlayProgress();
+
+        // 暂停是预缓存的"黄金窗口"：播放不再抢带宽，缓存应当全速继续。
+        // 1) 解除 stall 让路。否则若用户正好在卡顿时按暂停，video:playing
+        //    永远不会再触发，预取会被永久挂起——恰好违背"暂停也继续缓存"。
+        // 2) 刷新一次窗口，并把前向视野放大到 3 倍，暂停越久缓存越靠前。
+        prefetcherRef.current.setThrottled(false);
+        const pausedSettings = loadCacheSettings();
+        ensurePrefetch(
+          videoUrl,
+          artPlayerRef.current.currentTime || 0,
+          pausedSettings.horizonSeconds * PAUSED_HORIZON_MULTIPLIER
+        );
       });
 
-      artPlayerRef.current.on('video:ended', () => {
-        releaseWakeLock();
+      // ---------------------------------------------------------------------
+      // 前向预缓存：窗口维护
+      // ---------------------------------------------------------------------
+      // seek 后窗口可能不再覆盖目标位置；ensure 内部会判断，窗口够用时零成本返回
+      artPlayerRef.current.on('video:seeked', () => {
+        ensurePrefetch(videoUrl, artPlayerRef.current.currentTime || 0);
+      });
+
+      // 播放卡顿时让出带宽，恢复后继续预取。
+      // 注意：这是"临时让路"，不是"视频暂停就停缓存"。
+      artPlayerRef.current.on('video:waiting', () => {
+        prefetcherRef.current.setThrottled(true);
+      });
+      artPlayerRef.current.on('video:playing', () => {
+        prefetcherRef.current.setThrottled(false);
       });
 
       // 如果播放器初始化时已经在播放状态，则请求 Wake Lock
@@ -1921,13 +2084,41 @@ export function usePlayEngine() {
         setIsVideoLoading(false);
       });
 
-      // 监听视频时间更新事件，实现跳过片头片尾
+      // 监听视频时间更新事件：播放进度自动保存 + 跳过片头片尾
+      // （两个逻辑合并到同一个监听器，避免重复注册 timeupdate）
       artPlayerRef.current.on('video:timeupdate', () => {
+        const now = Date.now();
+
+        // —— 播放进度自动保存 ——
+        // 间隔优先读取站点配置（RUNTIME_CONFIG.PLAYBACK_SAVE_INTERVAL，单位秒），
+        // 未配置时回退到存储类型默认值（Upstash 20s，其余 5s）
+        const configuredInterval =
+          typeof window !== 'undefined'
+            ? Number((window as any).RUNTIME_CONFIG?.PLAYBACK_SAVE_INTERVAL)
+            : 0;
+        const saveInterval =
+          configuredInterval > 0
+            ? configuredInterval * 1000
+            : getDefaultPlaybackSaveInterval(
+                process.env.NEXT_PUBLIC_STORAGE_TYPE
+              ) * 1000;
+        if (now - lastSaveTimeRef.current > saveInterval) {
+          saveCurrentPlayProgress();
+          lastSaveTimeRef.current = now;
+        }
+
+        // —— 前向预缓存窗口续跑 ——
+        // 播放自然推进（未触发 seek）时，每 30 秒检查一次窗口余量并续跑
+        if (now - lastPrefetchCheckRef.current > 30_000) {
+          lastPrefetchCheckRef.current = now;
+          ensurePrefetch(videoUrl, artPlayerRef.current.currentTime || 0);
+        }
+
+        // —— 跳过片头片尾 ——
         if (!skipConfigRef.current.enable) return;
 
         const currentTime = artPlayerRef.current.currentTime || 0;
         const duration = artPlayerRef.current.duration || 0;
-        const now = Date.now();
 
         // 限制跳过检查频率为1.5秒一次
         if (now - lastSkipCheckRef.current < 1500) return;
@@ -1972,8 +2163,9 @@ export function usePlayEngine() {
         }
       });
 
-      // 监听视频播放结束事件，自动播放下一集
+      // 监听视频播放结束事件：释放 Wake Lock 并自动播放下一集
       artPlayerRef.current.on('video:ended', () => {
+        releaseWakeLock();
         const d = detailRef.current;
         const idx = currentEpisodeIndexRef.current;
         if (d && d.episodes && idx < d.episodes.length - 1) {
@@ -1981,31 +2173,6 @@ export function usePlayEngine() {
             handleNextEpisode();
           }, 1000);
         }
-      });
-
-      artPlayerRef.current.on('video:timeupdate', () => {
-        const now = Date.now();
-        // 播放进度自动保存间隔：优先读取站点配置
-        // （RUNTIME_CONFIG.PLAYBACK_SAVE_INTERVAL，单位秒），未配置时回退到
-        // 存储类型默认值（Upstash 20s，其余 5s）
-        const configuredInterval =
-          typeof window !== 'undefined'
-            ? Number((window as any).RUNTIME_CONFIG?.PLAYBACK_SAVE_INTERVAL)
-            : 0;
-        const interval =
-          configuredInterval > 0
-            ? configuredInterval * 1000
-            : getDefaultPlaybackSaveInterval(
-                process.env.NEXT_PUBLIC_STORAGE_TYPE
-              ) * 1000;
-        if (now - lastSaveTimeRef.current > interval) {
-          saveCurrentPlayProgress();
-          lastSaveTimeRef.current = now;
-        }
-      });
-
-      artPlayerRef.current.on('pause', () => {
-        saveCurrentPlayProgress();
       });
 
       if (artPlayerRef.current?.video) {
@@ -2058,6 +2225,9 @@ export function usePlayEngine() {
 
       // 移除可见性监听
       document.removeEventListener('visibilitychange', handleVisibilityChange);
+
+      // 停止前向预缓存
+      prefetcherRef.current.stop();
 
       // 销毁播放器实例
       cleanupPlayer();
