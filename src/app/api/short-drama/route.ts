@@ -55,9 +55,12 @@ async function fetchShortDramaClasses(apiSite: ApiSite): Promise<SiteClass[]> {
     if (!resp.ok) return [];
     const data = (await resp.json()) as { class?: SiteClass[] };
     const classes = Array.isArray(data.class) ? data.class : [];
-    return classes.filter((c) =>
-      SHORT_DRAMA_CLASS_KEYWORDS.some((kw) => String(c.type_name || '').includes(kw))
-    );
+    return classes.filter((c) => {
+      const name = String(c.type_name || '');
+      // 排除擦边/色情类分类，避免软色情内容混入微短剧页
+      if (/擦边|色情|成人|福利|大尺度|禁片/.test(name)) return false;
+      return SHORT_DRAMA_CLASS_KEYWORDS.some((kw) => name.includes(kw));
+    });
   } catch {
     return [];
   }
