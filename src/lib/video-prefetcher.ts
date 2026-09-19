@@ -58,6 +58,14 @@ export interface PrefetchOptions {
   concurrency?: number;
   /** 覆盖 settings.useProxy */
   useProxy?: boolean;
+  /**
+   * 期望缓存的画面高度（如 1080）。
+   *
+   * 主播放列表有多个码率档位时，预取器默认取最高带宽；用户手动把画质切到
+   * 480p 后，hls.js 请求的是 480p 的分片，与已缓存的 1080p 分片 URL 不同，
+   * 命中率会掉到 0。把用户选择的档位透传下来即可保持一致。
+   */
+  preferredHeight?: number | null;
   onProgress?: (stats: PrefetchStats) => void;
 }
 
@@ -123,6 +131,8 @@ function indexAtTime(cumulative: number[], time: number): number {
 export class VideoPrefetcher {
   private controller: AbortController | null = null;
   private episodeKey: string | null = null;
+  /** 本轮队列使用的码率档位（画面高度），null 表示"最高带宽" */
+  private preferredHeight: number | null = null;
   /** 当前已排入队列的覆盖区间 [windowFrom, windowTo]（秒） */
   private windowFrom = 0;
   private windowTo = 0;
@@ -155,6 +165,10 @@ export class VideoPrefetcher {
     }
 
     const sameEpisode = this.episodeKey === options.episodeKey;
+    // 档位变了（用户手动切画质）就必须重建队列：不同档位的分片 URL 不同，
+    // 旧队列缓存的分片与新请求对不上，继续跑只是白烧带宽。
+    const preferredHeight = options.preferredHeight ?? null;
+    const sameVariant = this.preferredHeight === preferredHeight;
 
     // 队列已经覆盖到播放列表末尾，且当前播放位置落在已覆盖区间内：
     // 再叫也不会多出可缓存的片段。
@@ -163,6 +177,7 @@ export class VideoPrefetcher {
     // 注意要带上"位置在覆盖区间内"这一条：末尾覆盖 + 向后拖进度条 仍然需要重建队列。
     if (
       sameEpisode &&
+      sameVariant &&
       this.reachedEnd &&
       options.currentTime >= this.windowFrom - 60 &&
       options.currentTime <= this.windowTo
@@ -179,8 +194,10 @@ export class VideoPrefetcher {
     // 1) 前向还有 60s 以上余量（避免刚排完就重启）
     // 2) 已覆盖区间已经够到本轮要求的视野（暂停时会要求更大的视野）
     // 3) 当前播放位置没有退到已覆盖区间之前（否则会出现缓存盲区）
+    // 4) 码率档位没变
     const windowStillUseful =
       sameEpisode &&
+      sameVariant &&
       this.controller !== null &&
       !this.controller.signal.aborted &&
       options.currentTime + 60 < this.windowTo &&
@@ -196,6 +213,7 @@ export class VideoPrefetcher {
     const controller = new AbortController();
     this.controller = controller;
     this.episodeKey = options.episodeKey;
+    this.preferredHeight = preferredHeight;
 
     // 先写入近似窗口边界，让窗口判断在 run() 完成解析前就生效。
     // 否则解析期间（await parseM3U8）连续的 ensure 调用会反复重启队列。
@@ -279,7 +297,10 @@ export class VideoPrefetcher {
 
     let task: Awaited<ReturnType<typeof parseM3U8>>;
     try {
-      task = await parseM3U8(options.m3u8Url);
+      // 档位透传给解析器：主播放列表有多个码率时只取与当前播放一致的那一档
+      task = await parseM3U8(options.m3u8Url, 0, {
+        height: options.preferredHeight ?? null,
+      });
     } catch {
       this.emit(options, { state: 'error', message: '播放列表解析失败' }, true);
       return;
