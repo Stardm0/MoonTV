@@ -482,3 +482,19 @@ export function getVideoPrefetcher(): VideoPrefetcher {
   if (!singleton) singleton = new VideoPrefetcher();
   return singleton;
 }
+
+/**
+ * 「下一集预热」专用实例（落地路线第 3 步）。
+ *
+ * **必须**与 `getVideoPrefetcher()` 分开：一个实例只有一条队列和一个
+ * `AbortController`，复用会把当前正在播的那一集的队列打断。
+ *
+ * 两个实例写的是同一个 Cache Storage 与 IndexedDB——缓存键由分片 URL 决定，
+ * 所以预热好的分片在真正切到下一集时会被 hls.js 直接命中。
+ */
+let nextEpisodeSingleton: VideoPrefetcher | null = null;
+
+export function getNextEpisodePrefetcher(): VideoPrefetcher {
+  if (!nextEpisodeSingleton) nextEpisodeSingleton = new VideoPrefetcher();
+  return nextEpisodeSingleton;
+}

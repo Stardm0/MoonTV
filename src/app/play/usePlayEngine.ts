@@ -6,6 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import {
+  setSettingSwitch,
+  setSettingTooltip,
+  updateSettingPreservingPanel,
+} from '@/lib/artplayer-setting';
+import {
   AnimeOption,
   extractEpisodeNumber,
   extractSeasonFromTitle,
@@ -24,7 +29,11 @@ import {
   AUTO_LEVEL,
   buildQualityOptions,
   describeLevel,
+  describeQualityPreference,
   loadPreferredQualityHeight,
+  MAX_LEVEL,
+  MAX_QUALITY_HEIGHT,
+  pickHighestLevelIndex,
   pickLevelIndex,
   savePreferredQualityHeight,
 } from '@/lib/hls-quality';
@@ -42,7 +51,11 @@ import {
   resetSegmentProbe,
   saveCacheSettings,
 } from '@/lib/video-cache';
-import { getVideoPrefetcher, PrefetchStats } from '@/lib/video-prefetcher';
+import {
+  getNextEpisodePrefetcher,
+  getVideoPrefetcher,
+  PrefetchStats,
+} from '@/lib/video-prefetcher';
 
 import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
 
@@ -85,6 +98,21 @@ const MAX_AUTO_SOURCE_SWITCHES = 3;
 
 /** 「画质」设置项的 name，`setting.update` 靠它定位 */
 const QUALITY_SETTING_NAME = '画质';
+
+/** 「视频缓存」设置项的 name */
+const CACHE_SETTING_NAME = '视频缓存';
+
+/** 「弹幕源」设置项的 name */
+const DANMAKU_SETTING_NAME = '弹幕源';
+
+/**
+ * 下一集预热的覆盖时长（秒）。
+ *
+ * 比当前集的 `horizonSeconds` 保守：预热只是为了"切过去不卡"，
+ * 没必要把整集都拉下来。用户真的切过去之后，当前集预取器会接管，
+ * 按正常视野继续往后铺。
+ */
+const NEXT_EPISODE_HORIZON_SECONDS = 420;
 
 /**
  * 组装「视频缓存」设置项的 tooltip 文案。
@@ -183,6 +211,10 @@ export function usePlayEngine() {
   // 这里直接更新 ArtPlayer 的设置项 tooltip。
   const prefetcherRef = useRef(getVideoPrefetcher());
 
+  // 下一集预热（落地路线第 3 步）。独立实例，避免打断当前集的队列。
+  // `nextWarmupKeyRef` 记录"已经为哪一集的哪个档位预热过"，防止重复排队。
+  const nextWarmupKeyRef = useRef<string | null>(null);
+
   // 弹幕源选择相关
   const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<
     string | null
@@ -271,14 +303,9 @@ export function usePlayEngine() {
     const episodeIndex = selectedDanmakuAnime.episodes.indexOf(matchedEpisode);
     const episodeNumber = episodeIndex + 1;
 
-    // 更新 tooltip
+    // 更新 tooltip（走 DOM setter，不触发面板重建）
     setTimeout(() => {
-      if (artPlayerRef.current) {
-        artPlayerRef.current.setting.update({
-          name: "弹幕源",
-          tooltip: matchedEpisode.episodeTitle,
-        });
-      }
+      setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, matchedEpisode.episodeTitle);
     }, 100);
 
     // 加载弹幕 URL
@@ -338,6 +365,10 @@ export function usePlayEngine() {
   useEffect(() => {
     triedSourcesRef.current = new Set();
     autoSwitchCountRef.current = 0;
+    // 切集/换源后"下一集"的目标变了，旧的预热队列立刻作废。
+    // 已经落盘的分片不受影响（缓存键与集数无关），不会白费。
+    nextWarmupKeyRef.current = null;
+    getNextEpisodePrefetcher().stop();
   }, [currentEpisodeIndex, currentSource, currentId]);
 
   // 视频播放地址
@@ -1782,19 +1813,20 @@ export function usePlayEngine() {
         useProxy: loadCacheSettings().useProxy,
       });
 
-      /** 刷新「视频缓存」设置项的进度提示 */
-      const updateCacheTooltip = (
-        text: string,
-        switchState?: boolean
-      ) => {
-        try {
-          artPlayerRef.current?.setting.update({
-            name: '视频缓存',
-            tooltip: text,
-            ...(switchState === undefined ? {} : { switch: switchState }),
-          });
-        } catch (_) {
-          // 播放器可能已销毁，忽略
+      /**
+       * 刷新「视频缓存」设置项的进度提示。
+       *
+       * ⚠️ 这里必须走 DOM setter，不能用 `setting.update()`：
+       * 本函数由预取回调按**分片频率**调用（一集几百次），而 `update()`
+       * 内部会无条件 `render()` 把设置面板弹回根面板，导致用户刚点进
+       * 「画质」子面板就被踢出来，需要连点很多次。详见 `artplayer-setting.ts`。
+       */
+      const updateCacheTooltip = (text: string, switchState?: boolean) => {
+        const art = artPlayerRef.current;
+        if (!art) return;
+        setSettingTooltip(art, CACHE_SETTING_NAME, text);
+        if (switchState !== undefined) {
+          setSettingSwitch(art, CACHE_SETTING_NAME, switchState);
         }
       };
 
@@ -1824,7 +1856,47 @@ export function usePlayEngine() {
             updateCacheTooltip(
               buildCacheTooltip(stats, probed > 0 ? probe.hitRate : null)
             );
+
+            // 当前集的前向视野已经铺满 → 顺手把下一集的前几分钟也预热掉，
+            // 这样用户点"下一集"时首屏基本是命中缓存而不是现拉网络。
+            if (stats.state === 'done') warmupNextEpisode();
           },
+        });
+      };
+
+      /**
+       * 预热下一集（落地路线第 3 步）。
+       *
+       * 走独立的预取器实例，因此**不会**打断当前集的队列。
+       * 只在当前集队列跑到 `done` 时触发一次（由 `nextWarmupKeyRef` 去重），
+       * 并且随集数/画质变化自动失效。
+       */
+      const warmupNextEpisode = () => {
+        if (!loadCacheSettings().enabled) return;
+
+        const data = detailRef.current;
+        const episodes = data?.episodes;
+        if (!episodes || episodes.length === 0) return;
+
+        const nextIndex = currentEpisodeIndexRef.current + 1;
+        if (nextIndex >= episodes.length) return;
+
+        const nextUrl = episodes[nextIndex];
+        if (!nextUrl) return;
+
+        const preferred = preferredHeightRef.current;
+        // 画质档位也是预热键的一部分：换了档位，预热过的分片 URL 就不同了
+        const key = `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}:${preferred ?? 'auto'}`;
+        if (nextWarmupKeyRef.current === key) return;
+        nextWarmupKeyRef.current = key;
+
+        getNextEpisodePrefetcher().ensure({
+          m3u8Url: nextUrl,
+          currentTime: 0,
+          episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}`,
+          preferredHeight: preferred,
+          horizonSeconds: NEXT_EPISODE_HORIZON_SECONDS,
+          useProxy: loadCacheSettings().useProxy,
         });
       };
 
@@ -1843,16 +1915,11 @@ export function usePlayEngine() {
         ensurePrefetch(live, currentTime, horizonSeconds);
       };
 
-      /** 刷新「画质」设置项的 tooltip */
+      /** 刷新「画质」设置项的 tooltip（同样走 DOM setter，不打断面板层级） */
       const updateQualityTooltip = (text: string) => {
-        try {
-          artPlayerRef.current?.setting.update({
-            name: QUALITY_SETTING_NAME,
-            tooltip: text,
-          });
-        } catch (_) {
-          // 播放器可能已销毁，忽略
-        }
+        const art = artPlayerRef.current;
+        if (!art) return;
+        setSettingTooltip(art, QUALITY_SETTING_NAME, text);
       };
 
       /**
@@ -1860,24 +1927,24 @@ export function usePlayEngine() {
        *
        * 必须等 MANIFEST_PARSED：在那之前 `hls.levels` 是空的。
        * 同时把本地记住的档位重新应用，使换集/换源后用户的选择得以延续。
+       *
+       * 这里是少数**必须**调用 `setting.update()` 的地方（要替换 selector 数组），
+       * 所以用 `updateSettingPreservingPanel` 把面板层级恢复回来，避免顺手
+       * 把正在看子面板的用户弹回根面板。
        */
       const syncQualitySetting = (hls: any) => {
         const levels = Array.isArray(hls.levels) ? hls.levels : [];
         const preferred = preferredHeightRef.current;
         const matchedIndex =
-          preferred === null ? -1 : pickLevelIndex(levels, preferred);
+          preferred === null ? AUTO_LEVEL : pickLevelIndex(levels, preferred);
 
-        try {
-          artPlayerRef.current?.setting.update({
+        const art = artPlayerRef.current;
+        if (art) {
+          updateSettingPreservingPanel(art, {
             name: QUALITY_SETTING_NAME,
-            tooltip:
-              preferred === null
-                ? '自动'
-                : describeLevel(levels[matchedIndex]),
+            tooltip: describeQualityPreference(levels, preferred),
             selector: buildQualityOptions(levels, preferred),
           });
-        } catch (_) {
-          // 播放器可能已销毁，忽略
         }
 
         // 记住的档位在本次播放列表里存在时直接套用，否则交给 ABR 自动选择
@@ -2148,32 +2215,52 @@ export function usePlayEngine() {
           },
           {
             // 画质切换（P1-6）。档位列表在 MANIFEST_PARSED 后由
-            // syncQualitySetting() 用 setting.update 动态写入，这里先给个占位。
+            // syncQualitySetting() 动态写入，这里先给个占位。
+            // 占位用 `selector`（而不是 onClick）是刻意为之：ArtPlayer 只有
+            // 在 item 带 selector 时才会渲染成可展开的子面板。
             name: QUALITY_SETTING_NAME,
             html: QUALITY_SETTING_NAME,
             tooltip: '自动',
             selector: [{ html: '自动', value: AUTO_LEVEL, default: true }],
             onSelect: function (item: any) {
-              const level = Number(item.value);
-              const isAuto = level < 0 || Number.isNaN(level);
+              const value = Number(item.value);
               const hls = artPlayerRef.current?.video?.hls;
-              let height: number | null = null;
+              const levels: any[] = Array.isArray(hls?.levels) ? hls.levels : [];
 
-              if (hls && Array.isArray(hls.levels)) {
-                if (!isAuto && hls.levels[level]) {
-                  height = hls.levels[level].height ?? null;
-                  hls.currentLevel = level;
-                } else {
-                  hls.currentLevel = AUTO_LEVEL;
+              const isAuto = value === AUTO_LEVEL || Number.isNaN(value);
+              const isMax = value === MAX_LEVEL;
+
+              let nextLevel = AUTO_LEVEL;
+              let preferred: number | null = null;
+
+              if (isMax) {
+                // 「最高画质」落到本视频实际存在的最高档。
+                // 记忆用 MAX_QUALITY_HEIGHT(8K) 作哨兵：换到没有 8K 的剧集时，
+                // pickLevelIndex 会落到该剧最高档，语义自动成立。
+                const highest = pickHighestLevelIndex(levels);
+                if (highest >= 0) {
+                  nextLevel = highest;
+                  preferred = MAX_QUALITY_HEIGHT;
                 }
+              } else if (!isAuto && levels[value]) {
+                nextLevel = value;
+                preferred = levels[value].height ?? null;
+              }
+
+              try {
+                if (hls) hls.currentLevel = nextLevel;
+              } catch {
+                // 忽略：极端情况下 levels 正在重建
               }
 
               // 记忆的是"画面高度"而非档位下标：换集/换源后档位数量与顺序都会变，
               // 记下标会指向错误的档位。
-              preferredHeightRef.current = height;
-              savePreferredQualityHeight(height);
+              preferredHeightRef.current = preferred;
+              savePreferredQualityHeight(preferred);
               updateQualityTooltip(
-                isAuto ? '自动' : describeLevel(hls?.levels?.[level])
+                preferred === null
+                  ? '自动'
+                  : describeQualityPreference(levels, preferred)
               );
 
               // 档位变了，已缓存的分片属于旧档位，按新档位重排队列
@@ -2194,6 +2281,8 @@ export function usePlayEngine() {
                 ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
               } else {
                 prefetcherRef.current.stop();
+                getNextEpisodePrefetcher().stop();
+                nextWarmupKeyRef.current = null;
                 updateCacheTooltip('已关闭');
               }
               return enabled;
@@ -2203,6 +2292,8 @@ export function usePlayEngine() {
             html: '清空视频缓存',
             onClick: function () {
               prefetcherRef.current.stop();
+              getNextEpisodePrefetcher().stop();
+              nextWarmupKeyRef.current = null;
               resetSegmentProbe();
               void clearVideoCache();
               updateCacheTooltip('未开始');
@@ -2515,8 +2606,9 @@ export function usePlayEngine() {
       // 移除可见性监听
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
-      // 停止前向预缓存
+      // 停止前向预缓存（含下一集预热队列）
       prefetcherRef.current.stop();
+      getNextEpisodePrefetcher().stop();
 
       // 销毁播放器实例
       cleanupPlayer();
@@ -2542,13 +2634,8 @@ export function usePlayEngine() {
 
   const handleDanmakuClose = () => {
     setShowDanmakuSelector(false);
-    // 更新 tooltip
-    if (artPlayerRef.current) {
-      artPlayerRef.current.setting.update({
-        name: "弹幕源",
-        tooltip: currentTooltip || '未选择',
-      });
-    }
+    // 更新 tooltip（走 DOM setter，不触发面板重建）
+    setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, currentTooltip || '未选择');
   };
 
   // -----------------------------------------------------------------------------

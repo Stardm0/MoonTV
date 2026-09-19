@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -26,15 +29,27 @@ jobs:
         uses: actions/cache@v3
         with:
           path: ~/.pnpm-store
-          key: pnpm-store-node18-${{ hashFiles('**/pnpm-lock.yaml') }}
+          key: pnpm-store-node22-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            pnpm-store-node18-
+            pnpm-store-node22-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --store-dir ~/.pnpm-store
 
+      # src/lib/runtime.ts 与 public/manifest.json 是 .gitignore 里的生成物，
+      # 不先生成的话 typecheck 会在 src/lib/config.ts 上报
+      # "Cannot find module './runtime'"。
+      - name: Generate runtime files
+        run: pnpm run gen:manifest && pnpm run gen:runtime
+
       - name: Run linting
         run: pnpm run lint
+
+      - name: Run type check
+        run: pnpm run typecheck
+
+      - name: Run unit tests
+        run: pnpm test
 
       - name: Build project
         run: pnpm run build
