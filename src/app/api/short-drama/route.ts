@@ -4,11 +4,19 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { ApiSite, getAvailableApiSites, getCacheTime } from '@/lib/config';
+import { searchFromApiStream } from '@/lib/downstream';
+import { SearchResult } from '@/lib/types';
 
 export const runtime = 'edge';
 
-/** 分类名命中这些关键词即视为「微短剧」分类 */
-const SHORT_DRAMA_KEYWORDS = ['短剧', '微短剧', '竖屏短剧', '迷你剧'];
+/**
+ * 关键词搜索：直接在视频源里搜这些词，主动收集微短剧。
+ * `?ac=videolist&wd=` 是所有 Apple CMS 源的标准搜索接口，比依赖分类名匹配可靠。
+ */
+const SHORT_DRAMA_KEYWORDS = ['短剧', '微短剧', '迷你剧', '竖屏'];
+
+/** 分类名命中这些关键词也视为微短剧分类（辅助通道，覆盖面更全） */
+const SHORT_DRAMA_CLASS_KEYWORDS = ['短剧', '微短剧', '迷你', '竖屏'];
 
 interface SiteClass {
   type_id: string | number;
@@ -26,63 +34,66 @@ interface VodItem {
   type_name?: string;
 }
 
+function normalizeTitle(title: string): string {
+  return title.trim().replace(/\s+/g, ' ');
+}
+
+const UA_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  Accept: 'application/json',
+};
+
 /** 拉取某源分类列表，返回含短剧关键词的分类 */
 async function fetchShortDramaClasses(apiSite: ApiSite): Promise<SiteClass[]> {
   const url = `${apiSite.api}?ac=list`;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    });
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(url, { headers: UA_HEADERS, signal: controller.signal });
     clearTimeout(timer);
     if (!resp.ok) return [];
     const data = (await resp.json()) as { class?: SiteClass[] };
     const classes = Array.isArray(data.class) ? data.class : [];
     return classes.filter((c) =>
-      SHORT_DRAMA_KEYWORDS.some((kw) => String(c.type_name || '').includes(kw))
+      SHORT_DRAMA_CLASS_KEYWORDS.some((kw) => String(c.type_name || '').includes(kw))
     );
   } catch {
     return [];
   }
 }
 
-/** 按分类取视频列表（单页） */
+/** 按分类取视频（单页），映射为 SearchResult（播放地址由播放页按 source+id 补全） */
 async function fetchVodListByClass(
   apiSite: ApiSite,
-  typeId: string | number,
-  page: number,
-  pageSize: number
-): Promise<VodItem[]> {
-  const url = `${apiSite.api}?ac=videolist&t=${encodeURIComponent(String(typeId))}&pg=${page}&pagesize=${pageSize}`;
+  typeId: string | number
+): Promise<SearchResult[]> {
+  const url = `${apiSite.api}?ac=videolist&t=${encodeURIComponent(String(typeId))}&pg=1`;
   try {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    const resp = await fetch(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        Accept: 'application/json',
-      },
-      signal: controller.signal,
-    });
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const resp = await fetch(url, { headers: UA_HEADERS, signal: controller.signal });
     clearTimeout(timer);
     if (!resp.ok) return [];
     const data = (await resp.json()) as { list?: VodItem[] };
-    return Array.isArray(data.list) ? data.list : [];
+    const items = Array.isArray(data.list) ? data.list : [];
+    return items.map((v) => ({
+      id: String(v.vod_id),
+      title: v.vod_name.trim().replace(/\s+/g, ' '),
+      poster: v.vod_pic || '',
+      episodes: [],
+      episodes_titles: [],
+      source: apiSite.key,
+      source_name: apiSite.name,
+      class: v.vod_class || '',
+      year: v.vod_year?.match(/\d{4}/)?.[0] || 'unknown',
+      desc: '',
+      type_name: v.type_name || v.vod_class,
+      douban_id: v.vod_douban_id,
+    }));
   } catch {
     return [];
   }
-}
-
-/** 归一化标题作为聚合键 */
-function normalizeTitle(title: string): string {
-  return title.trim().replace(/\s+/g, ' ');
 }
 
 export async function GET(request: NextRequest) {
@@ -100,80 +111,89 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
-  const pageSize = Math.max(1, Math.min(50, parseInt(searchParams.get('size') || '30')));
+  const pageSize = Math.max(1, Math.min(50, parseInt(searchParams.get('size') || '48')));
 
   const apiSites = await getAvailableApiSites(username);
   if (apiSites.length === 0) {
-    return NextResponse.json({ list: [], page, hasMore: false });
+    return NextResponse.json({
+      list: [],
+      page,
+      hasMore: false,
+      total: 0,
+      debug: { sites: 0, searchHits: 0, classHits: 0 },
+    });
   }
 
-  // 1) 并发拉所有源的分类，找短剧分类
-  const classResults = await Promise.all(
-    apiSites.map(async (site) => {
-      const classes = await fetchShortDramaClasses(site);
-      return { site, classes };
+  // 通道 1：关键词搜索（主），每个源每个词取第一页
+  const searchTasks = apiSites.flatMap((site) =>
+    SHORT_DRAMA_KEYWORDS.map(async (kw): Promise<SearchResult[]> => {
+      try {
+        const gen = searchFromApiStream(site, kw, false, 8000);
+        const first = await gen.next();
+        if (first.done) return [];
+        return first.value as SearchResult[];
+      } catch {
+        return [];
+      }
     })
   );
 
-  // 2) 对每个短剧分类并发拉取当前页视频，附带源信息
-  interface EnrichedVod {
-    item: VodItem;
-    site: ApiSite;
-  }
-  const vodTasks: Promise<EnrichedVod[]>[] = [];
-  for (const { site, classes } of classResults) {
-    for (const cls of classes) {
-      vodTasks.push(
-        fetchVodListByClass(site, cls.type_id, page, pageSize).then((items) =>
-          items.map((item) => ({ item, site }))
-        )
-      );
-    }
-  }
-  const enrichedVods = (await Promise.all(vodTasks)).flat();
+  // 通道 2：分类扫描（辅）
+  const classTasks = apiSites.map(async (site): Promise<SearchResult[]> => {
+    const classes = await fetchShortDramaClasses(site);
+    if (classes.length === 0) return [];
+    const perClass = await Promise.all(classes.map((c) => fetchVodListByClass(site, c.type_id)));
+    return perClass.flat();
+  });
 
-  // 3) 按标题聚合，跨源合并
-  const grouped = new Map<string, EnrichedVod[]>();
-  for (const vod of enrichedVods) {
-    const key = normalizeTitle(vod.item.vod_name);
+  const [searchHits, classHits] = await Promise.all([
+    Promise.all(searchTasks).then((r) => r.flat()),
+    Promise.all(classTasks).then((r) => r.flat()),
+  ]);
+
+  // 聚合：按标题去重，跨源合并成一张卡
+  const grouped = new Map<string, SearchResult[]>();
+  const push = (r: SearchResult) => {
+    const key = normalizeTitle(r.title);
+    if (!key) return;
     const arr = grouped.get(key) || [];
-    arr.push(vod);
+    if (!arr.some((x) => x.source === r.source && x.id === r.id)) arr.push(r);
     grouped.set(key, arr);
-  }
+  };
+  for (const r of searchHits) push(r);
+  for (const r of classHits) push(r);
 
-  // 4) 转成前端卡片数据（items 供 VideoCard 聚合模式直接按源播放）
-  const list = Array.from(grouped.values()).map((vods) => {
-    const first = vods[0].item;
-    const rate = vods
-      .map((v) => v.item.vod_remarks)
-      .find((r) => r && /^\d+(\.\d+)?$/.test(r.trim()));
-    const doubanId = vods.map((v) => v.item.vod_douban_id).find((id) => id && id !== 0);
-
+  const list = Array.from(grouped.values()).map((items) => {
+    const first = items[0];
+    const poster = items.find((i) => i.poster)?.poster || '';
+    const doubanId = items.map((i) => i.douban_id).find((id) => id && id !== 0) || 0;
     return {
-      title: first.vod_name,
-      poster: first.vod_pic || '',
-      rate: rate || '',
-      year: first.vod_year?.match(/\d{4}/)?.[0] || '',
-      douban_id: doubanId || 0,
-      items: vods.map((v) => ({
-        id: String(v.item.vod_id),
-        title: v.item.vod_name,
-        poster: v.item.vod_pic || '',
-        source: v.site.key,
-        source_name: v.site.name,
-        year: v.item.vod_year?.match(/\d{4}/)?.[0] || 'unknown',
-        douban_id: v.item.vod_douban_id,
-        type_name: v.item.type_name || v.item.vod_class,
-        // 列表接口不带播放地址，播放页会按 source+id 拉详情补全；这里给空占位
-        episodes: [],
-        episodes_titles: [],
-      })),
+      title: first.title,
+      poster,
+      rate: '',
+      year: first.year && first.year !== 'unknown' ? first.year : '',
+      douban_id: doubanId,
+      items,
     };
   });
 
+  // 内存分页
+  const start = (page - 1) * pageSize;
+  const pagedList = list.slice(start, start + pageSize);
+
   const cacheTime = await getCacheTime();
   return NextResponse.json(
-    { list, page, hasMore: false },
+    {
+      list: pagedList,
+      page,
+      hasMore: start + pageSize < list.length,
+      total: list.length,
+      debug: {
+        sites: apiSites.length,
+        searchHits: searchHits.length,
+        classHits: classHits.length,
+      },
+    },
     {
       headers: {
         'Cache-Control': `public, max-age=${cacheTime}, s-maxage=0`,
