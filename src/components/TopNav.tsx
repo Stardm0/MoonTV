@@ -165,8 +165,8 @@ const TopNav = ({ activePath }: TopNavProps) => {
     },
     {
       icon: Clapperboard,
-      label: '微短剧',
-      href: '/short-drama',
+      label: '短剧',
+      href: '/douban?type=short',
     },
     {
       icon: Compass,
