@@ -38,8 +38,8 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
     },
     {
       icon: Clapperboard,
-      label: '短剧',
-      href: '/douban?type=short',
+      label: '微短剧',
+      href: '/short-drama',
     },
     {
       icon: Compass,

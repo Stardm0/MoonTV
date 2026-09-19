@@ -7,6 +7,7 @@ import { useState } from 'react';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
 import { BackButton } from '@/components/BackButton';
+import CacheManager from '@/components/CacheManager';
 import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -63,6 +64,9 @@ export default function PlayClient() {
     isDanmakuLoading,
     handleDanmakuSelect,
     handleDanmakuClose,
+    // 缓存管理
+    showCacheManager,
+    setShowCacheManager,
     // 收藏 / 追更
     favorited,
     following,
@@ -200,6 +204,12 @@ export default function PlayClient() {
           onDownload={() => setShowAddDownload(true)}
         />
       </div>
+
+      {/* 视频缓存管理面板 */}
+      <CacheManager
+        isOpen={showCacheManager}
+        onClose={() => setShowCacheManager(false)}
+      />
 
       {/* 添加下载弹窗 */}
       <AddDownloadModal

@@ -437,7 +437,8 @@ export async function downloadM3U8Video(
   concurrency = 6, // 默认6个并发
   streamMode: StreamSaverMode = 'disabled', // 边下边存模式
   maxRetries = 3, // 最大重试次数
-  completeStreamRef?: { current: (() => Promise<void>) | null } // 完成流函数引用（用于边下边存模式立即保存）
+  completeStreamRef?: { current: (() => Promise<void>) | null }, // 完成流函数引用（用于边下边存模式立即保存）
+  persistTaskId?: string // 任务ID：传入时启用断点续传持久化
 ): Promise<void> {
   const { startSegment, endSegment } = task.rangeDownload;
   const totalSegments = endSegment - startSegment + 1;
@@ -613,7 +614,12 @@ export async function downloadM3U8Video(
   // 并发下载函数（带重试机制）
   const downloadSegment = async (index: number, retryCount = 0): Promise<void> => {
     const retryDelay = 1000; // 重试延迟（毫秒）
-    
+
+    // 断点续传：已成功的片段直接跳过（finishList 可能从持久化状态恢复）
+    if (task.finishList[index]?.status === 'success') {
+      return;
+    }
+
     if (signal?.aborted) {
       throw new Error('下载已取消');
     }
@@ -688,6 +694,18 @@ export async function downloadM3U8Video(
       completedCount++;
       task.finishNum++;
 
+      // 断点续传：普通模式下把已下片段写入 Cache Storage，并持久化完成状态
+      if (persistTaskId) {
+        if (!writer) {
+          void import('./download-persistence').then(({ saveDownloadSegment }) =>
+            saveDownloadSegment(persistTaskId, index, segmentData)
+          );
+        }
+        void import('./download-persistence').then(({ persistDownloadState }) =>
+          persistDownloadState(persistTaskId, task)
+        );
+      }
+
       // 更新进度
       onProgress?.({
         current: completedCount,
@@ -729,6 +747,13 @@ export async function downloadM3U8Video(
       // 标记片段为失败状态
       task.finishList[index].status = 'error';
       task.finishList[index].retryCount = retryCount;
+
+      // 断点续传：失败状态也要持久化，供刷新后跳过
+      if (persistTaskId) {
+        void import('./download-persistence').then(({ persistDownloadState }) =>
+          persistDownloadState(persistTaskId, task)
+        );
+      }
       
       // eslint-disable-next-line no-console
       console.error(`片段 ${index + 1} 下载失败（已重试 ${maxRetries} 次）:`, error);

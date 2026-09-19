@@ -4,11 +4,11 @@ import { Download, List, Pause, Play, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
+import { formatTime } from '@/lib/formatTime';
 import { downloadM3U8Video, DownloadProgress, M3U8Task, parseM3U8, PauseResumeController, StreamSaverMode } from '@/lib/m3u8-downloader';
 
 import AddDownloadModal from './AddDownloadModal';
 import SegmentViewer from './SegmentViewer';
-import { formatTime } from '@/lib/formatTime';
 
 
 interface DownloadTask {
@@ -239,7 +239,8 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
         concurrency,
         streamMode,
         maxRetries,
-        completeStreamRef
+        completeStreamRef,
+        taskId // 断点续传：持久化各片段完成状态
       );
 
       // 下载函数执行完成后，检查是否有失败片段
@@ -435,6 +436,32 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
     const taskToDownload = tasksRef.current.find(t => t.id === taskId);
     if (!taskToDownload?.config) return;
 
+    // 断点续传：若存在持久化的完成状态，用它覆盖 parsedTask 的 finishList，
+    // 并从 Cache Storage 找回普通模式下已下载的片段，避免刷新后从头再来。
+    try {
+      const { loadDownloadState, loadDownloadSegment } = await import('@/lib/download-persistence');
+      const savedState = loadDownloadState(taskId);
+      if (savedState && savedState.totalSegments === parsedTask.finishList.length) {
+        const restoredSegments = new Map<number, ArrayBuffer>();
+        for (let i = 0; i < savedState.finishList.length; i += 1) {
+          const status = savedState.finishList[i].status;
+          if (status === 'success') {
+            parsedTask.finishList[i].status = 'success';
+            // 普通模式下找回已下片段（边下边存模式数据已写文件，无法从文件续传）
+            const data = await loadDownloadSegment(taskId, i);
+            if (data) restoredSegments.set(i, data);
+          } else if (status === 'error') {
+            parsedTask.finishList[i].status = 'error';
+          }
+        }
+        if (restoredSegments.size > 0) parsedTask.downloadedSegments = restoredSegments;
+        // eslint-disable-next-line no-console
+        console.log(`🔄 断点续传：从持久化状态恢复 ${savedState.finishList.filter(s => s.status === 'success').length} 个已完成片段，找回 ${restoredSegments.size} 个片段数据`);
+      }
+    } catch {
+      // 恢复失败不阻断下载，退化为重新下载
+    }
+
     const controller = new AbortController();
     const pauseResumeController = new PauseResumeController();
     const completeStreamRef = { current: null as (() => Promise<void>) | null };
@@ -452,6 +479,10 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
 
   // 删除任务
   const deleteTask = useCallback((taskId: string) => {
+    // 清理断点续传的持久化状态与已下片段缓存
+    void import('@/lib/download-persistence').then(({ clearDownloadState }) =>
+      clearDownloadState(taskId)
+    );
     setTasks(prev => {
       const task = prev.find(t => t.id === taskId);
       if (task?.abortController) {

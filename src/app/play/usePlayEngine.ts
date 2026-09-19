@@ -46,10 +46,8 @@ import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 import {
-  clearVideoCache,
   getSegmentProbe,
   loadCacheSettings,
-  resetSegmentProbe,
   saveCacheSettings,
   UNLIMITED_HORIZON_SECONDS,
 } from '@/lib/video-cache';
@@ -221,6 +219,7 @@ export function usePlayEngine() {
     useState<AnimeOption | null>(null);
   const [selectedDanmakuEpisode, setSelectedDanmakuEpisode] = useState<number | undefined>(undefined);
   const [showDanmakuSelector, setShowDanmakuSelector] = useState(false);
+  const [showCacheManager, setShowCacheManager] = useState(false);
   const selectedDanmakuSourceRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -2317,14 +2316,9 @@ export function usePlayEngine() {
             },
           },
           {
-            html: '清空视频缓存',
+            html: '缓存管理',
             onClick: function () {
-              prefetcherRef.current.stop();
-              getNextEpisodePrefetcher().stop();
-              nextWarmupKeyRef.current = null;
-              resetSegmentProbe();
-              void clearVideoCache();
-              updateCacheTooltip('未开始');
+              setShowCacheManager(true);
               return '';
             },
           },
@@ -2754,6 +2748,9 @@ export function usePlayEngine() {
     isDanmakuLoading,
     handleDanmakuSelect,
     handleDanmakuClose,
+    // 缓存管理
+    showCacheManager,
+    setShowCacheManager,
     // 收藏 / 追更
     favorited,
     following,

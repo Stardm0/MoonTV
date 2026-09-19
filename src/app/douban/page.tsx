@@ -692,6 +692,17 @@ function DoubanPageClient() {
             </p>
           </div>
 
+          {/* 短剧页提示：豆瓣短剧集 vs 微短剧 */}
+          {type === 'short' && (
+            <div className='rounded-xl border border-amber-200/60 bg-amber-50/60 px-4 py-3 text-sm text-amber-800 dark:border-amber-700/40 dark:bg-amber-900/20 dark:text-amber-300'>
+              本页为豆瓣「短剧集」（如《古相思曲》）。竖屏微短剧请前往
+              <a href='/short-drama' className='ml-1 underline hover:opacity-80'>
+                微短剧
+              </a>
+              ，内容来自你的视频源。
+            </div>
+          )}
+
           {/* 选择器组件 */}
           <div className='bg-white/60 dark:bg-gray-800/40 rounded-2xl p-4 sm:p-6 border border-gray-200/30 dark:border-gray-700/30 backdrop-blur-sm'>
             <DoubanSelector

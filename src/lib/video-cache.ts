@@ -419,6 +419,79 @@ export async function getCacheSummary(): Promise<{
   }
 }
 
+/** 单集缓存的聚合统计 */
+export interface EpisodeCacheStat {
+  /** 剧集标识 `${source}:${id}:${episodeIndex}` */
+  episodeKey: string;
+  /** 片段数 */
+  segments: number;
+  /** 占用字节数 */
+  bytes: number;
+  /** 最近访问时间（用于排序） */
+  lastAccess: number;
+}
+
+/** 按剧集聚合已缓存内容的统计（缓存管理面板用），按最近访问倒序 */
+export async function getEpisodeCacheStats(): Promise<EpisodeCacheStat[]> {
+  try {
+    const records = await metaStore.all();
+    const grouped = new Map<string, EpisodeCacheStat>();
+    for (const record of records) {
+      const stat = grouped.get(record.episodeKey);
+      if (stat) {
+        stat.segments += 1;
+        stat.bytes += record.bytes || 0;
+        if (record.lastAccess > stat.lastAccess) stat.lastAccess = record.lastAccess;
+      } else {
+        grouped.set(record.episodeKey, {
+          episodeKey: record.episodeKey,
+          segments: 1,
+          bytes: record.bytes || 0,
+          lastAccess: record.lastAccess,
+        });
+      }
+    }
+    return Array.from(grouped.values()).sort((a, b) => b.lastAccess - a.lastAccess);
+  } catch {
+    return [];
+  }
+}
+
+/** 删除指定剧集的全部缓存（片段 + 元数据） */
+export async function deleteEpisodeCache(episodeKey: string): Promise<number> {
+  const cache = await openVideoCache();
+  if (!cache) return 0;
+
+  let records: SegmentMeta[];
+  try {
+    records = await metaStore.all();
+  } catch {
+    return 0;
+  }
+
+  const victims = records.filter((record) => record.episodeKey === episodeKey);
+  if (victims.length === 0) return 0;
+
+  let removed = 0;
+  await Promise.all(
+    victims.map(async (record) => {
+      try {
+        if (await cache.delete(record.key)) removed += 1;
+      } catch {
+        // ignore
+      }
+      try {
+        await metaStore.del(record.key);
+      } catch {
+        // ignore
+      }
+      lastTouchAt.delete(record.key);
+    })
+  );
+  return removed;
+}
+
+
 /* ------------------------------------------------------------------ */
 /* 缓存键                                                              */
 /* ------------------------------------------------------------------ */

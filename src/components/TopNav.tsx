@@ -2,7 +2,7 @@
 
 'use client';
 
-import { Cat, Clapperboard, Clover, Compass, Download, Film, History, Home, Search, Trash2, Tv, X } from 'lucide-react';
+import { Cat, Clapperboard, Clover, Compass, Download, Film, History, Home, Search, Trash2, Trophy, Tv, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
@@ -165,8 +165,8 @@ const TopNav = ({ activePath }: TopNavProps) => {
     },
     {
       icon: Clapperboard,
-      label: '短剧',
-      href: '/douban?type=short',
+      label: '微短剧',
+      href: '/short-drama',
     },
     {
       icon: Compass,
@@ -182,6 +182,11 @@ const TopNav = ({ activePath }: TopNavProps) => {
       icon: Clover,
       label: '综艺',
       href: '/douban?type=show',
+    },
+    {
+      icon: Trophy,
+      label: '榜单',
+      href: '/ranking',
     },
   ]);
 
