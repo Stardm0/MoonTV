@@ -23,7 +23,8 @@ interface MultiLevelSelectorProps {
     | 'show'
     | 'anime-tv'
     | 'anime-movie'
-    | 'short';
+    | 'short'
+    | 'doc';
 }
 
 const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
@@ -49,6 +50,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       | 'anime-tv'
       | 'anime-movie'
       | 'short'
+      | 'doc'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -126,6 +128,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       | 'anime-tv'
       | 'anime-movie'
       | 'short'
+      | 'doc'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -161,6 +164,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'anime-tv':
       case 'show':
       case 'short':
+      case 'doc':
         return [
           ...baseOptions,
           { label: '华语', value: 'chinese' },
@@ -256,6 +260,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       | 'anime-tv'
       | 'anime-movie'
       | 'short'
+      | 'doc'
   ) => {
     const baseOptions = [{ label: '全部', value: 'all' }];
 
@@ -266,6 +271,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       case 'anime-tv':
       case 'show':
       case 'short':
+      case 'doc':
         return [
           ...baseOptions,
           { label: '腾讯视频', value: 'tencent' },
@@ -296,7 +302,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
       label: '类型',
       options: getLabelOptions(contentType),
     });
-  } else if (contentType !== 'short') {
+  } else if (contentType !== 'short' && contentType !== 'doc') {
     categories.push({
       key: 'type',
       label: '类型',
@@ -338,7 +344,8 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
     contentType === 'tv' ||
     contentType === 'show' ||
     contentType === 'anime-tv' ||
-    contentType === 'short'
+    contentType === 'short' ||
+    contentType === 'doc'
   ) {
     categories.push({
       key: 'platform',
@@ -348,7 +355,7 @@ const MultiLevelSelector: React.FC<MultiLevelSelectorProps> = ({
   }
 
   // 短剧的排序由一级分类（热门/高分/最新）决定，不提供排序行
-  if (contentType !== 'short') {
+  if (contentType !== 'short' && contentType !== 'doc') {
     categories.push({
       key: 'sort',
       label: '排序',

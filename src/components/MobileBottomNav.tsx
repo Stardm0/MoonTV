@@ -2,12 +2,10 @@
 
 'use client';
 
-import { Cat, Clapperboard, Clover, Film, Home, Search, Star, Tv } from 'lucide-react';
+import { Cat, Clapperboard, Clover, Compass, Film, Home, Search, Tv } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { memo, useEffect, useState } from 'react';
-
-import { getCustomCategories } from '@/lib/config.client';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
 
@@ -25,7 +23,7 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
   // 当前激活路径：优先使用传入的 activePath，否则回退到浏览器地址
   const currentActive = activePath ?? pathname;
 
-  const [navItems, setNavItems] = useState([
+  const [navItems] = useState([
     { icon: Home, label: '首页', href: '/' },
     { icon: Search, label: '搜索', href: '/search' },
     {
@@ -42,6 +40,11 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
       icon: Clapperboard,
       label: '短剧',
       href: '/douban?type=short',
+    },
+    {
+      icon: Compass,
+      label: '纪录片',
+      href: '/douban?type=doc',
     },
     {
       icon: Cat,
@@ -67,21 +70,6 @@ const MobileBottomNav = ({ activePath }: MobileBottomNavProps) => {
         setSimpleMode(JSON.parse(savedSimpleMode));
       }
     }
-  }, []);
-
-  useEffect(() => {
-    getCustomCategories().then((categories) => {
-      if (categories.length > 0) {
-        setNavItems((prevItems) => [
-          ...prevItems,
-          {
-            icon: Star,
-            label: '自定义',
-            href: '/douban?type=custom',
-          },
-        ]);
-      }
-    });
   }, []);
 
   const isActive = (href: string) => {

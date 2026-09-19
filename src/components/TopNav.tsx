@@ -2,12 +2,11 @@
 
 'use client';
 
-import { Cat, Clapperboard, Clover, Download, Film, History, Home, Search, Star, Trash2, Tv, X } from 'lucide-react';
+import { Cat, Clapperboard, Clover, Compass, Download, Film, History, Home, Search, Trash2, Tv, X } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useEffect, useRef, useState } from 'react';
 
-import { getCustomCategories } from '@/lib/config.client';
 import {
   addSearchHistory,
   clearSearchHistory,
@@ -153,7 +152,7 @@ const TopNav = ({ activePath }: TopNavProps) => {
     }
   }, [pathname, searchParams]);
 
-  const [menuItems, setMenuItems] = useState([
+  const [menuItems] = useState([
     {
       icon: Film,
       label: '电影',
@@ -170,6 +169,11 @@ const TopNav = ({ activePath }: TopNavProps) => {
       href: '/douban?type=short',
     },
     {
+      icon: Compass,
+      label: '纪录片',
+      href: '/douban?type=doc',
+    },
+    {
       icon: Cat,
       label: '动漫',
       href: '/douban?type=anime',
@@ -180,21 +184,6 @@ const TopNav = ({ activePath }: TopNavProps) => {
       href: '/douban?type=show',
     },
   ]);
-
-  useEffect(() => {
-    getCustomCategories().then((categories) => {
-      if (categories.length > 0) {
-        setMenuItems((prevItems) => [
-          ...prevItems,
-          {
-            icon: Star,
-            label: '自定义',
-            href: '/douban?type=custom',
-          },
-        ]);
-      }
-    });
-  }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
