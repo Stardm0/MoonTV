@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { downloadTsSegment, parseM3U8 } from '@/lib/m3u8-downloader';
+import { validateMediaUrl } from '@/lib/url-guard';
 
 export const runtime = 'edge';
 
@@ -14,6 +15,15 @@ export async function POST(request: NextRequest) {
 
     if (!url) {
       return NextResponse.json({ error: '缺少 m3u8 URL' }, { status: 400 });
+    }
+
+    // SSRF 防护：该接口会把 url 直接回源，必须校验协议与目标主机
+    const guard = validateMediaUrl(url);
+    if (!guard.ok) {
+      return NextResponse.json(
+        { error: '地址不被允许', message: guard.reason },
+        { status: 403 }
+      );
     }
 
     const task = await parseM3U8(url);
@@ -56,6 +66,15 @@ export async function GET(request: NextRequest) {
 
     if (!url) {
       return NextResponse.json({ error: '缺少 URL 参数' }, { status: 400 });
+    }
+
+    // SSRF 防护：该接口会把 url 直接回源，必须校验协议与目标主机
+    const guard = validateMediaUrl(url);
+    if (!guard.ok) {
+      return NextResponse.json(
+        { error: '地址不被允许', message: guard.reason },
+        { status: 403 }
+      );
     }
 
     const data = await downloadTsSegment(url);

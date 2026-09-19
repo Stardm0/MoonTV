@@ -470,3 +470,81 @@ async function fetchDoubanRecommends(
     throw new Error(`获取豆瓣推荐数据失败: ${(error as Error).message}`);
   }
 }
+
+/**
+ * 豆瓣榜单类型（subject_collection 主题合集）
+ */
+export type DoubanCollectionId =
+  | 'movie_top250' // 豆瓣电影 Top250
+  | 'movie_weekly_best'; // 每周口碑榜
+
+interface DoubanCollectionItem {
+  id: string;
+  title: string;
+  card_subtitle: string;
+  cover_url?: string;
+  pic?: { large?: string; normal?: string };
+  rating?: { value: number } | null;
+  rank?: number;
+}
+
+interface DoubanCollectionResponse {
+  total: number;
+  subject_collection_items: DoubanCollectionItem[];
+}
+
+/**
+ * 获取豆瓣榜单数据（Top250 / 每周口碑榜）。
+ *
+ * 数据源：rexxar `subject_collection/<id>/items`，条目带 rank（排名）、
+ * cover_url/pic（海报）、rating.value（评分）、card_subtitle（含年份）。
+ * 走与推荐接口一致的代理配置。
+ */
+export async function getDoubanCollection(
+  collectionId: DoubanCollectionId,
+  pageStart = 0,
+  pageLimit = 25
+): Promise<DoubanResult> {
+  const { proxyType, proxyUrl } = getDoubanProxyConfig();
+
+  const useTencentCDN = proxyType === 'cmliussss-cdn-tencent';
+  const useAliCDN = proxyType === 'cmliussss-cdn-ali';
+  const baseUrl = useTencentCDN
+    ? `https://m.douban.cmliussss.net/rexxar/api/v2/subject_collection/${collectionId}/items`
+    : useAliCDN
+      ? `https://m.douban.cmliussss.com/rexxar/api/v2/subject_collection/${collectionId}/items`
+      : `https://m.douban.com/rexxar/api/v2/subject_collection/${collectionId}/items`;
+
+  const proxy =
+    proxyType === 'cors-proxy-zwei'
+      ? 'https://ciao-cors.is-an.org/'
+      : proxyType === 'custom'
+        ? proxyUrl
+        : '';
+
+  try {
+    const response = await fetchWithTimeout(
+      `${baseUrl}?start=${pageStart}&count=${pageLimit}`,
+      useTencentCDN || useAliCDN ? '' : proxy
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP error! Status: ${response.status}`);
+    }
+
+    const data = (await response.json()) as DoubanCollectionResponse;
+    const list: DoubanItem[] = (data.subject_collection_items || []).map(
+      (item) => ({
+        id: item.id,
+        title: item.title,
+        poster: item.cover_url || item.pic?.large || item.pic?.normal || '',
+        rate: item.rating?.value ? item.rating.value.toFixed(1) : '',
+        year: item.card_subtitle?.match(/(\d{4})/)?.[1] || '',
+      })
+    );
+
+    return { code: 200, message: '获取成功', list };
+  } catch (error) {
+    throw new Error(`获取豆瓣榜单失败: ${(error as Error).message}`);
+  }
+}
+

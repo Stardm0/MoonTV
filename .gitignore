@@ -46,3 +46,22 @@ sitemap-*.xml
 # generated files
 src/lib/runtime.ts
 public/manifest.json
+/.vs
+
+# next-pwa 构建产物（public/sw.js 本身仍然入库，供 Cloudflare / Vercel 构建使用；
+# 本地与 Docker 构建由 scripts/restore-sw.js 负责还原，见 P2-12）
+public/workbox-*.js
+public/workbox-*.js.map
+public/worker-*.js
+public/sw.js.map
+.vs/MoonTV/config/applicationhost.config
+.vs/MoonTV/FileContentIndex/24945c9a-3121-430f-95b5-485f6fab7c45.vsidx
+.vs/MoonTV/FileContentIndex/3e611135-f5d6-4acd-b94a-e6a26dd1247d.vsidx
+.vs/MoonTV/FileContentIndex/771780a2-d825-4acc-8849-9208973cb33c.vsidx
+.vs/MoonTV/FileContentIndex/898aa9b3-ddd2-492c-aaf8-23d7aab792e4.vsidx
+.vs/MoonTV/v17/.wsuo
+.vs/ProjectSettings.json
+.vs/slnx.sqlite
+.vs/tasks.vs.json
+.github/workflows/ci.yml
+/docs

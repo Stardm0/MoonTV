@@ -80,8 +80,22 @@ const isCloudflarePages = process.env.CF_PAGES === '1' ||
 const isVercel = process.env.VERCEL === '1';
 const isNetlify = process.env.NETLIFY === 'true';
 
-// 在所有云平台上禁用 next-pwa，避免与自定义 sw.js 冲突
-const isCloudPlatform = isCloudflarePages || isVercel || isNetlify;
+// Dockerfile 在构建阶段显式设置了 DOCKER_ENV=true
+const isDockerBuild = process.env.DOCKER_ENV === 'true';
+
+/**
+ * 在所有云平台 / Docker 构建里禁用 next-pwa。
+ *
+ * next-pwa 生成的 workbox SW 会**覆盖** `public/sw.js`，而项目自带的
+ * StreamSaver SW 用的正是这个路径（`ServiceWorkerRegistration.tsx` 注册
+ * 的就是 `/sw.js`）。被覆盖后 HEAD 检查依然 200、注册"成功"，但
+ * `AddDownloadModal` 的边下边存会静默失效——Docker 镜像是
+ * `COPY --from=builder /app/public`，所以自托管部署的下载功能一直是坏的。
+ *
+ * 本地 `next build` 仍会走 next-pwa，由 `postbuild: scripts/restore-sw.js`
+ * 自动还原，无需人工 cp。
+ */
+const isCloudPlatform = isCloudflarePages || isVercel || isNetlify || isDockerBuild;
 
 const withPWA = require('next-pwa')({
   dest: 'public',

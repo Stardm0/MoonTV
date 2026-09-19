@@ -6,6 +6,11 @@ import { useSearchParams } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
 import {
+  setSettingSwitch,
+  setSettingTooltip,
+  updateSettingPreservingPanel,
+} from '@/lib/artplayer-setting';
+import {
   AnimeOption,
   extractEpisodeNumber,
   extractSeasonFromTitle,
@@ -20,9 +25,37 @@ import {
   savePlayRecord,
   saveSkipConfig,
 } from '@/lib/db.client';
+import {
+  AUTO_LEVEL,
+  buildQualityOptions,
+  describeLevel,
+  describeQualityPreference,
+  loadPreferredQualityHeight,
+  MAX_LEVEL,
+  MAX_QUALITY_HEIGHT,
+  pickHighestLevelIndex,
+  pickLevelIndex,
+  resolveLevelHeight,
+  savePreferredQualityHeight,
+} from '@/lib/hls-quality';
+import {
+  describeHlsError,
+  PlaybackRecovery,
+} from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
+import {
+  getSegmentProbe,
+  loadCacheSettings,
+  saveCacheSettings,
+  UNLIMITED_HORIZON_SECONDS,
+} from '@/lib/video-cache';
+import {
+  getNextEpisodePrefetcher,
+  getVideoPrefetcher,
+  PrefetchStats,
+} from '@/lib/video-prefetcher';
 
 import { triggerGlobalError } from '@/components/GlobalErrorIndicator';
 
@@ -45,6 +78,63 @@ declare global {
   interface HTMLVideoElement {
     hls?: any;
   }
+}
+
+/**
+ * 同一集内最多自动换源次数（P1-5）。
+ *
+ * 换满仍未成功就停下来提示用户手动选源：如果所有源都挂了，
+ * 无上限的自动换源只会把候选列表扫成死循环（A→B→C→A...）。
+ */
+const MAX_AUTO_SOURCE_SWITCHES = 3;
+
+/** 「画质」设置项的 name，`setting.update` 靠它定位 */
+const QUALITY_SETTING_NAME = '画质';
+
+/** 「视频缓存」设置项的 name */
+const CACHE_SETTING_NAME = '视频缓存';
+
+/** 「弹幕源」设置项的 name */
+const DANMAKU_SETTING_NAME = '弹幕源';
+
+/**
+ * 下一集预热的覆盖时长（秒）。
+ *
+ * 这是唯一还保留时间上限的地方：预热只是为了"切过去不卡"，没必要把整集
+ * 都拉下来。当前集的预取已改为不设上限（缓存到片尾）；用户真切过去之后，
+ * 当前集预取器会接管，按无限视野继续往后铺。
+ */
+const NEXT_EPISODE_HORIZON_SECONDS = 420;
+
+/**
+ * 组装「视频缓存」设置项的 tooltip 文案。
+ *
+ * `hitRate` 为 null 表示还没有任何片段请求，因此没有命中率可展示。
+ */
+function buildCacheTooltip(
+  stats: PrefetchStats,
+  hitRate: number | null
+): string {
+  switch (stats.state) {
+    case 'disabled':
+      return stats.message || '已关闭';
+    case 'parsing':
+      return '解析播放列表中...';
+    case 'error':
+      return stats.message || '缓存不可用';
+    case 'idle':
+      return '未开始';
+    default:
+      break;
+  }
+
+  if (stats.total === 0) return '未开始';
+
+  const coverPart =
+    stats.coverTo > 0 ? ` · 已覆盖 ${formatTime(stats.coverTo)}` : '';
+  const hitPart =
+    hitRate === null ? '' : ` · 命中 ${Math.round(hitRate * 100)}%`;
+  return `${stats.cached}/${stats.total} 段${coverPart}${hitPart}`;
 }
 
 /**
@@ -89,6 +179,13 @@ export function usePlayEngine() {
 
   // 跳过检查的时间间隔控制
   const lastSkipCheckRef = useRef(0);
+  // 预缓存窗口续跑的时间间隔控制（播放自然推进时定期检查窗口余量）
+  const lastPrefetchCheckRef = useRef(0);
+  // —— 弱网自动降档 ——
+  // 最近 2 分钟内的卡顿时间戳；反复卡顿时把 ABR 上限压一档，宁可糊一点不要一直转圈
+  const stallTimesRef = useRef<number[]>([]);
+  // 记录已提示过的降档状态，避免 notice 反复弹
+  const downshiftNoticeRef = useRef<string | null>(null);
 
   const [isBlockAdChanged, setIsBlockAdChanged] = useState(false);
   // 去广告开关（从 localStorage 继承，默认 true）
@@ -104,6 +201,16 @@ export function usePlayEngine() {
     blockAdEnabledRef.current = blockAdEnabled;
   }, [blockAdEnabled]);
 
+  // 视频预缓存（Cache Storage）。
+  // 预取器与播放状态完全解耦：视频暂停、页面切后台时仍会继续把前向片段写进缓存。
+  // 进度不走 React state——它会以 250ms 的节奏回调，走 state 会让整页高频重渲染，
+  // 这里直接更新 ArtPlayer 的设置项 tooltip。
+  const prefetcherRef = useRef(getVideoPrefetcher());
+
+  // 下一集预热（落地路线第 3 步）。独立实例，避免打断当前集的队列。
+  // `nextWarmupKeyRef` 记录"已经为哪一集的哪个档位预热过"，防止重复排队。
+  const nextWarmupKeyRef = useRef<string | null>(null);
+
   // 弹幕源选择相关
   const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<
     string | null
@@ -112,6 +219,7 @@ export function usePlayEngine() {
     useState<AnimeOption | null>(null);
   const [selectedDanmakuEpisode, setSelectedDanmakuEpisode] = useState<number | undefined>(undefined);
   const [showDanmakuSelector, setShowDanmakuSelector] = useState(false);
+  const [showCacheManager, setShowCacheManager] = useState(false);
   const selectedDanmakuSourceRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -192,14 +300,9 @@ export function usePlayEngine() {
     const episodeIndex = selectedDanmakuAnime.episodes.indexOf(matchedEpisode);
     const episodeNumber = episodeIndex + 1;
 
-    // 更新 tooltip
+    // 更新 tooltip（走 DOM setter，不触发面板重建）
     setTimeout(() => {
-      if (artPlayerRef.current) {
-        artPlayerRef.current.setting.update({
-          name: "弹幕源",
-          tooltip: matchedEpisode.episodeTitle,
-        });
-      }
+      setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, matchedEpisode.episodeTitle);
     }, 100);
 
     // 加载弹幕 URL
@@ -254,6 +357,17 @@ export function usePlayEngine() {
     videoYear,
   ]);
 
+  // 切集时清空"已试过的源"与"自动换源次数"：
+  // 某个源只是这一集挂了，不代表下一集也挂，不该把惩罚带到下一集。
+  useEffect(() => {
+    triedSourcesRef.current = new Set();
+    autoSwitchCountRef.current = 0;
+    // 切集/换源后"下一集"的目标变了，旧的预热队列立刻作废。
+    // 已经落盘的分片不受影响（缓存键与集数无关），不会白费。
+    nextWarmupKeyRef.current = null;
+    getNextEpisodePrefetcher().stop();
+  }, [currentEpisodeIndex, currentSource, currentId]);
+
   // 视频播放地址
   const [videoUrl, setVideoUrl] = useState('');
 
@@ -278,6 +392,20 @@ export function usePlayEngine() {
     null
   );
 
+  // 自动换源的候选列表（P1-5）：必须走 ref，因为读取它的是注册在
+  // ArtPlayer 创建时（早于后续渲染）的 HLS 错误回调。
+  useEffect(() => {
+    availableSourcesRef.current = availableSources;
+  }, [availableSources]);
+
+  // 当前集数的播放地址。监听器（timeupdate/seeked/pause）是在创建播放器
+  // 那一刻注册的，闭包里的 videoUrl 会随切集而过期；预取必须按实时地址走，
+  // 否则会把上一集的片段写进缓存，白烧带宽。
+  const currentVideoUrlRef = useRef<string>('');
+  useEffect(() => {
+    currentVideoUrlRef.current = videoUrl;
+  }, [videoUrl]);
+
   // 保存优选时的测速结果，避免EpisodeSelector重复测速
   const [precomputedVideoInfo, setPrecomputedVideoInfo] = useState<
     Map<string, { quality: string; loadSpeed: string; pingTime: number }>
@@ -298,6 +426,30 @@ export function usePlayEngine() {
   const danmukuPluginInstanceRef = useRef<any>(null); // 弹幕插件实例
   const lastDanmakuUrlRef = useRef<string>(''); // 上一次加载的弹幕 URL
   const pendingDanmakuVisibleRestoreRef = useRef<boolean | null>(null); // 切集后待恢复的弹幕可见状态
+
+  // ---- P1-5 / P1-6 相关 ----
+  /** 当前 HLS 实例的错误恢复状态机（换源/重建时销毁重建） */
+  const recoveryRef = useRef<PlaybackRecovery | null>(null);
+  /** 最近一次渲染的 availableSources，供早于本轮渲染注册的回调读取 */
+  const availableSourcesRef = useRef<SearchResult[]>([]);
+  /** 最近一次渲染的 handleSourceChange，供 HLS 错误回调读取（避免闭包过期） */
+  const handleSourceChangeRef = useRef<
+    | ((
+        newSource: string,
+        newId: string,
+        newTitle: string,
+        options?: { auto?: boolean }
+      ) => Promise<void>)
+    | null
+  >(null);
+  /** 本集内已经尝试过的源（`source:id`），防止自动换源来回横跳 */
+  const triedSourcesRef = useRef<Set<string>>(new Set());
+  /** 本集内已自动换源次数 */
+  const autoSwitchCountRef = useRef<number>(0);
+  /** 当前期望的画质高度，null 表示自动 */
+  const preferredHeightRef = useRef<number | null>(
+    loadPreferredQualityHeight()
+  );
   const isEpisodeSwitchingRef = useRef(false); // 标记当前是否为切集切换
   const danmakuVisibleRestoreTimerRef = useRef<NodeJS.Timeout | null>(null); // 延迟恢复弹幕可见性的定时器
 
@@ -545,6 +697,10 @@ export function usePlayEngine() {
 
   // 清理播放器资源的统一函数
   const cleanupPlayer = () => {
+    // 先取消待执行的退避重试，避免定时器醒来后操作已销毁的 hls 实例
+    recoveryRef.current?.dispose();
+    recoveryRef.current = null;
+
     if (artPlayerRef.current) {
       try {
         lastFullscreenRef.current = !!artPlayerRef.current.fullscreen;
@@ -1094,9 +1250,17 @@ export function usePlayEngine() {
   const handleSourceChange = async (
     newSource: string,
     newId: string,
-    newTitle: string
+    newTitle: string,
+    options?: { auto?: boolean }
   ) => {
     try {
+      // 用户手动换源时清空自动换源的"已试过"记录与次数；
+      // 自动换源则保留，否则会在 A→B→A 之间反复横跳。
+      if (!options?.auto) {
+        triedSourcesRef.current.clear();
+        autoSwitchCountRef.current = 0;
+      }
+
       // 显示换源加载状态
       setVideoLoadingStage('sourceChanging');
       setIsVideoLoading(true);
@@ -1169,6 +1333,66 @@ export function usePlayEngine() {
       setIsVideoLoading(false);
       setError(err instanceof Error ? err.message : '换源失败');
     }
+  };
+
+  // 让 HLS 错误回调始终能拿到最新的 handleSourceChange
+  // （播放器只在创建时注册一次错误回调，直接引用会拿到过期闭包）
+  useEffect(() => {
+    handleSourceChangeRef.current = handleSourceChange;
+  });
+
+  /**
+   * 当前源被判定为"不可自动恢复"后，自动切到下一个候选源（P1-5）。
+   *
+   * 候选来自已搜索到的全部源（`availableSources`，已按优选评分排序），
+   * 依次排除：本集已试过的、没有剧集列表的、集数短于当前集数的
+   * （切过去只能回到第一集，体验反而更差）。
+   *
+   * 只读 ref，因此可以被注册在任意时刻的回调安全调用。
+   */
+  const autoSwitchSource = (reason: string) => {
+    const currentKey = `${currentSourceRef.current}:${currentIdRef.current}`;
+    triedSourcesRef.current.add(currentKey);
+
+    if (autoSwitchCountRef.current >= MAX_AUTO_SOURCE_SWITCHES) {
+      setError(
+        `播放失败：${reason}。已自动尝试 ${autoSwitchCountRef.current} 个片源仍未成功，请手动切换片源`
+      );
+      return;
+    }
+
+    const episodeIndex = currentEpisodeIndexRef.current;
+    const candidate = availableSourcesRef.current.find((item) => {
+      const key = `${item.source}:${item.id}`;
+      if (triedSourcesRef.current.has(key)) return false;
+      if (!item.episodes || item.episodes.length === 0) return false;
+      return item.episodes.length > episodeIndex;
+    });
+
+    if (!candidate) {
+      setError(`播放失败：${reason}。已无可用备用片源，请手动选择`);
+      return;
+    }
+
+    autoSwitchCountRef.current += 1;
+    triedSourcesRef.current.add(`${candidate.source}:${candidate.id}`);
+
+    const notice = `播放失败，已自动切换到「${candidate.source}」`;
+    console.warn(`[auto-switch] ${reason} → ${candidate.source}:${candidate.id}`);
+    try {
+      if (artPlayerRef.current) {
+        artPlayerRef.current.notice.show = notice;
+      }
+    } catch {
+      // ArtPlayer 可能已销毁
+    }
+
+    void handleSourceChangeRef.current?.(
+      candidate.source,
+      candidate.id,
+      candidate.title || '',
+      { auto: true }
+    );
   };
 
   useEffect(() => {
@@ -1579,8 +1803,156 @@ export function usePlayEngine() {
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       Artplayer.USE_RAF = true;
 
-      // 在这里定义自定义 Loader，确保 Hls 已就绪
-      const CustomHlsJsLoader = createCustomHlsLoader(Hls);
+      // 在这里定义自定义 Loader，确保 Hls 已就绪。
+      // blockAd 反映当前开关（切换时会重建播放器），useProxy 需与预取器保持一致。
+      const CustomHlsJsLoader = createCustomHlsLoader(Hls, {
+        blockAd: blockAdEnabledRef.current,
+        useProxy: loadCacheSettings().useProxy,
+      });
+
+      /**
+       * 刷新「视频缓存」设置项的进度提示。
+       *
+       * ⚠️ 这里必须走 DOM setter，不能用 `setting.update()`：
+       * 本函数由预取回调按**分片频率**调用（一集几百次），而 `update()`
+       * 内部会无条件 `render()` 把设置面板弹回根面板，导致用户刚点进
+       * 「画质」子面板就被踢出来，需要连点很多次。详见 `artplayer-setting.ts`。
+       */
+      const updateCacheTooltip = (text: string, switchState?: boolean) => {
+        const art = artPlayerRef.current;
+        if (!art) return;
+        setSettingTooltip(art, CACHE_SETTING_NAME, text);
+        if (switchState !== undefined) {
+          setSettingSwitch(art, CACHE_SETTING_NAME, switchState);
+        }
+      };
+
+      /**
+       * 启动 / 续跑前向预缓存。
+       * ensure 是幂等的：窗口仍然够用时直接返回，可以放心高频调用。
+       *
+       * `preferredHeight` 必须一起传：多码率源里预取器默认取最高带宽，
+       * 用户把画质切到低档后缓存键就对不上了（P1-6 与缓存的耦合点）。
+       *
+       * `episodeKey` 从 ref 实时取——播放器可能跨集复用，闭包里的集数会过期。
+       */
+      const ensurePrefetch = (
+        m3u8Url: string,
+        currentTime: number,
+        horizonSeconds?: number
+      ) => {
+        prefetcherRef.current.ensure({
+          m3u8Url,
+          currentTime,
+          episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${currentEpisodeIndexRef.current}`,
+          preferredHeight: preferredHeightRef.current,
+          ...(horizonSeconds === undefined ? {} : { horizonSeconds }),
+          onProgress: (stats) => {
+            const probe = getSegmentProbe();
+            const probed = probe.hits + probe.misses;
+            updateCacheTooltip(
+              buildCacheTooltip(stats, probed > 0 ? probe.hitRate : null)
+            );
+
+            // 当前集的前向视野已经铺满 → 顺手把下一集的前几分钟也预热掉，
+            // 这样用户点"下一集"时首屏基本是命中缓存而不是现拉网络。
+            if (stats.state === 'done') warmupNextEpisode();
+          },
+        });
+      };
+
+      /**
+       * 预热下一集（落地路线第 3 步）。
+       *
+       * 走独立的预取器实例，因此**不会**打断当前集的队列。
+       * 只在当前集队列跑到 `done` 时触发一次（由 `nextWarmupKeyRef` 去重），
+       * 并且随集数/画质变化自动失效。
+       */
+      const warmupNextEpisode = () => {
+        if (!loadCacheSettings().enabled) return;
+
+        const data = detailRef.current;
+        const episodes = data?.episodes;
+        if (!episodes || episodes.length === 0) return;
+
+        const nextIndex = currentEpisodeIndexRef.current + 1;
+        if (nextIndex >= episodes.length) return;
+
+        const nextUrl = episodes[nextIndex];
+        if (!nextUrl) return;
+
+        const preferred = preferredHeightRef.current;
+        // 画质档位也是预热键的一部分：换了档位，预热过的分片 URL 就不同了
+        const key = `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}:${preferred ?? 'auto'}`;
+        if (nextWarmupKeyRef.current === key) return;
+        nextWarmupKeyRef.current = key;
+
+        getNextEpisodePrefetcher().ensure({
+          m3u8Url: nextUrl,
+          currentTime: 0,
+          episodeKey: `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}`,
+          preferredHeight: preferred,
+          horizonSeconds: NEXT_EPISODE_HORIZON_SECONDS,
+          useProxy: loadCacheSettings().useProxy,
+        });
+      };
+
+      /**
+       * 供播放器事件监听器使用的入口。
+       *
+       * 监听器闭包里的 `videoUrl` 是创建播放器那一刻的快照，切集后已过期，
+       * 因此以 ref 里的实时地址为准。
+       */
+      const ensurePrefetchCurrent = (
+        currentTime: number,
+        horizonSeconds?: number
+      ) => {
+        const live = currentVideoUrlRef.current;
+        if (!live) return;
+        ensurePrefetch(live, currentTime, horizonSeconds);
+      };
+
+      /** 刷新「画质」设置项的 tooltip（同样走 DOM setter，不打断面板层级） */
+      const updateQualityTooltip = (text: string) => {
+        const art = artPlayerRef.current;
+        if (!art) return;
+        setSettingTooltip(art, QUALITY_SETTING_NAME, text);
+      };
+
+      /**
+       * 把 hls.js 的码率档位同步到「画质」设置项（P1-6）。
+       *
+       * 必须等 MANIFEST_PARSED：在那之前 `hls.levels` 是空的。
+       * 同时把本地记住的档位重新应用，使换集/换源后用户的选择得以延续。
+       *
+       * 这里是少数**必须**调用 `setting.update()` 的地方（要替换 selector 数组），
+       * 所以用 `updateSettingPreservingPanel` 把面板层级恢复回来，避免顺手
+       * 把正在看子面板的用户弹回根面板。
+       */
+      const syncQualitySetting = (hls: any) => {
+        const levels = Array.isArray(hls.levels) ? hls.levels : [];
+        const preferred = preferredHeightRef.current;
+        const matchedIndex =
+          preferred === null ? AUTO_LEVEL : pickLevelIndex(levels, preferred);
+
+        const art = artPlayerRef.current;
+        if (art) {
+          updateSettingPreservingPanel(art, {
+            name: QUALITY_SETTING_NAME,
+            tooltip: describeQualityPreference(levels, preferred),
+            selector: buildQualityOptions(levels, preferred),
+          });
+        }
+
+        // 记住的档位在本次播放列表里存在时直接套用，否则交给 ABR 自动选择
+        if (matchedIndex >= 0) {
+          try {
+            hls.currentLevel = matchedIndex;
+          } catch (_) {
+            // 忽略：极端情况下 levels 正在重建
+          }
+        }
+      };
 
       artPlayerRef.current = new Artplayer({
         container: artRef.current,
@@ -1633,17 +2005,22 @@ export function usePlayEngine() {
             const hls = new Hls({
               debug: false, // 关闭日志
               enableWorker: true, // WebWorker 解码，降低主线程压力
-              lowLatencyMode: true, // 开启低延迟 LL-HLS
+
+              // VOD 场景关闭低延迟模式：LL-HLS 会主动压缩前向缓冲，与"多缓存"目标相悖
+              lowLatencyMode: false,
 
               /* 缓冲/内存相关 */
-              maxBufferLength: 30, // 前向缓冲最大 30s，过大容易导致高延迟
+              // 真正的"缓存后面的"由 VideoPrefetcher 写入 Cache Storage 承担，
+              // 这里只需一个适度的内存缓冲，避免移动端内存压力。
+              // 弱网优化：缓冲拉长到 2 分钟，网络抖动时不容易转圈；
+              // 实际内存占用仍由 maxBufferSize（90MB）兜底。
+              maxBufferLength: 120, // 前向缓冲目标 120s
+              maxMaxBufferLength: 600, // 前向缓冲硬上限 600s
               backBufferLength: 30, // 仅保留 30s 已播放内容，避免内存占用
-              maxBufferSize: 60 * 1000 * 1000, // 约 60MB，超出后触发清理
+              maxBufferSize: 90 * 1000 * 1000, // 约 90MB，超出后触发清理
 
-              /* 自定义loader */
-              loader: blockAdEnabledRef.current
-                ? CustomHlsJsLoader
-                : Hls.DefaultConfig.loader,
+              /* 自定义 loader：去广告 + 缓存优先 */
+              loader: CustomHlsJsLoader,
             });
 
             hls.loadSource(url);
@@ -1652,23 +2029,94 @@ export function usePlayEngine() {
 
             ensureVideoSource(video, url);
 
-            hls.on(Hls.Events.ERROR, function (event: any, data: any) {
-              console.error('HLS Error:', event, data);
-              if (data.fatal) {
-                switch (data.type) {
-                  case Hls.ErrorTypes.NETWORK_ERROR:
-                    console.log('网络错误，尝试恢复...');
-                    hls.startLoad();
-                    break;
-                  case Hls.ErrorTypes.MEDIA_ERROR:
-                    console.log('媒体错误，尝试恢复...');
-                    hls.recoverMediaError();
-                    break;
-                  default:
-                    console.log('无法恢复的错误');
-                    hls.destroy();
-                    break;
+            // 启动前向预缓存。注意：这里只读取一次当前时间用于计算窗口起点，
+            // 之后的预取循环不会再读取任何播放状态，因此暂停后仍会继续缓存。
+            ensurePrefetch(url, video.currentTime || 0);
+
+            // ---- P1-5：带指数退避 + 重试上限 + 自动换源的错误恢复 ----
+            // 每个 HLS 实例配一个状态机；换源/重建时旧实例在 cleanupPlayer 里销毁。
+            const recovery = new PlaybackRecovery();
+            recoveryRef.current?.dispose();
+            recoveryRef.current = recovery;
+
+            // 新实例 = 新的 ABR 环境：清掉上一集的卡顿记录与降档上限，
+            // 否则换源后 ABR 会被上一个源的网络状况压着
+            stallTimesRef.current = [];
+            downshiftNoticeRef.current = null;
+
+            // 播放列表解析成功：建立画质档位，并确认链路可用
+            hls.on(Hls.Events.MANIFEST_PARSED, function () {
+              recovery.markHealthy();
+              syncQualitySetting(hls);
+            });
+
+            hls.on(Hls.Events.LEVEL_SWITCHED, function (_event: any, data: any) {
+              const level = hls.levels?.[data?.level];
+              updateQualityTooltip(
+                hls.autoLevelEnabled
+                  ? `自动${level ? ` · ${describeLevel(level)}` : ''}`
+                  : describeLevel(level)
+              );
+
+              // 暂停状态下切换档位时，浏览器不会自动重绘新解码的帧，
+              // 画面会停在旧档位，用户容易误判成"切了没反应"。
+              // 用一次 10ms 的微 seek 强制刷新——偏移落在同一分片内，
+              // 不会触发重新加载。
+              const media = artPlayerRef.current?.video;
+              if (media?.paused && media.currentTime > 0.05) {
+                try {
+                  media.currentTime = media.currentTime - 0.01;
+                } catch {
+                  // 忽略：极端情况下媒体尚未就绪
                 }
+              }
+            });
+
+            // 分片加载成功（含命中本项目的片段缓存）即视为链路仍在推进
+            hls.on(Hls.Events.FRAG_LOADED, function () {
+              recovery.markHealthy();
+            });
+
+            hls.on(Hls.Events.ERROR, function (event: any, data: any) {
+              if (!data?.fatal) {
+                // 非致命错误 hls.js 会自行重试，这里只留痕便于排障
+                console.warn(
+                  'HLS 非致命错误:',
+                  describeHlsError(data?.type, data?.details),
+                  data?.details
+                );
+                return;
+              }
+
+              const decision = recovery.onFatal(data.type, data.details);
+              switch (decision.action) {
+                case 'retry': {
+                  // 指数退避，避免源站挂掉时形成重试风暴
+                  console.log(
+                    `HLS 网络错误（${decision.reason}），${decision.delayMs}ms 后第 ${decision.attempt} 次重试`
+                  );
+                  recovery.schedule(decision.delayMs, () => hls.startLoad());
+                  break;
+                }
+                case 'recover-media': {
+                  console.log(
+                    `HLS 媒体错误（${decision.reason}），第 ${decision.attempt} 次恢复`
+                  );
+                  if (decision.swapAudio) {
+                    hls.swapAudioCodec();
+                  }
+                  hls.recoverMediaError();
+                  break;
+                }
+                case 'switch-source': {
+                  console.error('HLS 错误无法恢复，准备换源:', decision.reason);
+                  recovery.dispose();
+                  hls.destroy();
+                  autoSwitchSource(decision.reason);
+                  break;
+                }
+                default:
+                  break;
               }
             });
           },
@@ -1782,6 +2230,98 @@ export function usePlayEngine() {
               setShowDanmakuSelector(true);
             },
           },
+          {
+            // 画质切换（P1-6）。档位列表在 MANIFEST_PARSED 后由
+            // syncQualitySetting() 动态写入，这里先给个占位。
+            // 占位用 `selector`（而不是 onClick）是刻意为之：ArtPlayer 只有
+            // 在 item 带 selector 时才会渲染成可展开的子面板。
+            name: QUALITY_SETTING_NAME,
+            html: QUALITY_SETTING_NAME,
+            tooltip: '自动',
+            selector: [{ html: '自动', value: AUTO_LEVEL, default: true }],
+            onSelect: function (item: any) {
+              const value = Number(item.value);
+              const hls = artPlayerRef.current?.video?.hls;
+              const levels: any[] = Array.isArray(hls?.levels) ? hls.levels : [];
+
+              const isAuto = value === AUTO_LEVEL || Number.isNaN(value);
+              const isMax = value === MAX_LEVEL;
+
+              let nextLevel = AUTO_LEVEL;
+              let preferred: number | null = null;
+
+              if (isMax) {
+                // 「最高画质」落到本视频实际存在的最高档。
+                // 记忆用 MAX_QUALITY_HEIGHT(8K) 作哨兵：换到没有 8K 的剧集时，
+                // pickLevelIndex 会落到该剧最高档，语义自动成立。
+                const highest = pickHighestLevelIndex(levels);
+                if (highest >= 0) {
+                  nextLevel = highest;
+                  preferred = MAX_QUALITY_HEIGHT;
+                }
+              } else if (!isAuto && levels[value]) {
+                nextLevel = value;
+                // 记的是「有效高度」：源站 master 常缺 RESOLUTION，
+                // 那时只能按码率推断。用 `level.height` 会让偏好退化成
+                // "自动"，连带把预取档位与跨集记忆一起弄丢。
+                preferred = resolveLevelHeight(levels[value]) || null;
+              }
+
+              try {
+                if (hls) {
+                  hls.currentLevel = nextLevel;
+                  // 用户手动选了档位 = 明确表达意愿，清掉自动降档的上限，
+                  // 否则 ABR 会被之前的卡顿记录一直压着达不到所选档位
+                  hls.autoLevelCapping = -1;
+                }
+              } catch {
+                // 忽略：极端情况下 levels 正在重建
+              }
+              stallTimesRef.current = [];
+              downshiftNoticeRef.current = null;
+
+              // 记忆的是"画面高度"而非档位下标：换集/换源后档位数量与顺序都会变，
+              // 记下标会指向错误的档位。
+              preferredHeightRef.current = preferred;
+              savePreferredQualityHeight(preferred);
+              updateQualityTooltip(
+                preferred === null
+                  ? '自动'
+                  : describeQualityPreference(levels, preferred)
+              );
+
+              // 档位变了，已缓存的分片属于旧档位，按新档位重排队列
+              ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
+              return item.html;
+            },
+          },
+          {
+            name: '视频缓存',
+            html: '视频缓存',
+            switch: loadCacheSettings().enabled,
+            tooltip: loadCacheSettings().enabled ? '未开始' : '已关闭',
+            onSwitch: function (item: any) {
+              const enabled = !item.switch;
+              saveCacheSettings({ enabled });
+              if (enabled) {
+                updateCacheTooltip('未开始');
+                ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
+              } else {
+                prefetcherRef.current.stop();
+                getNextEpisodePrefetcher().stop();
+                nextWarmupKeyRef.current = null;
+                updateCacheTooltip('已关闭');
+              }
+              return enabled;
+            },
+          },
+          {
+            html: '缓存管理',
+            onClick: function () {
+              setShowCacheManager(true);
+              return '';
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -1864,10 +2404,81 @@ export function usePlayEngine() {
       artPlayerRef.current.on('pause', () => {
         releaseWakeLock();
         saveCurrentPlayProgress();
+
+        // 暂停是预缓存的"黄金窗口"：播放不再抢带宽，缓存应当全速继续。
+        // 1) 解除 stall 让路。否则若用户正好在卡顿时按暂停，video:playing
+        //    永远不会再触发，预取会被永久挂起——恰好违背"暂停也继续缓存"。
+        // 2) 明确要求"不设时间上限"：把整集剩余分片全部排进队列，暂停越久
+        //    缓存铺得越远；字节上限与 LRU 淘汰才是这条路的兜底。
+        //    走 ensurePrefetchCurrent 而不是闭包里的 videoUrl——播放器跨集复用，
+        //    闭包里的地址可能是上一集的。
+        prefetcherRef.current.setThrottled(false);
+        ensurePrefetchCurrent(
+          artPlayerRef.current.currentTime || 0,
+          UNLIMITED_HORIZON_SECONDS
+        );
       });
 
-      artPlayerRef.current.on('video:ended', () => {
-        releaseWakeLock();
+      // ---------------------------------------------------------------------
+      // 前向预缓存：窗口维护
+      // ---------------------------------------------------------------------
+      // seek 后窗口可能不再覆盖目标位置；ensure 内部会判断，窗口够用时零成本返回
+      artPlayerRef.current.on('video:seeked', () => {
+        ensurePrefetchCurrent(artPlayerRef.current.currentTime || 0);
+      });
+
+      // 播放卡顿时让出带宽，恢复后继续预取。
+      // 注意：这是"临时让路"，不是"视频暂停就停缓存"。
+      artPlayerRef.current.on('video:waiting', () => {
+        prefetcherRef.current.setThrottled(true);
+
+        // —— 弱网自动降档 ——
+        // seek/换源也会触发 waiting，因此 5 秒内的重复事件只记一次；
+        // 2 分钟内累计 4 次视为网络跟不上当前档位，把 ABR 上限压一档。
+        const now = Date.now();
+        const stalls = stallTimesRef.current;
+        if (stalls.length === 0 || now - stalls[stalls.length - 1] >= 5_000) {
+          stalls.push(now);
+        }
+        while (stalls.length > 0 && now - stalls[0] > 120_000) {
+          stalls.shift();
+        }
+
+        const hls = artPlayerRef.current?.video?.hls;
+        if (!hls || !hls.autoLevelEnabled) return; // 手动档位由用户自己负责
+        if (stalls.length < 4) return;
+
+        const currentLevel =
+          typeof hls.loadLevel === 'number' && hls.loadLevel >= 0
+            ? hls.loadLevel
+            : typeof hls.currentLevel === 'number' && hls.currentLevel >= 0
+              ? hls.currentLevel
+              : 0;
+        const cap =
+          typeof hls.autoLevelCapping === 'number' && hls.autoLevelCapping >= 0
+            ? hls.autoLevelCapping
+            : Number.POSITIVE_INFINITY;
+        const nextCap = Math.max(0, Math.min(currentLevel, cap) - 1);
+
+        if (cap === 0) {
+          // 已经是最低档还在卡：提示换源，不再重复弹
+          if (downshiftNoticeRef.current !== 'min') {
+            downshiftNoticeRef.current = 'min';
+            artPlayerRef.current.notice.show =
+              '已降至最低画质仍卡顿，建议在右侧换一个播放源';
+          }
+          return;
+        }
+
+        hls.autoLevelCapping = nextCap;
+        if (downshiftNoticeRef.current !== `cap-${nextCap}`) {
+          downshiftNoticeRef.current = `cap-${nextCap}`;
+          artPlayerRef.current.notice.show =
+            '检测到网络较慢，已自动降低画质以减少卡顿';
+        }
+      });
+      artPlayerRef.current.on('video:playing', () => {
+        prefetcherRef.current.setThrottled(false);
       });
 
       // 如果播放器初始化时已经在播放状态，则请求 Wake Lock
@@ -1921,13 +2532,41 @@ export function usePlayEngine() {
         setIsVideoLoading(false);
       });
 
-      // 监听视频时间更新事件，实现跳过片头片尾
+      // 监听视频时间更新事件：播放进度自动保存 + 跳过片头片尾
+      // （两个逻辑合并到同一个监听器，避免重复注册 timeupdate）
       artPlayerRef.current.on('video:timeupdate', () => {
+        const now = Date.now();
+
+        // —— 播放进度自动保存 ——
+        // 间隔优先读取站点配置（RUNTIME_CONFIG.PLAYBACK_SAVE_INTERVAL，单位秒），
+        // 未配置时回退到存储类型默认值（Upstash 20s，其余 5s）
+        const configuredInterval =
+          typeof window !== 'undefined'
+            ? Number((window as any).RUNTIME_CONFIG?.PLAYBACK_SAVE_INTERVAL)
+            : 0;
+        const saveInterval =
+          configuredInterval > 0
+            ? configuredInterval * 1000
+            : getDefaultPlaybackSaveInterval(
+                process.env.NEXT_PUBLIC_STORAGE_TYPE
+              ) * 1000;
+        if (now - lastSaveTimeRef.current > saveInterval) {
+          saveCurrentPlayProgress();
+          lastSaveTimeRef.current = now;
+        }
+
+        // —— 前向预缓存窗口续跑 ——
+        // 播放自然推进（未触发 seek）时，每 30 秒检查一次窗口余量并续跑
+        if (now - lastPrefetchCheckRef.current > 30_000) {
+          lastPrefetchCheckRef.current = now;
+          ensurePrefetchCurrent(artPlayerRef.current.currentTime || 0);
+        }
+
+        // —— 跳过片头片尾 ——
         if (!skipConfigRef.current.enable) return;
 
         const currentTime = artPlayerRef.current.currentTime || 0;
         const duration = artPlayerRef.current.duration || 0;
-        const now = Date.now();
 
         // 限制跳过检查频率为1.5秒一次
         if (now - lastSkipCheckRef.current < 1500) return;
@@ -1972,8 +2611,9 @@ export function usePlayEngine() {
         }
       });
 
-      // 监听视频播放结束事件，自动播放下一集
+      // 监听视频播放结束事件：释放 Wake Lock 并自动播放下一集
       artPlayerRef.current.on('video:ended', () => {
+        releaseWakeLock();
         const d = detailRef.current;
         const idx = currentEpisodeIndexRef.current;
         if (d && d.episodes && idx < d.episodes.length - 1) {
@@ -1981,31 +2621,6 @@ export function usePlayEngine() {
             handleNextEpisode();
           }, 1000);
         }
-      });
-
-      artPlayerRef.current.on('video:timeupdate', () => {
-        const now = Date.now();
-        // 播放进度自动保存间隔：优先读取站点配置
-        // （RUNTIME_CONFIG.PLAYBACK_SAVE_INTERVAL，单位秒），未配置时回退到
-        // 存储类型默认值（Upstash 20s，其余 5s）
-        const configuredInterval =
-          typeof window !== 'undefined'
-            ? Number((window as any).RUNTIME_CONFIG?.PLAYBACK_SAVE_INTERVAL)
-            : 0;
-        const interval =
-          configuredInterval > 0
-            ? configuredInterval * 1000
-            : getDefaultPlaybackSaveInterval(
-                process.env.NEXT_PUBLIC_STORAGE_TYPE
-              ) * 1000;
-        if (now - lastSaveTimeRef.current > interval) {
-          saveCurrentPlayProgress();
-          lastSaveTimeRef.current = now;
-        }
-      });
-
-      artPlayerRef.current.on('pause', () => {
-        saveCurrentPlayProgress();
       });
 
       if (artPlayerRef.current?.video) {
@@ -2059,6 +2674,10 @@ export function usePlayEngine() {
       // 移除可见性监听
       document.removeEventListener('visibilitychange', handleVisibilityChange);
 
+      // 停止前向预缓存（含下一集预热队列）
+      prefetcherRef.current.stop();
+      getNextEpisodePrefetcher().stop();
+
       // 销毁播放器实例
       cleanupPlayer();
     };
@@ -2083,13 +2702,8 @@ export function usePlayEngine() {
 
   const handleDanmakuClose = () => {
     setShowDanmakuSelector(false);
-    // 更新 tooltip
-    if (artPlayerRef.current) {
-      artPlayerRef.current.setting.update({
-        name: "弹幕源",
-        tooltip: currentTooltip || '未选择',
-      });
-    }
+    // 更新 tooltip（走 DOM setter，不触发面板重建）
+    setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, currentTooltip || '未选择');
   };
 
   // -----------------------------------------------------------------------------
@@ -2134,6 +2748,9 @@ export function usePlayEngine() {
     isDanmakuLoading,
     handleDanmakuSelect,
     handleDanmakuClose,
+    // 缓存管理
+    showCacheManager,
+    setShowCacheManager,
     // 收藏 / 追更
     favorited,
     following,

@@ -1,5 +1,45 @@
 {
   "cache_time": 7200,
   "api_site": {
+    "索尼": {
+      "name": "索尼",
+      "api": "https://suoniapi.com/api.php/provide/vod"
+    },
+    "豪华": {
+      "name": "豪华",
+      "api": "https://hhzyapi.com/api.php/provide/vod"
+    },
+    "量子资源": {
+      "name": "量子资源",
+      "api": "https://cj.lzcaiji.com/api.php/provide/vod"
+    },
+    "暴风": {
+      "name": "暴风",
+      "api": "https://bfzyapi.com/api.php/provide/vod"
+    },
+    "牛牛": {
+      "name": "牛牛",
+      "api": "https://api.niuniuzy.me/api.php/provide/vod/"
+    },
+    "量子": {
+      "name": "量子",
+      "api": "https://cj.lziapi.com/api.php/provide/vod"
+    },
+    "红牛": {
+      "name": "红牛",
+      "api": "https://www.hongniuzy2.com/api.php/provide/vod"
+    },
+    "魔都": {
+      "name": "魔都",
+      "api": "https://www.mdzyapi.com/api.php/provide/vod"
+    },
+    "非凡": {
+      "name": "非凡",
+      "api": "https://api.ffzyapi.com/api.php/provide/vod"
+    },
+    "IK": {
+      "name": "IK",
+      "api": "https://ikunzyapi.com/api.php/provide/vod/from/ikm3u8/"
+    }
   }
 }

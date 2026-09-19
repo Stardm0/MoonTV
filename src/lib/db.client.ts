@@ -17,15 +17,16 @@
 import { getAuthInfoFromBrowserCookie } from './auth';
 import { Following, SkipConfig, TodayUpdatedRecord } from './types';
 
-// 全局错误触发函数
-function triggerGlobalError(message: string) {
-  if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent('globalError', {
-        detail: { message },
-      })
-    );
-  }
+/**
+ * 后台静默同步失败的上报。
+ *
+ * 这类失败发生在"缓存优先"的读取路径上：调用方已经拿到本地缓存数据，页面功能
+ * 完全正常，用户也没有可做的动作。此前这里会弹全局红字，而红字提示不会自动消失
+ * ——进入播放页时追更/收藏的后台刷新一旦失败，就会一直挂着一条红色错误条。
+ * 改为只写控制台，避免非致命的后台同步失败干扰观看。
+ */
+function reportBackgroundSyncFailure(label: string, err: unknown) {
+  console.warn(`后台同步${label}失败:`, err);
 }
 
 // ---- 类型 ----
@@ -459,59 +460,18 @@ const cacheManager = HybridCacheManager.getInstance();
 
 // ---- 错误处理辅助函数 ----
 /**
- * 数据库操作失败时的通用错误处理
- * 立即从数据库刷新对应类型的缓存以保持数据一致性
+ * 乐观更新型写操作（先写本地缓存、后同步远端）失败时的降级处理。
+ *
+ * 此时本地缓存已经生效（UI 已经"成功"），远端同步失败不该弹全局红字——
+ * 那会制造"操作失败"的假象（用户看到"能正常添加却提示失败"）。
+ * 也不该再拉取远端数据覆盖本地：远端还是旧数据，拉回来会把刚做的乐观
+ * 更新冲掉。因此这里只记录日志，保留本地乐观结果。
  */
 async function handleDatabaseOperationFailure(
   dataType: 'playRecords' | 'favorites' | 'followings' | 'searchHistory',
   error: any
 ): Promise<void> {
-  console.error(`数据库操作失败 (${dataType}):`, error);
-  triggerGlobalError(`数据库操作失败`);
-
-  try {
-    let freshData: any;
-    let eventName: string;
-
-    switch (dataType) {
-      case 'playRecords':
-        freshData = await fetchFromApi<Record<string, PlayRecord>>(
-          `/api/playrecords`
-        );
-        cacheManager.cachePlayRecords(freshData);
-        eventName = 'playRecordsUpdated';
-        break;
-      case 'favorites':
-        freshData = await fetchFromApi<Record<string, Favorite>>(
-          `/api/favorites`
-        );
-        cacheManager.cacheFavorites(freshData);
-        eventName = 'favoritesUpdated';
-        break;
-      case 'followings':
-        freshData = await fetchFromApi<Record<string, Following>>(
-          `/api/followings`
-        );
-        cacheManager.cacheFollowings(freshData);
-        eventName = 'followingsUpdated';
-        break;
-      case 'searchHistory':
-        freshData = await fetchFromApi<string[]>(`/api/searchhistory`);
-        cacheManager.cacheSearchHistory(freshData);
-        eventName = 'searchHistoryUpdated';
-        break;
-    }
-
-    // 触发更新事件通知组件
-    window.dispatchEvent(
-      new CustomEvent(eventName, {
-        detail: freshData,
-      })
-    );
-  } catch (refreshErr) {
-    console.error(`刷新${dataType}缓存失败:`, refreshErr);
-    triggerGlobalError(`刷新${dataType}缓存失败`);
-  }
+  console.warn(`数据库同步失败 (${dataType})，已保留本地结果:`, error);
 }
 
 // 页面加载时清理过期缓存
@@ -551,9 +511,27 @@ async function fetchWithAuth(
   return res;
 }
 
-async function fetchFromApi<T>(path: string): Promise<T> {
-  const res = await fetchWithAuth(path);
-  return (await res.json()) as T;
+/**
+ * 并发去重的 GET 请求。
+ *
+ * 首页每张卡片都会调 isFollowing/isFavorited → 各自触发一次
+ * /api/followings、/api/favorites：20 张卡片就是 40 个相同请求，
+ * 接口一旦失败还会连环弹错。这里按 path 合并并发中的相同请求，
+ * 共享同一个 Promise（连同解析后的 JSON 一起共享，避免 Response 只能读一次）。
+ */
+const inflightGets = new Map<string, Promise<unknown>>();
+
+function fetchFromApi<T>(path: string): Promise<T> {
+  const existing = inflightGets.get(path) as Promise<T> | undefined;
+  if (existing) return existing;
+
+  const request = fetchWithAuth(path).then((res) => res.json() as Promise<T>);
+  inflightGets.set(path, request);
+  const clear = () => {
+    inflightGets.delete(path);
+  };
+  request.then(clear, clear);
+  return request;
 }
 
 /**
@@ -596,8 +574,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步播放记录失败:', err);
-          triggerGlobalError('后台同步播放记录失败');
+          reportBackgroundSyncFailure('播放记录', err);
         });
 
       return cachedData;
@@ -610,8 +587,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
         cacheManager.cachePlayRecords(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取播放记录失败:', err);
-        triggerGlobalError('获取播放记录失败');
+        console.warn('获取播放记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -623,8 +599,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, PlayRecord>;
   } catch (err) {
-    console.error('读取播放记录失败:', err);
-    triggerGlobalError('读取播放记录失败');
+    console.warn('读取播放记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -675,7 +650,7 @@ export async function savePlayRecord(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('保存播放记录失败');
+      console.warn('保存播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -708,7 +683,7 @@ export async function savePlayRecord(
     );
   } catch (err) {
     console.error('保存播放记录失败:', err);
-    triggerGlobalError('保存播放记录失败');
+    console.warn('保存播放记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -744,7 +719,7 @@ export async function deletePlayRecord(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('删除播放记录失败');
+      console.warn('删除播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -767,7 +742,7 @@ export async function deletePlayRecord(
     );
   } catch (err) {
     console.error('删除播放记录失败:', err);
-    triggerGlobalError('删除播放记录失败');
+    console.warn('删除播放记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -805,8 +780,7 @@ export async function getSearchHistory(): Promise<string[]> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步搜索历史失败:', err);
-          triggerGlobalError('后台同步搜索历史失败');
+          reportBackgroundSyncFailure('搜索历史', err);
         });
 
       return cachedData;
@@ -817,8 +791,7 @@ export async function getSearchHistory(): Promise<string[]> {
         cacheManager.cacheSearchHistory(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取搜索历史失败:', err);
-        triggerGlobalError('获取搜索历史失败');
+        console.warn('获取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return [];
       }
     }
@@ -832,8 +805,7 @@ export async function getSearchHistory(): Promise<string[]> {
     // 仅返回字符串数组
     return Array.isArray(arr) ? arr : [];
   } catch (err) {
-    console.error('读取搜索历史失败:', err);
-    triggerGlobalError('读取搜索历史失败');
+    console.warn('读取搜索历史失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return [];
   }
 }
@@ -897,7 +869,7 @@ export async function addSearchHistory(keyword: string): Promise<void> {
     );
   } catch (err) {
     console.error('保存搜索历史失败:', err);
-    triggerGlobalError('保存搜索历史失败');
+    console.warn('保存搜索历史失败(已本地处理, 不弹全局提示)');
   }
 }
 
@@ -989,7 +961,7 @@ export async function deleteSearchHistory(keyword: string): Promise<void> {
     );
   } catch (err) {
     console.error('删除搜索历史失败:', err);
-    triggerGlobalError('删除搜索历史失败');
+    console.warn('删除搜索历史失败(已本地处理, 不弹全局提示)');
   }
 }
 
@@ -1026,8 +998,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步收藏失败:', err);
-          triggerGlobalError('后台同步收藏失败');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return cachedData;
@@ -1040,8 +1011,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
         cacheManager.cacheFavorites(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取收藏失败:', err);
-        triggerGlobalError('获取收藏失败');
+        console.warn('获取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -1053,8 +1023,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, Favorite>;
   } catch (err) {
-    console.error('读取收藏失败:', err);
-    triggerGlobalError('读取收藏失败');
+    console.warn('读取收藏失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -1089,8 +1058,7 @@ export async function getAllFollowings(
             }
           })
           .catch((err) => {
-            console.warn('后台同步追更失败:', err);
-            triggerGlobalError('后台同步追更失败');
+            reportBackgroundSyncFailure('追更', err);
           });
         return cachedData;
       }
@@ -1101,8 +1069,7 @@ export async function getAllFollowings(
         cacheManager.cacheFollowings(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取追更失败:', err);
-        triggerGlobalError('获取追更失败');
+        console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -1120,8 +1087,7 @@ export async function getAllFollowings(
           }
         })
         .catch((err) => {
-          console.warn('后台同步追更失败:', err);
-          triggerGlobalError('后台同步追更失败');
+          reportBackgroundSyncFailure('追更', err);
         });
 
       return cachedData;
@@ -1134,8 +1100,7 @@ export async function getAllFollowings(
       cacheManager.cacheFollowings(freshData);
       return freshData;
     } catch (err) {
-      console.error('获取追更失败:', err);
-      triggerGlobalError('获取追更失败');
+      console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
       return {};
     }
   }
@@ -1145,8 +1110,7 @@ export async function getAllFollowings(
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, Following>;
   } catch (err) {
-    console.error('读取追更列表失败:', err);
-    triggerGlobalError('读取追更列表失败');
+    console.warn('读取追更列表失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -1181,7 +1145,7 @@ export async function saveFollowing(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('followings', err);
-      triggerGlobalError('保存追更失败');
+      console.warn('保存追更失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1200,7 +1164,7 @@ export async function saveFollowing(
     );
   } catch (err) {
     console.error('保存追更失败:', err);
-    triggerGlobalError('保存追更失败');
+    console.warn('保存追更失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1230,7 +1194,7 @@ export async function deleteFollowing(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('followings', err);
-      triggerGlobalError('删除追更失败');
+      console.warn('删除追更失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1249,7 +1213,7 @@ export async function deleteFollowing(
     );
   } catch (err) {
     console.error('删除追更失败:', err);
-    triggerGlobalError('删除追更失败');
+    console.warn('删除追更失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1439,7 +1403,7 @@ export async function refreshFollowingsStream(
     return refreshed;
   } catch (err) {
     console.error('批量刷新追更失败:', err);
-    triggerGlobalError('批量刷新追更失败');
+    console.warn('批量刷新追更失败(已本地处理, 不弹全局提示)');
     return refreshed;
   }
 }
@@ -1480,7 +1444,7 @@ export async function saveFavorite(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('保存收藏失败');
+      console.warn('保存收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1503,7 +1467,7 @@ export async function saveFavorite(
     );
   } catch (err) {
     console.error('保存收藏失败:', err);
-    triggerGlobalError('保存收藏失败');
+    console.warn('保存收藏失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1539,7 +1503,7 @@ export async function deleteFavorite(
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('删除收藏失败');
+      console.warn('删除收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1562,7 +1526,7 @@ export async function deleteFavorite(
     );
   } catch (err) {
     console.error('删除收藏失败:', err);
-    triggerGlobalError('删除收藏失败');
+    console.warn('删除收藏失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -1597,8 +1561,7 @@ export async function isFavorited(
           }
         })
         .catch((err) => {
-          console.warn('后台同步收藏失败:', err);
-          triggerGlobalError('后台同步收藏失败');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return !!cachedFavorites[key];
@@ -1611,8 +1574,7 @@ export async function isFavorited(
         cacheManager.cacheFavorites(freshData);
         return !!freshData[key];
       } catch (err) {
-        console.error('检查收藏状态失败:', err);
-        triggerGlobalError('检查收藏状态失败');
+        console.warn('检查收藏状态失败:', err);
         return false;
       }
     }
@@ -1648,7 +1610,7 @@ export async function clearAllPlayRecords(): Promise<void> {
       });
     } catch (err) {
       await handleDatabaseOperationFailure('playRecords', err);
-      triggerGlobalError('清空播放记录失败');
+      console.warn('清空播放记录失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1689,7 +1651,7 @@ export async function clearAllFavorites(): Promise<void> {
       });
     } catch (err) {
       await handleDatabaseOperationFailure('favorites', err);
-      triggerGlobalError('清空收藏失败');
+      console.warn('清空收藏失败(已本地处理, 不弹全局提示)');
       throw err;
     }
     return;
@@ -1780,8 +1742,7 @@ export async function refreshAllCache(): Promise<void> {
       );
     }
   } catch (err) {
-    console.error('刷新缓存失败:', err);
-    triggerGlobalError('刷新缓存失败');
+    console.warn('刷新缓存失败(不影响使用):', err);
   }
 }
 
@@ -1881,7 +1842,6 @@ export async function preloadUserData(): Promise<void> {
   // 后台静默预加载，不阻塞界面
   refreshAllCache().catch((err) => {
     console.warn('预加载用户数据失败:', err);
-    triggerGlobalError('预加载用户数据失败');
   });
 }
 
@@ -1936,8 +1896,7 @@ export async function getSkipConfig(
         cacheManager.cacheSkipConfigs(freshData);
         return freshData[key] || null;
       } catch (err) {
-        console.error('获取跳过片头片尾配置失败:', err);
-        triggerGlobalError('获取跳过片头片尾配置失败');
+        console.warn('获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return null;
       }
     }
@@ -1950,8 +1909,7 @@ export async function getSkipConfig(
     const configs = JSON.parse(raw) as Record<string, SkipConfig>;
     return configs[key] || null;
   } catch (err) {
-    console.error('读取跳过片头片尾配置失败:', err);
-    triggerGlobalError('读取跳过片头片尾配置失败');
+    console.warn('读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return null;
   }
 }
@@ -1992,7 +1950,7 @@ export async function saveSkipConfig(
       });
     } catch (err) {
       console.error('保存跳过片头片尾配置失败:', err);
-      triggerGlobalError('保存跳过片头片尾配置失败');
+      console.warn('保存跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     }
     return;
   }
@@ -2015,7 +1973,7 @@ export async function saveSkipConfig(
     );
   } catch (err) {
     console.error('保存跳过片头片尾配置失败:', err);
-    triggerGlobalError('保存跳过片头片尾配置失败');
+    console.warn('保存跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -2051,8 +2009,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步跳过片头片尾配置失败:', err);
-          triggerGlobalError('后台同步跳过片头片尾配置失败');
+          reportBackgroundSyncFailure('跳过片头片尾配置', err);
         });
 
       return cachedData;
@@ -2065,8 +2022,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
         cacheManager.cacheSkipConfigs(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取跳过片头片尾配置失败:', err);
-        triggerGlobalError('获取跳过片头片尾配置失败');
+        console.warn('获取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return {};
       }
     }
@@ -2078,8 +2034,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, SkipConfig>;
   } catch (err) {
-    console.error('读取跳过片头片尾配置失败:', err);
-    triggerGlobalError('读取跳过片头片尾配置失败');
+    console.warn('读取跳过片头片尾配置失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return {};
   }
 }
@@ -2115,7 +2070,7 @@ export async function deleteSkipConfig(
       });
     } catch (err) {
       console.error('删除跳过片头片尾配置失败:', err);
-      triggerGlobalError('删除跳过片头片尾配置失败');
+      console.warn('删除跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     }
     return;
   }
@@ -2140,7 +2095,7 @@ export async function deleteSkipConfig(
     }
   } catch (err) {
     console.error('删除跳过片头片尾配置失败:', err);
-    triggerGlobalError('删除跳过片头片尾配置失败');
+    console.warn('删除跳过片头片尾配置失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
@@ -2195,8 +2150,7 @@ export async function getTodayUpdated(): Promise<TodayUpdatedRecord | null> {
         cacheManager.cacheTodayUpdated(freshData);
         return freshData;
       } catch (err) {
-        console.error('获取“今日新更”记录失败:', err);
-        triggerGlobalError('获取“今日新更”记录失败');
+        console.warn('获取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
         return null;
       }
     }
@@ -2208,8 +2162,7 @@ export async function getTodayUpdated(): Promise<TodayUpdatedRecord | null> {
     if (!raw) return null;
     return JSON.parse(raw) as TodayUpdatedRecord;
   } catch (err) {
-    console.error('读取“今日新更”记录失败:', err);
-    triggerGlobalError('读取“今日新更”记录失败');
+    console.warn('读取“今日新更”记录失败(使用缓存/空数据继续, 不弹全局提示):', err);
     return null;
   }
 }
@@ -2244,7 +2197,7 @@ export async function saveTodayUpdated(
       });
     } catch (err) {
       console.error('保存“今日新更”记录失败:', err);
-      triggerGlobalError('保存“今日新更”记录失败');
+      console.warn('保存“今日新更”记录失败(已本地处理, 不弹全局提示)');
     }
     return;
   }
@@ -2264,7 +2217,7 @@ export async function saveTodayUpdated(
     );
   } catch (err) {
     console.error('保存“今日新更”记录失败:', err);
-    triggerGlobalError('保存“今日新更”记录失败');
+    console.warn('保存“今日新更”记录失败(已本地处理, 不弹全局提示)');
     throw err;
   }
 }
