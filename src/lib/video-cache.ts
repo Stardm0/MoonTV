@@ -34,10 +34,23 @@ export interface SegmentMeta {
   lastAccess: number;
 }
 
+/**
+ * 前向缓存"不设上限"的哨兵值。
+ *
+ * 传 0 表示一直往后铺，直到播放列表最后一个分片；播放推进时只做增量续跑，
+ * 暂停、页面切到后台都不会让队列停下来。真正的兜底交给字节上限
+ * （`maxBytesPerEpisode` / `maxTotalBytes`）与 LRU 淘汰，而不是时间。
+ */
+export const UNLIMITED_HORIZON_SECONDS = 0;
+
 export interface CacheSettings {
   /** 总开关 */
   enabled: boolean;
-  /** 前向缓存目标时长（秒） */
+  /**
+   * 前向缓存目标时长（秒）。
+   *
+   * `UNLIMITED_HORIZON_SECONDS`（0）= 不设时间上限，缓存到片尾。
+   */
   horizonSeconds: number;
   /** 单集最大占用（字节） */
   maxBytesPerEpisode: number;
@@ -49,7 +62,8 @@ export interface CacheSettings {
 
 export const DEFAULT_CACHE_SETTINGS: CacheSettings = {
   enabled: true,
-  horizonSeconds: 600,
+  // 默认不设时间上限：暂停后一直往后缓存，直到片尾或触发字节上限淘汰
+  horizonSeconds: UNLIMITED_HORIZON_SECONDS,
   maxBytesPerEpisode: 800 * 1024 * 1024,
   maxTotalBytes: 3 * 1024 * 1024 * 1024,
   useProxy: true,
@@ -85,8 +99,12 @@ export function normalizeCacheSettings(input: unknown): CacheSettings {
   if (typeof raw.enabled === 'boolean') settings.enabled = raw.enabled;
   if (typeof raw.useProxy === 'boolean') settings.useProxy = raw.useProxy;
 
-  const horizon = clampNumber(raw.horizonSeconds, 60, 7200);
-  if (horizon !== undefined) settings.horizonSeconds = Math.round(horizon);
+  const horizon = clampNumber(raw.horizonSeconds, 0, 7200);
+  if (horizon !== undefined) {
+    // 0 是「无限」哨兵，必须原样保留；其余值低于 1 分钟没有意义，抬到 60s
+    settings.horizonSeconds =
+      horizon === 0 ? UNLIMITED_HORIZON_SECONDS : Math.max(60, Math.round(horizon));
+  }
 
   const perEpisode = clampNumber(raw.maxBytesPerEpisode, 50 * 1024 * 1024, 8 * 1024 ** 3);
   if (perEpisode !== undefined) settings.maxBytesPerEpisode = Math.round(perEpisode);
@@ -458,6 +476,50 @@ export async function putCachedSegment(
       },
     })
   );
+}
+
+/** 判断是否为 Cache Storage 配额耗尽（各浏览器报错类型不一，按 name + message 双判） */
+export function isQuotaExceededError(err: unknown): boolean {
+  if (!err) return false;
+  if (err instanceof DOMException && err.name === 'QuotaExceededError') return true;
+  const name = (err as { name?: unknown }).name;
+  if (name === 'QuotaExceededError') return true;
+  const message = err instanceof Error ? err.message : String(err);
+  return /quota/i.test(message);
+}
+
+export type PutSegmentResult = 'ok' | 'quota' | 'failed';
+
+/**
+ * 带配额自救的分片写入。
+ *
+ * 前向缓存在"无限模式"下会把整集都铺下来，必然更容易撞到存储配额。
+ * 直接 `cache.put` 抛 QuotaExceededError 的话，worker 的 try/catch 会
+ * 把每个后续分片都吞掉——表现为"缓存悄悄停在某个位置不动了"，
+ * 很难排查。这里先按 LRU 淘汰一批再重试一次，真腾不出空间才上报。
+ */
+export async function putCachedSegmentResilient(
+  key: string,
+  buffer: ArrayBuffer,
+  contentType?: string | null,
+  settings: CacheSettings = loadCacheSettings()
+): Promise<PutSegmentResult> {
+  try {
+    await putCachedSegment(key, buffer, contentType);
+    return 'ok';
+  } catch (err) {
+    if (!isQuotaExceededError(err)) return 'failed';
+
+    const removed = await enforceQuota(settings);
+    if (removed === 0) return 'quota';
+
+    try {
+      await putCachedSegment(key, buffer, contentType);
+      return 'ok';
+    } catch {
+      return 'quota';
+    }
+  }
 }
 
 export interface CachedFragment {

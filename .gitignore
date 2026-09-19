@@ -64,3 +64,4 @@ public/sw.js.map
 .vs/slnx.sqlite
 .vs/tasks.vs.json
 .github/workflows/ci.yml
+/docs

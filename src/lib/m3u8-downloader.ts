@@ -6,6 +6,7 @@
 
 import CryptoJS from 'crypto-js';
 
+import { inferHeightFromBitrate } from './hls-quality';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
 
 export type StreamSaverMode = 'disabled' | 'service-worker' | 'file-system';
@@ -172,10 +173,15 @@ function extractSubPlaylistUrl(
 
   const targetHeight = preferred?.height ?? null;
   if (targetHeight && targetHeight > 0) {
+    // 没有 `RESOLUTION` 的源站只能按带宽推断高度。这里与播放侧
+    // （`hls-quality.resolveLevelHeight`）共用同一套推断规则：两边不一致
+    // 会让预取到的档位和用户选中的档位错开，缓存命中率直接归零。
     const withHeight = playlists
       .map((item) => ({
         ...item,
-        height: parseResolutionHeight(item.resolution),
+        height:
+          parseResolutionHeight(item.resolution) ||
+          inferHeightFromBitrate(item.bandwidth),
       }))
       .filter((item) => item.height > 0);
 

@@ -35,6 +35,7 @@ import {
   MAX_QUALITY_HEIGHT,
   pickHighestLevelIndex,
   pickLevelIndex,
+  resolveLevelHeight,
   savePreferredQualityHeight,
 } from '@/lib/hls-quality';
 import {
@@ -50,6 +51,7 @@ import {
   loadCacheSettings,
   resetSegmentProbe,
   saveCacheSettings,
+  UNLIMITED_HORIZON_SECONDS,
 } from '@/lib/video-cache';
 import {
   getNextEpisodePrefetcher,
@@ -81,14 +83,6 @@ declare global {
 }
 
 /**
- * 暂停期间预取窗口的放大倍数。
- *
- * 播放中预取需要给当前播放让带宽，窗口取保守值（默认 10 分钟）；
- * 暂停后带宽完全空闲，把前向视野放大到 3 倍，让"暂停也继续缓存后面"更有价值。
- */
-const PAUSED_HORIZON_MULTIPLIER = 3;
-
-/**
  * 同一集内最多自动换源次数（P1-5）。
  *
  * 换满仍未成功就停下来提示用户手动选源：如果所有源都挂了，
@@ -108,9 +102,9 @@ const DANMAKU_SETTING_NAME = '弹幕源';
 /**
  * 下一集预热的覆盖时长（秒）。
  *
- * 比当前集的 `horizonSeconds` 保守：预热只是为了"切过去不卡"，
- * 没必要把整集都拉下来。用户真的切过去之后，当前集预取器会接管，
- * 按正常视野继续往后铺。
+ * 这是唯一还保留时间上限的地方：预热只是为了"切过去不卡"，没必要把整集
+ * 都拉下来。当前集的预取已改为不设上限（缓存到片尾）；用户真切过去之后，
+ * 当前集预取器会接管，按无限视野继续往后铺。
  */
 const NEXT_EPISODE_HORIZON_SECONDS = 420;
 
@@ -2053,6 +2047,19 @@ export function usePlayEngine() {
                   ? `自动${level ? ` · ${describeLevel(level)}` : ''}`
                   : describeLevel(level)
               );
+
+              // 暂停状态下切换档位时，浏览器不会自动重绘新解码的帧，
+              // 画面会停在旧档位，用户容易误判成"切了没反应"。
+              // 用一次 10ms 的微 seek 强制刷新——偏移落在同一分片内，
+              // 不会触发重新加载。
+              const media = artPlayerRef.current?.video;
+              if (media?.paused && media.currentTime > 0.05) {
+                try {
+                  media.currentTime = media.currentTime - 0.01;
+                } catch {
+                  // 忽略：极端情况下媒体尚未就绪
+                }
+              }
             });
 
             // 分片加载成功（含命中本项目的片段缓存）即视为链路仍在推进
@@ -2244,7 +2251,10 @@ export function usePlayEngine() {
                 }
               } else if (!isAuto && levels[value]) {
                 nextLevel = value;
-                preferred = levels[value].height ?? null;
+                // 记的是「有效高度」：源站 master 常缺 RESOLUTION，
+                // 那时只能按码率推断。用 `level.height` 会让偏好退化成
+                // "自动"，连带把预取档位与跨集记忆一起弄丢。
+                preferred = resolveLevelHeight(levels[value]) || null;
               }
 
               try {
@@ -2386,13 +2396,14 @@ export function usePlayEngine() {
         // 暂停是预缓存的"黄金窗口"：播放不再抢带宽，缓存应当全速继续。
         // 1) 解除 stall 让路。否则若用户正好在卡顿时按暂停，video:playing
         //    永远不会再触发，预取会被永久挂起——恰好违背"暂停也继续缓存"。
-        // 2) 刷新一次窗口，并把前向视野放大到 3 倍，暂停越久缓存越靠前。
+        // 2) 明确要求"不设时间上限"：把整集剩余分片全部排进队列，暂停越久
+        //    缓存铺得越远；字节上限与 LRU 淘汰才是这条路的兜底。
+        //    走 ensurePrefetchCurrent 而不是闭包里的 videoUrl——播放器跨集复用，
+        //    闭包里的地址可能是上一集的。
         prefetcherRef.current.setThrottled(false);
-        const pausedSettings = loadCacheSettings();
-        ensurePrefetch(
-          videoUrl,
+        ensurePrefetchCurrent(
           artPlayerRef.current.currentTime || 0,
-          pausedSettings.horizonSeconds * PAUSED_HORIZON_MULTIPLIER
+          UNLIMITED_HORIZON_SECONDS
         );
       });
 

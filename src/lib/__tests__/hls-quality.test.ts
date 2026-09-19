@@ -1,10 +1,13 @@
 /**
- * 「画质档位」纯逻辑回归测试（P1-6 / P1-7）。
+ * 「画质档位」纯逻辑回归测试（P1-6 / P1-9）。
  *
- * 覆盖三个容易回归的点：
- *  1. 标准分辨率命名（含 8K / 4K / 2K，以及 1078 → 1080P 的归并）
- *  2. 「最高画质」哨兵（MAX_QUALITY_HEIGHT）在不同码率视频里都落到该视频最高档
- *  3. selector 选项的**展示顺序**（高度降序）与**value 仍是原始下标**
+ * 重点覆盖：
+ *  1. 标准分辨率名（8K / 4K / 2K，以及 1078 → 1080P 的归并）
+ *  2. **源站 master 缺 RESOLUTION 时按码率推断档位**——P1-9 修的就是这条：
+ *     不推断的话菜单会退化成「档位 1」，记忆与预取联动会一起失效
+ *  3. 画质档位中文名 + 分辨率的两段式文案（`高清 1080P`）
+ *  4. 「最高画质」哨兵在不同码率视频里都落到该视频最高档
+ *  5. selector 选项的**展示顺序**（高度降序）与**value 仍是原始下标**
  */
 
 import {
@@ -12,11 +15,15 @@ import {
   buildQualityOptions,
   describeQualityPreference,
   formatLevelLabel,
+  formatQualityLabel,
   formatResolutionName,
+  inferHeightFromBitrate,
   MAX_LEVEL,
   MAX_QUALITY_HEIGHT,
   pickHighestLevelIndex,
   pickLevelIndex,
+  qualityTierOf,
+  resolveLevelHeight,
 } from '../hls-quality';
 
 const LADDER = [
@@ -50,6 +57,68 @@ describe('formatResolutionName', () => {
   });
 });
 
+describe('qualityTierOf', () => {
+  it('按画面高度给出画质档位中文名', () => {
+    expect(qualityTierOf(2160)).toBe('超高清');
+    expect(qualityTierOf(4320)).toBe('超高清');
+    expect(qualityTierOf(1080)).toBe('高清');
+    expect(qualityTierOf(720)).toBe('准高清');
+    expect(qualityTierOf(480)).toBe('标清');
+    expect(qualityTierOf(360)).toBe('流畅');
+    expect(qualityTierOf(240)).toBe('省流');
+  });
+
+  it('比最低档还低的给兜底名，非法值返回空串', () => {
+    expect(qualityTierOf(144)).toBe('极速');
+    expect(qualityTierOf(0)).toBe('');
+  });
+});
+
+describe('inferHeightFromBitrate', () => {
+  it('按码率阶梯推断画面高度', () => {
+    expect(inferHeightFromBitrate(5_200_000)).toBe(1080);
+    expect(inferHeightFromBitrate(2_400_000)).toBe(720);
+    expect(inferHeightFromBitrate(1_100_000)).toBe(480);
+    expect(inferHeightFromBitrate(700_000)).toBe(360);
+    expect(inferHeightFromBitrate(300_000)).toBe(240);
+  });
+
+  it('极低码率给最低推断档，无码率信息返回 0', () => {
+    expect(inferHeightFromBitrate(120_000)).toBe(144);
+    expect(inferHeightFromBitrate(0)).toBe(0);
+    expect(inferHeightFromBitrate(null)).toBe(0);
+    expect(inferHeightFromBitrate(Number.NaN)).toBe(0);
+  });
+});
+
+describe('resolveLevelHeight', () => {
+  it('优先用真实 height', () => {
+    expect(resolveLevelHeight({ height: 1080, bitrate: 900_000 })).toBe(1080);
+  });
+
+  it('height 缺失时按码率推断（源站只给 BANDWIDTH 的场景）', () => {
+    expect(resolveLevelHeight({ bitrate: 5_200_000 })).toBe(1080);
+    expect(resolveLevelHeight({ bitrate: 1_100_000 })).toBe(480);
+    expect(resolveLevelHeight({ height: 0, bitrate: 2_400_000 })).toBe(720);
+  });
+
+  it('两条路径都拿不到时返回 0', () => {
+    expect(resolveLevelHeight({})).toBe(0);
+    expect(resolveLevelHeight(null)).toBe(0);
+  });
+});
+
+describe('formatQualityLabel', () => {
+  it('输出「档位 分辨率」两段式文案', () => {
+    expect(formatQualityLabel(2160)).toBe('超高清 4K');
+    expect(formatQualityLabel(1080)).toBe('高清 1080P');
+    expect(formatQualityLabel(720)).toBe('准高清 720P');
+    expect(formatQualityLabel(480)).toBe('标清 480P');
+    expect(formatQualityLabel(360)).toBe('流畅 360P');
+    expect(formatQualityLabel(0)).toBe('');
+  });
+});
+
 describe('pickHighestLevelIndex', () => {
   it('取画面最高的档位', () => {
     expect(pickHighestLevelIndex(LADDER)).toBe(0);
@@ -64,9 +133,15 @@ describe('pickHighestLevelIndex', () => {
     expect(pickHighestLevelIndex(levels)).toBe(1);
   });
 
-  it('完全没有分辨率信息时回退自动', () => {
+  it('源站只给带宽时也能按码率推断出最高档', () => {
+    expect(
+      pickHighestLevelIndex([{ bitrate: 1_100_000 }, { bitrate: 5_200_000 }])
+    ).toBe(1);
+  });
+
+  it('完全没有分辨率也没有码率信息时回退自动', () => {
     expect(pickHighestLevelIndex([])).toBe(AUTO_LEVEL);
-    expect(pickHighestLevelIndex([{ bitrate: 800_000 }])).toBe(AUTO_LEVEL);
+    expect(pickHighestLevelIndex([{ bitrate: 0 }])).toBe(AUTO_LEVEL);
   });
 });
 
@@ -106,6 +181,24 @@ describe('buildQualityOptions', () => {
     ]);
     expect(options[0].html).toBe('自动');
     expect(options[1].html).toBe('最高画质 (1080P)');
+    expect(options[2].html).toBe('高清 1080P');
+  });
+
+  it('源站 master 缺 RESOLUTION 时菜单仍有可读的档位名（P1-9）', () => {
+    const bitrateOnly = [
+      { bitrate: 5_200_000 },
+      { bitrate: 2_400_000 },
+      { bitrate: 1_100_000 },
+    ];
+    const options = buildQualityOptions(bitrateOnly, null);
+
+    expect(options.map((item) => item.html)).toEqual([
+      '自动',
+      '最高画质 (1080P)',
+      '高清 1080P',
+      '准高清 720P',
+      '标清 480P',
+    ]);
   });
 
   it('value 始终是原始 levels 下标，排序只影响展示顺序', () => {
@@ -119,9 +212,9 @@ describe('buildQualityOptions', () => {
     const levelOptions = options.filter((item) => item.value >= 0);
 
     expect(levelOptions.map((item) => item.html)).toEqual([
-      '1080P',
-      '720P',
-      '360P',
+      '高清 1080P',
+      '准高清 720P',
+      '流畅 360P',
     ]);
     // 1080P 的 value 必须是它在原数组里的下标 1
     expect(levelOptions[0].value).toBe(1);
@@ -159,17 +252,20 @@ describe('formatLevelLabel', () => {
       { height: 1080, bitrate: 3_000_000 },
       { height: 1080, bitrate: 6_000_000 },
     ];
-    expect(formatLevelLabel(levels[0], 0, levels)).toBe('1080P · 3000kbps');
-    expect(formatLevelLabel(levels[1], 1, levels)).toBe('1080P · 6000kbps');
+    expect(formatLevelLabel(levels[0], 0, levels)).toBe('高清 1080P · 3.0Mbps');
+    expect(formatLevelLabel(levels[1], 1, levels)).toBe('高清 1080P · 6.0Mbps');
   });
 
-  it('唯一档位只显示分辨率名', () => {
-    expect(formatLevelLabel(LADDER[0], 0, LADDER)).toBe('1080P');
+  it('唯一档位只显示「档位 + 分辨率」', () => {
+    expect(formatLevelLabel(LADDER[0], 0, LADDER)).toBe('高清 1080P');
   });
 
-  it('无高度信息时回落 name / 码率 / 序号', () => {
+  it('只有码率的档位靠推断命名，而不是显示「档位 N」', () => {
+    expect(formatLevelLabel({ bitrate: 1_100_000 }, 0, [])).toBe('标清 480P');
+  });
+
+  it('连码率都没有时才回落 name / 序号', () => {
     expect(formatLevelLabel({ name: 'hd' }, 0, [])).toBe('hd');
-    expect(formatLevelLabel({ bitrate: 900_000 }, 1, [])).toBe('900kbps');
     expect(formatLevelLabel({}, 2, [])).toBe('档位 3');
   });
 });
@@ -180,7 +276,9 @@ describe('describeQualityPreference', () => {
     expect(describeQualityPreference(LADDER, MAX_QUALITY_HEIGHT)).toBe(
       '最高画质 (1080P)'
     );
-    expect(describeQualityPreference(LADDER, 720)).toBe('720P · 2800kbps');
+    expect(describeQualityPreference(LADDER, 720)).toBe(
+      '准高清 720P · 2.8Mbps'
+    );
   });
 
   it('levels 为空时不抛异常', () => {

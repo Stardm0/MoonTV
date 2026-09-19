@@ -17,6 +17,18 @@
 import { getAuthInfoFromBrowserCookie } from './auth';
 import { Following, SkipConfig, TodayUpdatedRecord } from './types';
 
+/**
+ * 后台静默同步失败的上报。
+ *
+ * 这类失败发生在"缓存优先"的读取路径上：调用方已经拿到本地缓存数据，页面功能
+ * 完全正常，用户也没有可做的动作。此前这里会弹全局红字，而红字提示不会自动消失
+ * ——进入播放页时追更/收藏的后台刷新一旦失败，就会一直挂着一条红色错误条。
+ * 改为只写控制台，避免非致命的后台同步失败干扰观看。
+ */
+function reportBackgroundSyncFailure(label: string, err: unknown) {
+  console.warn(`后台同步${label}失败:`, err);
+}
+
 // 全局错误触发函数
 function triggerGlobalError(message: string) {
   if (typeof window !== 'undefined') {
@@ -596,8 +608,7 @@ export async function getAllPlayRecords(): Promise<Record<string, PlayRecord>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步播放记录失败:', err);
-          triggerGlobalError('后台同步播放记录失败');
+          reportBackgroundSyncFailure('播放记录', err);
         });
 
       return cachedData;
@@ -805,8 +816,7 @@ export async function getSearchHistory(): Promise<string[]> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步搜索历史失败:', err);
-          triggerGlobalError('后台同步搜索历史失败');
+          reportBackgroundSyncFailure('搜索历史', err);
         });
 
       return cachedData;
@@ -1026,8 +1036,7 @@ export async function getAllFavorites(): Promise<Record<string, Favorite>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步收藏失败:', err);
-          triggerGlobalError('后台同步收藏失败');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return cachedData;
@@ -1089,8 +1098,7 @@ export async function getAllFollowings(
             }
           })
           .catch((err) => {
-            console.warn('后台同步追更失败:', err);
-            triggerGlobalError('后台同步追更失败');
+            reportBackgroundSyncFailure('追更', err);
           });
         return cachedData;
       }
@@ -1120,8 +1128,7 @@ export async function getAllFollowings(
           }
         })
         .catch((err) => {
-          console.warn('后台同步追更失败:', err);
-          triggerGlobalError('后台同步追更失败');
+          reportBackgroundSyncFailure('追更', err);
         });
 
       return cachedData;
@@ -1597,8 +1604,7 @@ export async function isFavorited(
           }
         })
         .catch((err) => {
-          console.warn('后台同步收藏失败:', err);
-          triggerGlobalError('后台同步收藏失败');
+          reportBackgroundSyncFailure('收藏', err);
         });
 
       return !!cachedFavorites[key];
@@ -2051,8 +2057,7 @@ export async function getAllSkipConfigs(): Promise<Record<string, SkipConfig>> {
           }
         })
         .catch((err) => {
-          console.warn('后台同步跳过片头片尾配置失败:', err);
-          triggerGlobalError('后台同步跳过片头片尾配置失败');
+          reportBackgroundSyncFailure('跳过片头片尾配置', err);
         });
 
       return cachedData;

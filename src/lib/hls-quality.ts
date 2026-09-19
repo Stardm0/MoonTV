@@ -1,12 +1,15 @@
 /**
  * hls.js 码率档位 → ArtPlayer「画质」设置项（P1-6）。
  *
- * 之前的实现只把 hls.js 的 `levels` 用于**优选打分**（`getVideoResolutionFromM3u8`），
- * 播放过程中没有任何画质切换入口。本模块把 levels 转换成 ArtPlayer
- * `settings` 的 selector 选项，并提供"按高度记忆"的持久化：
+ * 有两个现实约束决定了这个模块的写法：
  *
- * 记住的是**画面高度**而不是 level 下标，因为同一部剧换集/换源后
- * 档位数量和顺序都会变，记住下标会指向错误的档位。
+ * 1. **很多源站的 master playlist 只给 `BANDWIDTH`，不给 `RESOLUTION`。**
+ *    这时 hls.js 的 `level.height` 是 `undefined`，任何"按分辨率命名"的实现
+ *    都会退化成「档位 1 / 档位 2」，而且记忆与预取联动会整条失效。
+ *    因此这里在 height 缺失时**按码率推断高度**（`inferHeightFromBitrate`），
+ *    保证菜单、记忆、预取三者始终有可用的档位标识。
+ * 2. **记忆的是"画面高度"而不是 level 下标**，因为同一部剧换集/换源后
+ *    档位数量和顺序都会变，记住下标会指向错误的档位。
  */
 
 /** `hls.currentLevel = -1` 表示自动（ABR） */
@@ -44,6 +47,42 @@ const RESOLUTION_LADDER: ReadonlyArray<{ height: number; label: string }> = [
 ];
 
 /**
+ * 画质档位中文名（降序）。
+ * 命名对齐主流视频 App：超高清 / 高清 / 准高清 / 标清 / 流畅 / 省流。
+ */
+const QUALITY_TIERS: ReadonlyArray<{ minHeight: number; label: string }> = [
+  { minHeight: 2160, label: '超高清' },
+  { minHeight: 1080, label: '高清' },
+  { minHeight: 720, label: '准高清' },
+  { minHeight: 480, label: '标清' },
+  { minHeight: 360, label: '流畅' },
+  { minHeight: 240, label: '省流' },
+];
+
+/** 给不出高度信息时的兜底档位名 */
+const LOWEST_TIER = '极速';
+
+/**
+ * 码率阶梯（bps → 推断画面高度），降序。
+ *
+ * 只在 master playlist 缺 `RESOLUTION` 时使用。取值参考常见源站的编码档位，
+ * 宁可能粗一点也不要用「档位 3」这种没人能理解的文案。
+ */
+const BITRATE_LADDER: ReadonlyArray<{ minBps: number; height: number }> = [
+  { minBps: 30000000, height: 4320 },
+  { minBps: 14000000, height: 2160 },
+  { minBps: 8000000, height: 1440 },
+  { minBps: 4000000, height: 1080 },
+  { minBps: 2000000, height: 720 },
+  { minBps: 1000000, height: 480 },
+  { minBps: 500000, height: 360 },
+  { minBps: 250000, height: 240 },
+];
+
+/** 低于最低码率阶梯时的推断高度 */
+const LOWEST_INFERRED_HEIGHT = 144;
+
+/**
  * 画面高度 → 标准分辨率名。
  *
  * 允许 5% 的向下偏差，把源站常见的非标准高度归并到最近的上一档
@@ -56,6 +95,31 @@ export function formatResolutionName(height: number): string {
     (item) => height >= item.height * 0.95
   );
   return matched ? matched.label : `${Math.round(height)}P`;
+}
+
+/** 画面高度 → 画质档位中文名（如 `高清`）；无有效高度时返回空串 */
+export function qualityTierOf(height: number): string {
+  if (!Number.isFinite(height) || height <= 0) return '';
+  const matched = QUALITY_TIERS.find((item) => height >= item.minHeight * 0.95);
+  return matched ? matched.label : LOWEST_TIER;
+}
+
+/**
+ * 码率（bps）→ 推断的画面高度；无码率信息时返回 0。
+ *
+ * 源站 master 缺 `RESOLUTION` 时的唯一线索。注意它只是**展示与匹配用的
+ * 近似值**，不参与任何实际的解码/渲染决策。
+ */
+export function inferHeightFromBitrate(bitrate?: number | null): number {
+  if (
+    typeof bitrate !== 'number' ||
+    !Number.isFinite(bitrate) ||
+    bitrate <= 0
+  ) {
+    return 0;
+  }
+  const matched = BITRATE_LADDER.find((item) => bitrate >= item.minBps);
+  return matched ? matched.height : LOWEST_INFERRED_HEIGHT;
 }
 
 export interface HlsLevelLike {
@@ -111,32 +175,64 @@ function heightOf(level: HlsLevelLike | undefined | null): number {
 }
 
 /**
+ * 取一个档位的"有效画面高度"。
+ *
+ * 优先用 hls.js 解析出的真实 `height`；缺失时按码率推断——源站 master
+ * 只写 `BANDWIDTH` 时，这是唯一能区分 480P / 1080P 的线索。
+ * 两条路径都拿不到就返回 0，由调用方决定怎么兜底。
+ */
+export function resolveLevelHeight(level?: HlsLevelLike | null): number {
+  const height = heightOf(level);
+  if (height > 0) return height;
+  return inferHeightFromBitrate(level?.bitrate);
+}
+
+/** `{档位} {分辨率}`，如 `高清 1080P`；信息不足时逐级退化 */
+export function formatQualityLabel(height: number): string {
+  const name = formatResolutionName(height);
+  const tier = qualityTierOf(height);
+  if (tier && name) return `${tier} ${name}`;
+  return name || tier;
+}
+
+/** 码率 → 短文案（`5.0Mbps` / `800kbps`）；无值时返回空串 */
+function formatBitrate(bitrate?: number | null): string {
+  if (
+    typeof bitrate !== 'number' ||
+    !Number.isFinite(bitrate) ||
+    bitrate <= 0
+  ) {
+    return '';
+  }
+  if (bitrate >= 1000000) return `${(bitrate / 1000000).toFixed(1)}Mbps`;
+  return `${Math.round(bitrate / 1000)}kbps`;
+}
+
+/**
  * 为每个档位生成展示文案。
  *
- * 统一用标准分辨率名（`1080P` / `720P` / `4K` / `8K`）而不是 `1280x720`
- * 或裸高度；同高度多档（同分辨率不同码率）时补上码率以便区分。
+ * 形如 `高清 1080P`（源站给了分辨率）或 `标清 480P`（按码率推断）。
+ * 同高度多档（同分辨率不同码率）时补上码率以便区分——否则会出现两个
+ * 一模一样的选项，用户无从选择。
  */
 export function formatLevelLabel(
   level: HlsLevelLike,
   index: number,
   levels: HlsLevelLike[]
 ): string {
-  const height = heightOf(level);
-  const name = formatResolutionName(height);
+  const height = resolveLevelHeight(level);
+  const label = formatQualityLabel(height);
   const duplicated =
-    height > 0 && levels.filter((item) => heightOf(item) === height).length > 1;
+    height > 0 &&
+    levels.filter((item) => resolveLevelHeight(item) === height).length > 1;
 
-  const kbps =
-    typeof level.bitrate === 'number' && level.bitrate > 0
-      ? Math.round(level.bitrate / 1000)
-      : 0;
-
-  if (name) {
-    return duplicated && kbps > 0 ? `${name} · ${kbps}kbps` : name;
+  if (label) {
+    const bitrate = formatBitrate(level.bitrate);
+    return duplicated && bitrate ? `${label} · ${bitrate}` : label;
   }
   if (level.name) return level.name;
-  if (kbps > 0) return `${kbps}kbps`;
-  return `档位 ${index + 1}`;
+  const bitrate = formatBitrate(level.bitrate);
+  return bitrate || `档位 ${index + 1}`;
 }
 
 /** 档位排序权重：高度优先，同高度按码率 */
@@ -144,7 +240,7 @@ function compareLevels(
   a: { level: HlsLevelLike },
   b: { level: HlsLevelLike }
 ): number {
-  const diff = heightOf(b.level) - heightOf(a.level);
+  const diff = resolveLevelHeight(b.level) - resolveLevelHeight(a.level);
   if (diff !== 0) return diff;
   return (b.level.bitrate ?? 0) - (a.level.bitrate ?? 0);
 }
@@ -158,7 +254,7 @@ export function pickHighestLevelIndex(levels: HlsLevelLike[]): number {
 
   const candidates = levels
     .map((level, index) => ({ level, index }))
-    .filter((item) => heightOf(item.level) > 0);
+    .filter((item) => resolveLevelHeight(item.level) > 0);
 
   if (candidates.length === 0) return AUTO_LEVEL;
 
@@ -171,7 +267,7 @@ export function pickHighestLevelIndex(levels: HlsLevelLike[]): number {
  * 选出与目标高度最匹配的 level 下标。
  *
  * 匹配顺序：同高度 → 更高档位中最低的那个 → 更低档位中最高的那个。
- * 返回 -1 表示无可选项（levels 为空或完全没有分辨率信息）。
+ * 返回 -1 表示无可选项（levels 为空或完全没有分辨率/码率信息）。
  *
  * 传入 `MAX_QUALITY_HEIGHT`(4320) 时会走"没有更高档"这一支，
  * 于是落到**本视频最高的那一档**，即「最高画质」的语义。
@@ -186,7 +282,7 @@ export function pickLevelIndex(
   }
 
   const candidates = levels
-    .map((level, index) => ({ index, height: heightOf(level) }))
+    .map((level, index) => ({ index, height: resolveLevelHeight(level) }))
     .filter((item) => item.height > 0);
 
   if (candidates.length === 0) return AUTO_LEVEL;
@@ -243,7 +339,7 @@ export function buildQualityOptions(
   const highestName =
     highestIndex === AUTO_LEVEL
       ? ''
-      : formatResolutionName(heightOf(levels[highestIndex]));
+      : formatResolutionName(resolveLevelHeight(levels[highestIndex]));
 
   const options: QualityOption[] = [
     { html: '自动', value: AUTO_LEVEL, default: isAuto },
@@ -272,15 +368,12 @@ export function buildQualityOptions(
 /** 单档位的简短描述（恒带码率），用于设置项 tooltip */
 export function describeLevel(level: HlsLevelLike | undefined | null): string {
   if (!level) return '自动';
-  const name = formatResolutionName(heightOf(level));
-  const kbps =
-    typeof level.bitrate === 'number' && level.bitrate > 0
-      ? Math.round(level.bitrate / 1000)
-      : 0;
-  if (name && kbps > 0) return `${name} · ${kbps}kbps`;
-  if (name) return name;
-  if (kbps > 0) return `${kbps}kbps`;
+  const label = formatQualityLabel(resolveLevelHeight(level));
+  const bitrate = formatBitrate(level.bitrate);
+  if (label && bitrate) return `${label} · ${bitrate}`;
+  if (label) return label;
   if (level.name) return level.name;
+  if (bitrate) return bitrate;
   return '自动';
 }
 
@@ -300,7 +393,10 @@ export function describeQualityPreference(
   const index = pickLevelIndex(levels, preferredHeight);
 
   if (preferredHeight === MAX_QUALITY_HEIGHT) {
-    const name = index === AUTO_LEVEL ? '' : formatResolutionName(heightOf(levels[index]));
+    const name =
+      index === AUTO_LEVEL
+        ? ''
+        : formatResolutionName(resolveLevelHeight(levels[index]));
     return name ? `最高画质 (${name})` : '最高画质';
   }
 

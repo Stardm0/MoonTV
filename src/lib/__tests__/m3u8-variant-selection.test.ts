@@ -85,7 +85,7 @@ describe('主播放列表选档（P1-6 × 片段预缓存）', () => {
     ]);
   });
 
-  it('主播放列表没有 RESOLUTION 时退化为最高带宽', async () => {
+  it('主播放列表没有 RESOLUTION 时按带宽推断高度选档', async () => {
     (global as any).fetch = jest.fn(async (input: any) => {
       const url = String(input);
       const body = url.endsWith('master.m3u8')
@@ -99,9 +99,18 @@ describe('主播放列表选档（P1-6 × 片段预缓存）', () => {
         : MEDIA('x');
       return { ok: true, text: async () => body };
     });
-    const task = await parseM3U8('http://cdn.test/master.m3u8', 0, {
+
+    // 5200000bps → 推断 1080；1100000bps → 推断 480。
+    // 这条与播放侧 resolveLevelHeight 共用同一套阶梯，两边必须一致，
+    // 否则预取的档位和用户选中的档位会错开。
+    const sd = await parseM3U8('http://cdn.test/master.m3u8', 0, {
       height: 480,
     });
-    expect(task.url).toBe('http://cdn.test/v1080/index.m3u8');
+    expect(sd.url).toBe('http://cdn.test/v480/index.m3u8');
+
+    const hd = await parseM3U8('http://cdn.test/master.m3u8', 0, {
+      height: 1080,
+    });
+    expect(hd.url).toBe('http://cdn.test/v1080/index.m3u8');
   });
 });
