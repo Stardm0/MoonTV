@@ -309,9 +309,10 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
     endSegment: number;
     streamMode: StreamSaverMode;
     maxRetries: number;
-    parsedTask: M3U8Task;
+    parsedTask?: M3U8Task; // 批量下载时其他集没有预解析数据，由本函数异步解析
   }) => {
-    const taskId = Date.now().toString();
+    // 批量添加时多任务同毫秒创建，追加随机后缀防止 id 撞车
+    const taskId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const controller = new AbortController();
     const pauseResumeController = new PauseResumeController();
     const completeStreamRef = { current: null as (() => Promise<void>) | null };
@@ -324,7 +325,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
       status: 'downloading',
       progress: 0,
       current: 0,
-      total: config.parsedTask.tsUrlList.length,
+      total: config.parsedTask?.tsUrlList.length ?? 0,
       config: {
         downloadType: config.downloadType,
         concurrency: config.concurrency,
@@ -346,20 +347,57 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
 
     // 使用 setTimeout 确保 state 更新后再开始下载
     setTimeout(() => {
-      executeDownload(
-        taskId,
-        config.parsedTask,
-        controller,
-        pauseResumeController,
-        config.downloadType,
-        config.concurrency,
-        config.rangeMode,
-        config.startSegment,
-        config.endSegment,
-        config.streamMode,
-        config.maxRetries || 3,
-        completeStreamRef
-      );
+      const start = (parsed: M3U8Task) => {
+        executeDownload(
+          taskId,
+          parsed,
+          controller,
+          pauseResumeController,
+          config.downloadType,
+          config.concurrency,
+          config.rangeMode,
+          config.startSegment,
+          config.endSegment,
+          config.streamMode,
+          config.maxRetries || 3,
+          completeStreamRef
+        );
+      };
+
+      if (config.parsedTask) {
+        start(config.parsedTask);
+        return;
+      }
+
+      // 批量下载：该集没有预解析数据，先解析再下载
+      parseM3U8(config.url)
+        .then(parsed => {
+          parsed.title = config.title;
+          parsed.type = config.downloadType;
+          // 回写解析结果，供暂停恢复 / 重试 / 片段查看使用
+          setTasks(prev => prev.map(t =>
+            t.id === taskId
+              ? {
+                  ...t,
+                  parsedTask: parsed,
+                  total: parsed.tsUrlList.length,
+                  config: t.config
+                    ? { ...t.config, parsedTask: parsed }
+                    : undefined,
+                }
+              : t
+          ));
+          start(parsed);
+        })
+        .catch(err => {
+          // eslint-disable-next-line no-console
+          console.error(`任务「${config.title}」解析失败:`, err);
+          setTasks(prev => prev.map(t =>
+            t.id === taskId
+              ? { ...t, status: 'error' as const, abortController: undefined }
+              : t
+          ));
+        });
     }, 0);
   }, [executeDownload]);
 

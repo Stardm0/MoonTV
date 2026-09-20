@@ -225,6 +225,12 @@ export default function PlayClient() {
           setShowAddDownload(false);
         }}
         initialUrl={videoUrl || ''}
+        episodes={(detail?.episodes || []).map((url, i) => ({
+          url,
+          title: `${videoTitle}_${detail?.episodes_titles?.[i] || `第${i + 1}集`}`,
+          label: detail?.episodes_titles?.[i] || `第${i + 1}集`,
+        }))}
+        currentEpisodeIndex={currentEpisodeIndex}
         initialTitle={`${videoTitle}${
           totalEpisodes > 1
             ? `_${detail?.episodes_titles?.[currentEpisodeIndex] || `第${currentEpisodeIndex + 1}集`}`

@@ -436,7 +436,9 @@ export async function downloadTsSegmentConcurrent(
   url: string,
   signal?: AbortSignal
 ): Promise<ArrayBuffer> {
-  // 1) 探测文件大小（Range 0-0 兼容性最好；不支持 Range 的源返回 200）
+  // 1) 探测文件大小。注意：不支持 Range 的源会忽略请求头、返回 200 + 完整文件，
+  //    此时 probe 本身就是完整片段，必须直接返回——否则会白白下载一遍再整段重下，
+  //    等于每个片段下载两遍（曾导致下载速度直接减半）。
   let totalSize = 0;
   try {
     const probe = await fetch(url, { signal, headers: { Range: 'bytes=0-0' } });
@@ -444,9 +446,12 @@ export async function downloadTsSegmentConcurrent(
       const cr = probe.headers.get('Content-Range');
       const m = cr?.match(/\/(\d+)$/);
       if (m) totalSize = parseInt(m[1], 10);
+      // 消费探测响应 body（1 字节），避免连接泄漏
+      await probe.arrayBuffer().catch(() => undefined);
+    } else if (probe.ok) {
+      // 源站不支持 Range：这个响应就是完整片段，直接用，不再重复下载
+      return await probe.arrayBuffer();
     }
-    // 消费探测响应 body（1 字节），避免连接泄漏
-    await probe.arrayBuffer().catch(() => undefined);
   } catch {
     // 探测失败（含 abort），走整段下载兜底
   }
