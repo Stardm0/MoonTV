@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.2.1",
+    date: "2026-09-20",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "下载提速: 并发从 6 提到 16(上限 32), 大片段改用 Range 分块下载突破单连接限速"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.2.0",
     date: "2026-09-19",
     added: [

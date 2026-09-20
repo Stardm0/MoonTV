@@ -712,7 +712,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
             ...t,
             config: {
               downloadType: t.config?.downloadType || 'TS',
-              concurrency: t.config?.concurrency || 6,
+              concurrency: t.config?.concurrency || 16,
               rangeMode: t.config?.rangeMode || false,
               startSegment: t.config?.startSegment || 1,
               endSegment: t.config?.endSegment || parsedTask.tsUrlList.length,
@@ -1120,7 +1120,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
             isOpen={true}
             onClose={() => setViewingSegmentsTaskId(null)}
             taskExists={() => tasks.some(t => t.id === viewingSegmentsTaskId)}
-            concurrency={task.config?.concurrency || 6}
+            concurrency={task.config?.concurrency || 16}
             streamMode={task.config?.streamMode || 'disabled'}
             onSegmentRetry={(_index) => {
               // 重试成功后更新任务进度

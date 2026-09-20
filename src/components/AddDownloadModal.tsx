@@ -38,7 +38,7 @@ const AddDownloadModal = ({ isOpen, onClose, onAddTask, initialUrl = '', initial
   const [rangeMode, setRangeMode] = useState(false);
   const [startSegment, setStartSegment] = useState(1);
   const [endSegment, setEndSegment] = useState(0);
-  const [concurrency, setConcurrency] = useState(6);
+  const [concurrency, setConcurrency] = useState(16);
   const [maxRetries, setMaxRetries] = useState(3); // 默认重试3次
   const [streamMode, setStreamMode] = useState<StreamSaverMode>('disabled');
   const [editableUrl, setEditableUrl] = useState('');
@@ -69,6 +69,7 @@ const AddDownloadModal = ({ isOpen, onClose, onAddTask, initialUrl = '', initial
           blob: true,
         });
       }).catch(err => {
+        // eslint-disable-next-line no-console
         console.error('Failed to detect stream saver support:', err);
       });
     }
@@ -311,14 +312,14 @@ const AddDownloadModal = ({ isOpen, onClose, onAddTask, initialUrl = '', initial
             <input
               type="range"
               min="1"
-              max="16"
+              max="32"
               value={concurrency}
               onChange={(e) => setConcurrency(parseInt(e.target.value, 10))}
               className="w-full"
             />
             <div className="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
               <span>1 线程</span>
-              <span>16 线程</span>
+              <span>32 线程</span>
             </div>
           </div>
           {/* 重试次数 */}
