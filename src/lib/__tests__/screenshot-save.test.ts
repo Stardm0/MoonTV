@@ -7,6 +7,9 @@
  *
  * 1. **纯函数**（文件名清洗、时间戳、dataURL → Blob）—— 直接断言取值。
  * 2. **防说谎的不变量** —— 断言「拿不到路径时文案里不出现具体路径」。
+ *
+ * 第三类在文件末尾：**目录权限跨会话恢复**，通过假 `indexedDB` 把真句柄
+ * 喂给真实的 `loadDirectoryHandle`，见该 describe 的说明。
  */
 
 import {
@@ -267,6 +270,174 @@ describe('saveScreenshot — 防说谎的不变量', () => {
     const result = await saveScreenshot('garbage', 'shot.png');
     expect(result.mode).toBe('download');
     expect(result.message).toBe('截图数据无效');
+  });
+});
+
+/**
+ * 真实缺陷回归：用户选了保存目录，**刷新页面后截图又跑回浏览器下载文件夹**。
+ *
+ * 根因：File System Access 的目录句柄虽然存得住（IndexedDB），但**权限不跨
+ * 会话保留** —— 刷新后 `queryPermission()` 一律回 `'prompt'`。原实现只
+ * `query` 不 `request`，于是永远判定「没权限」，恒走降级下载，文案也只有
+ * 「已保存到浏览器下载文件夹」，用户据此认为「设置没生效」。
+ *
+ * 修法：`query` 不为 `granted` 时补一次 `requestPermission()` —— 截图由点按 /
+ * 快捷键触发，仍在用户手势调用栈里，浏览器允许弹窗。
+ *
+ * ## 为什么用假 `indexedDB` 而不是 `jest.mock` 模块
+ *
+ * `saveScreenshot` 与 `loadDirectoryHandle` 在**同一个模块内**，前者调用后者
+ * 走的是模块作用域绑定，**不经过导出对象**。所以：
+ * - `jest.spyOn(mod, 'loadDirectoryHandle')` → ESM 导出不可配置，直接报错；
+ * - `jest.mock` + `requireActual` 展开 → 顶部 import 拿到的确实是桩，
+ *   但 `saveScreenshot` 内部仍绑着真实现（实测：直接调 `loadDirectoryHandle`
+ *   命中桩，`saveScreenshot` 内部的调用不命中）。
+ *
+ * 所以这里换个层次：给全局装一个**假 `indexedDB`**，让真实的
+ * `loadDirectoryHandle()` 读出一个带权限方法的假句柄。这样整条链路
+ * （`saveScreenshot` → `loadDirectoryHandle` → `queryPermission` →
+ * `requestPermission` → 写入）都是真代码在跑，只有浏览器 API 是假的 ——
+ * 比打模块桩更接近真机，也是更有效的回归防线。
+ */
+describe('saveScreenshot — 目录权限跨会话恢复', () => {
+  const dataUrl = 'data:image/png;base64,aGk=';
+
+  type HandleSpy = DirectoryHandleLike & {
+    queryPermission: jest.Mock;
+    requestPermission: jest.Mock;
+    getFileHandle: jest.Mock;
+  };
+
+  /** 假句柄：记录 query/request 调用次数，并决定写入是否成功。 */
+  function makeHandle(options: {
+    query: string;
+    request?: string;
+    writeOk?: boolean;
+  }): HandleSpy {
+    return {
+      name: 'Shots',
+      queryPermission: jest.fn(async () => options.query),
+      requestPermission: jest.fn(async () => options.request ?? 'granted'),
+      getFileHandle: jest.fn(async () =>
+        options.writeOk === false
+          ? null
+          : {
+              createWritable: async () => ({
+                write: async () => undefined,
+                close: async () => undefined,
+              }),
+            }
+      ),
+    } as unknown as HandleSpy;
+  }
+
+  /** 把 `handle` 装进假 IndexedDB，供真实的 `loadDirectoryHandle()` 读出。 */
+  function installFakeIndexedDB(handle: DirectoryHandleLike | null): void {
+    const store = new Map<string, unknown>();
+    if (handle) store.set('screenshot-dir', handle);
+
+    const fakeDb = {
+      objectStoreNames: { contains: () => true },
+      createObjectStore: () => undefined,
+      transaction: () => {
+        const tx = {
+          objectStore: () => ({
+            get: () => {
+              const req: Record<string, unknown> = {};
+              // 异步回调：真实 IDB 不走同步栈，保持一致
+              setTimeout(() => {
+                req.result = store.get('screenshot-dir') ?? null;
+                (req.onsuccess as (() => void) | undefined)?.();
+              }, 0);
+              return req;
+            },
+            put: () => undefined,
+            delete: () => undefined,
+          }),
+          oncomplete: null as null | (() => void),
+          onerror: null as null | (() => void),
+          onabort: null as null | (() => void),
+        };
+        setTimeout(() => tx.oncomplete?.(), 0);
+        return tx;
+      },
+    };
+
+    (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
+      open: () => {
+        const req: Record<string, unknown> = {};
+        setTimeout(() => {
+          req.result = fakeDb;
+          (req.onsuccess as (() => void) | undefined)?.();
+        }, 0);
+        return req;
+      },
+    };
+  }
+
+  afterEach(() => {
+    delete (globalThis as unknown as { indexedDB?: unknown }).indexedDB;
+  });
+
+  it('权限为 prompt 时主动申请，申请通过后写进所选目录', async () => {
+    const handle = makeHandle({ query: 'prompt', request: 'granted' });
+    installFakeIndexedDB(handle);
+
+    const result = await saveScreenshot(dataUrl, 'shot.png');
+
+    expect(handle.queryPermission).toHaveBeenCalledTimes(1);
+    expect(handle.requestPermission).toHaveBeenCalledTimes(1);
+    expect(result.mode).toBe('directory');
+    expect(result.directoryName).toBe('Shots');
+    expect(result.message).toContain('已截图');
+    expect(result.message).toContain('Shots');
+  });
+
+  it('权限已是 granted 时不再打扰用户（不弹窗）', async () => {
+    const handle = makeHandle({ query: 'granted' });
+    installFakeIndexedDB(handle);
+
+    const result = await saveScreenshot(dataUrl, 'shot.png');
+
+    expect(handle.requestPermission).not.toHaveBeenCalled();
+    expect(result.mode).toBe('directory');
+  });
+
+  it('allowPermissionPrompt=false 时只查询不申请（非手势场景）', async () => {
+    const handle = makeHandle({ query: 'prompt' });
+    installFakeIndexedDB(handle);
+
+    const result = await saveScreenshot(dataUrl, 'shot.png', {
+      allowPermissionPrompt: false,
+    });
+
+    expect(handle.requestPermission).not.toHaveBeenCalled();
+    expect(result.mode).toBe('download');
+  });
+
+  it('用户拒绝授权时降级到下载，且不声称写进了所选目录', async () => {
+    const handle = makeHandle({ query: 'prompt', request: 'denied' });
+    installFakeIndexedDB(handle);
+
+    const result = await saveScreenshot(dataUrl, 'shot.png');
+
+    expect(result.mode).toBe('download');
+    expect(result.directoryName).toBeUndefined();
+    expect(result.message).toContain('浏览器下载文件夹');
+    expect(result.message).not.toContain('Shots');
+  });
+
+  it('句柄失效导致写入失败时，文案改成「原目录不可写」而不是静默下载', async () => {
+    // 目录被删/改名后 getFileHandle 拿不到文件
+    const handle = makeHandle({ query: 'granted', writeOk: false });
+    installFakeIndexedDB(handle);
+
+    const result = await saveScreenshot(dataUrl, 'shot.png');
+
+    expect(handle.getFileHandle).toHaveBeenCalled();
+    expect(result.mode).toBe('download');
+    expect(result.message).toContain('原目录不可写');
+    expect(result.message).toContain('shot.png');
   });
 });
 

@@ -220,6 +220,17 @@ function buildExternalPlayerOptions(): Array<{
 const SCREENSHOT_DIR_SETTING_NAME = '截图保存位置';
 
 /**
+ * 「外部播放器」控制栏按钮的图标。
+ *
+ * 抽成常量是**必需**的，不是风格偏好：ArtPlayer 的 selector 点击后会
+ * 用 `onSelect` 的返回值覆盖按钮内容（见该控制项上的注释），所以这个 HTML
+ * 必须同时出现在 `html` 与 `onSelect` 的返回值里。抽成常量可以保证
+ * 两处**永远一致** —— 否则改图标时只改一处，点一次就露馅。
+ */
+const EXTERNAL_PLAYER_CONTROL_ICON =
+  '<i class="art-icon flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></i>';
+
+/**
  * 「截图保存位置」子面板的固定动作。
  *
  * 当前目录名**不放进选项**：selector 是启动时构建一次的数组，
@@ -1737,22 +1748,24 @@ export function usePlayEngine() {
   // -----------------------------------------------------------------------------
 
   /**
-   * 把「快捷键」子面板刷新成最新键位。
+   * 把「快捷键」子面板刷新成最新键位，并**返回写进去的 tooltip 文本**。
    *
    * 必须走 `updateSettingPreservingPanel` 而不是裸 `update()`：
    * 用户是在子面板里点的某一条改键，裸 `update()` 会把他弹回根面板，
    * 表现就是"改一个键就得重新点进来一次"。
+   *
+   * 之所以要有返回值：设置面板 selector 的 `onSelect` 返回值会被写成
+   * `$parent.tooltip`（见 `onSelect` 处的说明）。若那边 `return ''`，就会把
+   * 这里刚写好的摘要清空。返回同一个字符串，保证两处写入一致。
    */
-  const refreshShortcutPanel = () => {
+  const refreshShortcutPanel = (): string => {
     updateSettingPreservingPanel(artPlayerRef.current, {
       name: SHORTCUT_SETTING_NAME,
       selector: buildShortcutOptions(shortcutBindingsRef.current),
     });
-    setSettingTooltip(
-      artPlayerRef.current,
-      SHORTCUT_SETTING_NAME,
-      buildShortcutTooltip(shortcutOverridesRef.current)
-    );
+    const tooltip = buildShortcutTooltip(shortcutOverridesRef.current);
+    setSettingTooltip(artPlayerRef.current, SHORTCUT_SETTING_NAME, tooltip);
+    return tooltip;
   };
 
   /** 进入录制态：面板上提示"请按键"，并记住要改哪个动作 */
@@ -1860,22 +1873,25 @@ export function usePlayEngine() {
   };
 
   /**
-   * 刷新「弹幕屏蔽」子面板。
+   * 刷新「弹幕屏蔽」子面板，并**返回写进去的 tooltip 文本**。
    *
    * 与快捷键面板同理必须走 `updateSettingPreservingPanel`：用户是在子面板里
    * 点某条规则切换启停的，裸 `update()` 会把他弹回根面板。
+   * 返回值供 `onSelect` 回传，避免返回值把刚写好的摘要清空。
    */
-  const refreshDanmakuFilterPanel = () => {
+  const refreshDanmakuFilterPanel = (): string => {
     const config = loadDanmakuFilterConfig();
     updateSettingPreservingPanel(artPlayerRef.current, {
       name: DANMAKU_FILTER_SETTING_NAME,
       selector: buildDanmakuFilterOptions(config),
     });
+    const tooltip = buildDanmakuFilterTooltip(config);
     setSettingTooltip(
       artPlayerRef.current,
       DANMAKU_FILTER_SETTING_NAME,
-      buildDanmakuFilterTooltip(config)
+      tooltip
     );
+    return tooltip;
   };
 
   /**
@@ -2759,6 +2775,9 @@ export function usePlayEngine() {
                 intro_time: 0,
                 outro_time: 0,
               });
+              // 显式返回空串，**不要省略 return**：设置面板 button 项的返回值会被
+              // 写成 `e.tooltip`（`e.tooltip = await onClick(...)`），省略即写入
+              // undefined，而它会被 append 进 tooltip 节点、渲染出字面量 "undefined"。
               return '';
             },
           },
@@ -2905,6 +2924,7 @@ export function usePlayEngine() {
             html: '缓存管理',
             onClick: function () {
               setShowCacheManager(true);
+              // 同「删除跳过配置」：空串是刻意返回的，省略 return 会写入 undefined。
               return '';
             },
           },
@@ -2927,8 +2947,13 @@ export function usePlayEngine() {
               } else if (action === 'clear') {
                 void resetScreenshotDirectory();
               }
-              // 返回空串 = 留在子面板里，方便连续操作后看到状态变化
-              return '';
+              // ⚠️ 设置面板的 selector 用**返回值覆盖 tooltip**
+              // （`e.$parent.tooltip = await e.$parent.onSelect(...)`），
+              // 与控制栏「覆盖按钮图标」的语义不同。
+              // 返回 '' 会把状态提示清空，所以这里回显当前状态。
+              // 实际的异步刷新由 choose/reset 内部走 DOM setter 完成
+              // （见 updateScreenshotDirTooltip 的说明）。
+              return screenshotDirTooltipRef.current;
             },
           },
           {
@@ -2944,14 +2969,23 @@ export function usePlayEngine() {
               if (actionId) {
                 startShortcutRecording(actionId);
               }
-              // 返回空串 = 不关闭面板，保持在子面板里等待按键
-              return '';
+              // ⚠️ 返回**当前键位摘要**，不能返回空串。
+              //
+              // 设置面板 selector 的返回值会被写成 `$parent.tooltip`：
+              //   e.$parent.tooltip = await e.$parent.onSelect.call(...)
+              // 返回 '' 会把本项声明的摘要（当前键位一览）清空。
+              // 录制是在 keydown 里完成的（commitShortcutRecording →
+              // refreshShortcutPanel），此处只需回显、不要覆盖成空。
+              return buildShortcutTooltip(shortcutOverridesRef.current);
             },
           },
           {
             html: '快捷键 · 恢复默认',
             onClick: function () {
+              // 本项自身没有 tooltip；复位后的键位摘要由 resetShortcutBindings
+              // 内部走 refreshShortcutPanel() 写到「快捷键」那一项上。
               resetShortcutBindings();
+              // 同「删除跳过配置」：空串是刻意返回的，省略 return 会写入 undefined。
               return '';
             },
           },
@@ -2997,8 +3031,9 @@ export function usePlayEngine() {
                     }
                   }
                 }
-                refreshDanmakuFilterPanel();
-                return '';
+                // ⚠️ 返回刷新后的摘要，不能返回空串 —— 设置面板 selector 的
+                // 返回值会被写成 `$parent.tooltip`，返回 '' 会把刚写好的摘要清空。
+                return refreshDanmakuFilterPanel();
               }
 
               // 「清空」一键移除全部规则
@@ -3008,8 +3043,7 @@ export function usePlayEngine() {
                 if (artPlayerRef.current) {
                   artPlayerRef.current.notice.show = '已清空屏蔽规则';
                 }
-                refreshDanmakuFilterPanel();
-                return '';
+                return refreshDanmakuFilterPanel();
               }
 
               // 点击某条规则 = 切换启用/停用
@@ -3025,9 +3059,10 @@ export function usePlayEngine() {
                     ? `已停用「${target.keyword}」`
                     : `已启用「${target.keyword}」`;
                 }
-                refreshDanmakuFilterPanel();
+                return refreshDanmakuFilterPanel();
               }
-              return '';
+              // 没命中任何规则（选项被重建过）：只回显，不白改 tooltip
+              return buildDanmakuFilterTooltip(config);
             },
           },
         ],
@@ -3049,7 +3084,7 @@ export function usePlayEngine() {
             position: 'right',
             index: 10,
             name: 'external-player',
-            html: '<i class="art-icon flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></i>',
+            html: EXTERNAL_PLAYER_CONTROL_ICON,
             tooltip: '用外部播放器打开',
             selector: buildExternalPlayerOptions(),
             onSelect: function (item: any) {
@@ -3057,7 +3092,16 @@ export function usePlayEngine() {
               if (playerId) {
                 openInExternalPlayer(playerId);
               }
-              return '';
+              // ⚠️ 必须返回**控制栏图标本身**，不能返回空串。
+              //
+              // artplayer@5.3.0 的 selector 点击处理是：
+              //   this.check(a)                                    // 写入 item.html
+              //   o.innerHTML = await e.onSelect.call(...)          // 再用返回值覆盖
+              // 其中 `o` 就是承载控制栏按钮内容的 `.art-selector-value`
+              // （初始化时 `append(o, e.html)`）。所以**返回值会替换掉按钮的图标** ——
+              // 返回 '' 会让图标点一次就消失（用户实际报障的现象）。
+              // 这里固定返回图标 HTML，保持按钮外观不变。
+              return EXTERNAL_PLAYER_CONTROL_ICON;
             },
           },
         ],
@@ -3567,6 +3611,9 @@ export function usePlayEngine() {
     videoTitle,
     videoYear,
     videoDoubanId,
+    // 封面（豆瓣海报原图）。Hero 区拿它做背景与前景海报；
+    // 使用前**必须**过 `processImageUrl()` 处理防盗链（见 utils.ts）。
+    videoCover,
     currentSource,
     currentId,
     searchTitle,

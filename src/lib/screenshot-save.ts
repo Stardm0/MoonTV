@@ -367,13 +367,28 @@ export function triggerBrowserDownload(blob: Blob, filename: string): boolean {
 /**
  * 保存截图：有授权目录就写进去（B），否则退回下载目录（A）。
  *
+ * ## 为什么必须在这里 `requestPermission()`
+ *
+ * 目录句柄能存下来，但**权限不跨会话保留** —— 刷新页面后
+ * `queryPermission()` 会回到 `'prompt'`。早前这里只 `query`，
+ * 于是「用户设置过目录 → 刷新 → 截图仍落到下载文件夹」，
+ * 而且因为走了降级分支、用户以为设置根本没生效。
+ *
+ * `requestPermission()` 要求调用处在**用户手势的调用栈**里。截图是由
+ * 点按钮 / 按快捷键触发的，天然满足；只要不先 `await` 别的东西
+ * （比如别先 await 长时间的网络请求）就能弹窗成功。
+ *
  * @param dataUrl  ArtPlayer `getDataURL()` 的产物
  * @param filename 目标文件名（含扩展名），由 {@link buildScreenshotFilename} 生成
+ * @param options.allowPermissionPrompt 是否允许弹权限窗（默认允许）
  */
 export async function saveScreenshot(
   dataUrl: string,
-  filename: string
+  filename: string,
+  options: { allowPermissionPrompt?: boolean } = {}
 ): Promise<ScreenshotSaveResult> {
+  const { allowPermissionPrompt = true } = options;
+
   const blob = dataUrlToBlob(dataUrl);
   if (!blob) {
     return {
@@ -386,7 +401,11 @@ export async function saveScreenshot(
   // B：已保存目录 + 权限仍有效 → 直接写入，且我们知道路径
   const handle = await loadDirectoryHandle();
   if (handle) {
-    const permission = await queryDirectoryPermission(handle);
+    let permission = await queryDirectoryPermission(handle);
+    // 权限掉了就补一次授权（仍在用户手势栈里，能弹窗）
+    if (permission !== 'granted' && allowPermissionPrompt) {
+      permission = await requestDirectoryPermission(handle);
+    }
     if (permission === 'granted') {
       const ok = await writeBlobToDirectory(handle, filename, blob);
       if (ok) {
@@ -398,6 +417,16 @@ export async function saveScreenshot(
           message: `已截图：${filename}（保存在「${dirName}」）`,
         };
       }
+      // 写入失败通常是句柄失效（目录被删/改名）。提示用户重设，
+      // 否则他会一直以为截图存进了那个目录。
+      const fallbackOk = triggerBrowserDownload(blob, filename);
+      return {
+        mode: 'download',
+        filename,
+        message: fallbackOk
+          ? `原目录不可写，已改存到浏览器下载文件夹：${filename}`
+          : `原目录不可写，截图已生成：${filename}，请到浏览器下载文件夹查看`,
+      };
     }
   }
 

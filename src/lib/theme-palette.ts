@@ -311,14 +311,34 @@ export function rgbTripletToHex(triplet: string, fallback = '#000000'): string {
 }
 
 /**
- * 供 `<head>` 内联脚本调用的极简版本 —— 必须**在首屏绘制前**跑完，
- * 否则会先闪一下默认色再跳到用户选的颜色。
+ * 构造 `<head>` 内联主题脚本。
  *
- * 刻意不引打包产物：内联脚本要尽量小，且不能有额外请求。
- * 与 `applyThemePalette()` 是同一套逻辑的压缩版，改一处要同步另一处。
+ * 单独抽成函数（而非常量）是为了让测试能拿到**同一份源码**在
+ * 「`document.body === null`」的环境里真跑一遍 —— 见
+ * `__tests__/theme-palette-inline-script.test.ts`。若只在生产常量里跑，
+ * 这个缺陷（刷新回默认色）会再次悄悄溜回来。
+ *
+ * 设计约束：
+ * - 必须**在首屏绘制前**跑完，否则先闪默认色再跳到目标色。
+ * - 刻意不引打包产物：内联脚本要尽量小，且不能有额外请求。
+ * - 与 `applyThemePalette()` 是同一套逻辑的压缩版，改一处要同步另一处。
+ *
+ * ⚠️ **绝不可挂到 `document.body`**：脚本在 `<head>` 里执行，那时
+ * `document.body` 还是 `null`，`appendChild` 会抛 TypeError，
+ * 被 `catch` 吞掉 → **整套逻辑静默失效，刷新必回默认色**（真实缺陷）。
+ * 挂 `document.documentElement`（`<html>` 在 `<head>` 阶段就已存在），
+ * 再用 `top/left:-9999px` 把它挪出视口；隐藏元素同样能被
+ * `getComputedStyle` 取到值（`visibility:hidden` 不影响自定义属性解析）。
  */
-export const THEME_PALETTE_INLINE_SCRIPT = `(function(){try{var P=${JSON.stringify(
-  THEME_PALETTES
-)},S=${JSON.stringify(
-  THEME_PALETTE_SHADES
-)},D=${JSON.stringify(THEME_PALETTE_STORAGE_KEY)};var p=localStorage.getItem(D);if(!p||P.indexOf(p)<0)return;var e=document.createElement('div');e.className=p;e.style.cssText='position:absolute;visibility:hidden;pointer-events:none';document.body.appendChild(e);var g=getComputedStyle(e),v=S.map(function(n){return g.getPropertyValue('--theme-preview-'+n).trim()});document.body.removeChild(e);if(v.some(function(x){return !x}))return;var r=document.documentElement;S.forEach(function(n,i){r.style.setProperty('--tw-color-primary-'+n,v[i])});var M={'--theme-surface-from':100,'--theme-surface-via':50,'--theme-surface-to':200};Object.keys(M).forEach(function(k){var i=S.indexOf(M[k]);if(i>=0&&v[i])r.style.setProperty(k,v[i])});}catch(e){}})();`;
+export function buildThemePaletteInlineScript(): string {
+  return `(function(){try{var P=${JSON.stringify(
+    THEME_PALETTES
+  )},S=${JSON.stringify(
+    THEME_PALETTE_SHADES
+  )},D=${JSON.stringify(
+    THEME_PALETTE_STORAGE_KEY
+  )};var p=localStorage.getItem(D);if(!p||P.indexOf(p)<0)return;var ROOT=document.documentElement;if(!ROOT)return;var e=document.createElement('div');e.className=p;e.style.cssText='position:absolute;top:-9999px;left:-9999px;visibility:hidden;pointer-events:none';ROOT.appendChild(e);var g=getComputedStyle(e),v=S.map(function(n){return g.getPropertyValue('--theme-preview-'+n).trim()});ROOT.removeChild(e);if(v.some(function(x){return !x}))return;S.forEach(function(n,i){ROOT.style.setProperty('--tw-color-primary-'+n,v[i])});var M={'--theme-surface-from':100,'--theme-surface-via':50,'--theme-surface-to':200};Object.keys(M).forEach(function(k){var i=S.indexOf(M[k]);if(i>=0&&v[i])ROOT.style.setProperty(k,v[i])});}catch(e){}})();`;
+}
+
+/** 生产用内联脚本。真源是 `buildThemePaletteInlineScript()`。 */
+export const THEME_PALETTE_INLINE_SCRIPT = buildThemePaletteInlineScript();

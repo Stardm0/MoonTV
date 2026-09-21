@@ -38,6 +38,7 @@ export default function PlayClient() {
     videoTitle,
     videoYear,
     videoDoubanId,
+    videoCover,
     currentSource,
     currentId,
     searchTitle,
@@ -193,6 +194,7 @@ export default function PlayClient() {
           totalEpisodes={totalEpisodes}
           currentEpisodeIndex={currentEpisodeIndex}
           detail={detail}
+          videoCover={videoCover}
           favorited={favorited}
           following={following}
           onToggleFavorite={handleToggleFavorite}
