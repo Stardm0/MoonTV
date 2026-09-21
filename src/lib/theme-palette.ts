@@ -37,6 +37,18 @@ export const THEME_PALETTES = [
 
 export type ThemePalette = (typeof THEME_PALETTES)[number];
 
+/**
+ * 色阶在 `src/styles/colors.css` 里的**真实类名**。
+ *
+ * 存在的唯一理由：把"类名怎么拼"收敛成一处。运行时要靠它查 CSS 变量，
+ * 测试要靠它去 CSS 真源里核对 —— 两边各写一遍就会重演
+ * 「运行时写 `theme-slate`、CSS 里是 `.slate`、测试却断言裸名」三者互不
+ * 相符、测试还是绿的的事故。
+ */
+export function paletteClassName(palette: ThemePalette): string {
+  return palette;
+}
+
 /** 默认主色。与 `tailwind.config.ts` 里的 sky 色阶一致，保证未设置时观感不变。 */
 export const DEFAULT_THEME_PALETTE: ThemePalette = 'sky';
 
@@ -47,12 +59,17 @@ export const THEME_PALETTE_SHADES = [
   50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950,
 ] as const;
 
-/** 色阶中文名，仅用于设置面板展示。 */
+/**
+ * 色阶中文名，仅用于设置面板展示。
+ *
+ * 中性色不写「XX灰」：五套中性色并排时，"石板灰/中性灰/锌灰/纯灰/石灰"
+ * 既长又难分辨，反而要逐个读。改成单字 + 极短词，一眼扫过即可。
+ */
 export const THEME_PALETTE_LABELS: Record<ThemePalette, string> = {
-  slate: '石板灰',
-  gray: '中性灰',
-  zinc: '锌灰',
-  neutral: '纯灰',
+  slate: '石板',
+  gray: '中性',
+  zinc: '锌',
+  neutral: '纯',
   stone: '石灰',
   red: '红',
   orange: '橙',
@@ -72,6 +89,54 @@ export const THEME_PALETTE_LABELS: Record<ThemePalette, string> = {
   pink: '粉',
   rose: '玫瑰',
 };
+
+/**
+ * 设置面板里实际展示的色阶顺序与分组。
+ *
+ * 之所以分组：22 个色卡平铺太长（实测要滚动很多屏），而用户挑主色时
+ * 真正需要区分的只有"中性 / 暖 / 冷"这三类。分组后每组 4 行，配合
+ * `max-h` 滚动，整块能塞进一屏。
+ */
+export const THEME_PALETTE_GROUPS: ReadonlyArray<{
+  id: string;
+  label: string;
+  palettes: readonly ThemePalette[];
+}> = [
+  {
+    id: 'neutral',
+    label: '中性',
+    palettes: ['slate', 'gray', 'zinc', 'neutral', 'stone'],
+  },
+  {
+    id: 'warm',
+    label: '暖色',
+    palettes: [
+      'red',
+      'orange',
+      'amber',
+      'yellow',
+      'lime',
+      'green',
+      'emerald',
+    ],
+  },
+  {
+    id: 'cool',
+    label: '冷色',
+    palettes: [
+      'teal',
+      'cyan',
+      'sky',
+      'blue',
+      'indigo',
+      'violet',
+      'purple',
+      'fuchsia',
+      'pink',
+      'rose',
+    ],
+  },
+];
 
 /**
  * 浅色模式页面背景渐变的三段色，取色阶的 100 / 50 / 200。
@@ -102,9 +167,16 @@ function shadeAt(shades: string[], shade: number): string {
 /**
  * 读出某套色阶的 11 个 RGB 三元组。
  *
- * 依赖 `colors.css` 里的 `.theme-<name>` 类（由配套脚本补的
+ * 依赖 `colors.css` 里的 `.slate` / `.gray` / … 裸类名（由配套脚本补的
  * `--theme-preview-*`），真正生效的色彩由 `applyThemePalette()` 写进
  * `:root` 的 `--tw-color-primary-*`。
+ *
+ * ⚠️ 类名**不带 `theme-` 前缀** —— 这是 `colors.css` 的原始形态。
+ * 曾经这里写的是 `theme-${palette}`，与 CSS 对不上，导致：
+ * `getPropertyValue()` 全部返回空 → 色卡一律走 fallback 渲染成同一个灰 →
+ * `applyThemePalette()` 撞到"读不到就退回默认色"的保护 → **换色完全无效**。
+ * 而 `theme-palette-css.test.ts` 当时断言的是裸类名，所以测试是绿的。
+ * 现在测试会**用真实类名查真源**，见该文件的 `paletteClassName()`。
  *
  * 之所以不在 JS 里再抄一份色值表：抄一份就是 22 × 11 = 242 个常量，
  * 与 `colors.css` 变成两个真源，迟早漂移。
@@ -112,7 +184,7 @@ function shadeAt(shades: string[], shade: number): string {
 export function readPaletteShades(palette: ThemePalette): string[] {
   if (typeof document === 'undefined') return [];
   const el = document.createElement('div');
-  el.className = `theme-${palette}`;
+  el.className = paletteClassName(palette);
   el.style.cssText =
     'position:absolute;visibility:hidden;pointer-events:none';
   document.body.appendChild(el);
@@ -202,7 +274,7 @@ export function getAllPalettePreviews(): Record<string, string[]> {
   document.body.appendChild(el);
   const result: Record<string, string[]> = {};
   for (const palette of THEME_PALETTES) {
-    el.className = `theme-${palette}`;
+    el.className = paletteClassName(palette);
     const styles = window.getComputedStyle(el);
     result[palette] = THEME_PALETTE_SHADES.map((shade) =>
       styles.getPropertyValue(`--theme-preview-${shade}`).trim()
@@ -249,4 +321,4 @@ export const THEME_PALETTE_INLINE_SCRIPT = `(function(){try{var P=${JSON.stringi
   THEME_PALETTES
 )},S=${JSON.stringify(
   THEME_PALETTE_SHADES
-)},D=${JSON.stringify(THEME_PALETTE_STORAGE_KEY)};var p=localStorage.getItem(D);if(!p||P.indexOf(p)<0)return;var e=document.createElement('div');e.className='theme-'+p;e.style.cssText='position:absolute;visibility:hidden;pointer-events:none';document.body.appendChild(e);var g=getComputedStyle(e),v=S.map(function(n){return g.getPropertyValue('--theme-preview-'+n).trim()});document.body.removeChild(e);if(v.some(function(x){return !x}))return;var r=document.documentElement;S.forEach(function(n,i){r.style.setProperty('--tw-color-primary-'+n,v[i])});var M={'--theme-surface-from':100,'--theme-surface-via':50,'--theme-surface-to':200};Object.keys(M).forEach(function(k){var i=S.indexOf(M[k]);if(i>=0&&v[i])r.style.setProperty(k,v[i])});}catch(e){}})();`;
+)},D=${JSON.stringify(THEME_PALETTE_STORAGE_KEY)};var p=localStorage.getItem(D);if(!p||P.indexOf(p)<0)return;var e=document.createElement('div');e.className=p;e.style.cssText='position:absolute;visibility:hidden;pointer-events:none';document.body.appendChild(e);var g=getComputedStyle(e),v=S.map(function(n){return g.getPropertyValue('--theme-preview-'+n).trim()});document.body.removeChild(e);if(v.some(function(x){return !x}))return;var r=document.documentElement;S.forEach(function(n,i){r.style.setProperty('--tw-color-primary-'+n,v[i])});var M={'--theme-surface-from':100,'--theme-surface-via':50,'--theme-surface-to':200};Object.keys(M).forEach(function(k){var i=S.indexOf(M[k]);if(i>=0&&v[i])r.style.setProperty(k,v[i])});}catch(e){}})();`;

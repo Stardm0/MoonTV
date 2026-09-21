@@ -101,6 +101,19 @@ import { wrapArtplayerPluginDanmuku } from './danmuku-live-font-size';
 import { useVideoActions } from './hooks/useVideoActions';
 import { useWakeLock } from './hooks/useWakeLock';
 import {
+  deriveLoadingState,
+  formatPlayError,
+  getLoadingView,
+  isValidEpisodeIndex,
+  LOADING_MESSAGES,
+  parsePreferBestSource,
+  PREFER_BEST_SOURCE_STORAGE_KEY,
+  resolveEpisodeFallback,
+  resolveTotalEpisodes,
+  shouldClampEpisodeIndex,
+  shouldFallbackEpisodeToLast,
+} from './lib/playerViewState';
+import {
   applyDanmakuFilter,
   calculateSourceScore,
   createCustomHlsLoader,
@@ -543,7 +556,7 @@ export function usePlayEngine() {
   const [videoUrl, setVideoUrl] = useState('');
 
   // 总集数
-  const totalEpisodes = detail?.episodes?.length || 0;
+  const totalEpisodes = resolveTotalEpisodes(detail);
 
   // 用于记录是否需要在播放器 ready 后跳转到指定进度
   const resumeTimeRef = useRef<number | null>(null);
@@ -1032,10 +1045,7 @@ export function usePlayEngine() {
   // 集数切换时同步 URL 中的 ep 参数（1 基），便于刷新/分享后仍停留在当前集（不刷新页面）
   useEffect(() => {
     if (loading || !detail || !detail.episodes) return;
-    if (
-      currentEpisodeIndex < 0 ||
-      currentEpisodeIndex >= detail.episodes.length
-    ) {
+    if (!isValidEpisodeIndex(detail.episodes.length, currentEpisodeIndex)) {
       return;
     }
     const ep = currentEpisodeIndex + 1;
@@ -1161,8 +1171,10 @@ export function usePlayEngine() {
 
       // 传入的起始集数超出本源可用集数范围时，直接定位到最后一集（而非回到第一集）
       if (
-        detailData.episodes.length > 0 &&
-        currentEpisodeIndex >= detailData.episodes.length
+        shouldFallbackEpisodeToLast(
+          detailData.episodes.length,
+          currentEpisodeIndex
+        )
       ) {
         setCurrentEpisodeIndex(detailData.episodes.length - 1);
       }
@@ -1177,35 +1189,32 @@ export function usePlayEngine() {
       window.history.replaceState({}, '', newUrl.toString());
 
       setLoadingStage('ready');
-      setLoadingMessage('✨ 准备就绪，即将开始播放...');
+      setLoadingMessage(LOADING_MESSAGES.ready);
       setTimeout(() => setLoading(false), 500);
     }
-
     const initAll = async () => {
-      if (!currentSource && !currentId && !videoTitle && !searchTitle) {
-        setError('缺少必要参数');
+      const hasAnyParam = Boolean(
+        currentSource || currentId || videoTitle || searchTitle
+      );
+      const initialLoading = deriveLoadingState({
+        hasDetailTarget: Boolean(currentSource && currentId),
+        hasAnyParam,
+      });
+      if (!initialLoading) {
+        setError(formatPlayError('missing-params'));
         setLoading(false);
         return;
       }
 
       setLoading(true);
-      setLoadingStage(currentSource && currentId ? 'fetching' : 'searching');
-      setLoadingMessage(
-        currentSource && currentId
-          ? '🎬 正在获取视频详情...'
-          : '🔍 正在搜索播放源...'
-      );
+      setLoadingStage(initialLoading.stage);
+      setLoadingMessage(initialLoading.message);
       // 从 localStorage 读取是否启用优选播放源（避免状态延迟）
-      const enablePreferBestSourceFromStorage = (() => {
-        if (typeof window === 'undefined') return false;
-        const saved = localStorage.getItem('enablePreferBestSource');
-        if (saved === null) return false;
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return false;
-        }
-      })();
+      const enablePreferBestSourceFromStorage = parsePreferBestSource(
+        typeof window === 'undefined'
+          ? null
+          : localStorage.getItem(PREFER_BEST_SOURCE_STORAGE_KEY)
+      );
 
       let detailData: SearchResult | null = null;
       let allResults: SearchResult[] = [];
@@ -1238,14 +1247,15 @@ export function usePlayEngine() {
 
       // 完全没结果
       if (!detailData) {
-        setError('未找到匹配结果');
+        setError(formatPlayError('no-match'));
         setLoading(false);
         return;
       }
 
       if (enablePreferBestSourceFromStorage && allResults.length > 1) {
-        setLoadingStage('preferring');
-        setLoadingMessage('🚀 正在优选播放源...');
+        const preferringLoading = getLoadingView('preferring');
+        setLoadingStage(preferringLoading.stage);
+        setLoadingMessage(preferringLoading.message);
         try {
           const bestSource = await preferBestSource(allResults);
           // preferBestSource 内部已经排序了 availableSources 并设置了 precomputedVideoInfo
@@ -2163,14 +2173,14 @@ export function usePlayEngine() {
     if (
       detail &&
       detail.episodes &&
-      detail.episodes.length > 0 &&
       currentEpisodeIndex !== null &&
-      (currentEpisodeIndex < 0 ||
-        currentEpisodeIndex >= detail.episodes.length)
+      shouldClampEpisodeIndex(detail.episodes.length, currentEpisodeIndex)
     ) {
-      setCurrentEpisodeIndex(
-        currentEpisodeIndex < 0 ? 0 : detail.episodes.length - 1
+      const fallback = resolveEpisodeFallback(
+        detail.episodes.length,
+        currentEpisodeIndex
       );
+      setCurrentEpisodeIndex(fallback.action === 'keep' ? 0 : fallback.index);
       return;
     }
 
@@ -2190,16 +2200,16 @@ export function usePlayEngine() {
     if (
       !detail ||
       !detail.episodes ||
-      detail.episodes.length === 0 ||
-      currentEpisodeIndex >= detail.episodes.length ||
-      currentEpisodeIndex < 0
+      !isValidEpisodeIndex(detail.episodes.length, currentEpisodeIndex)
     ) {
-      setError(`选集索引无效，当前共 ${totalEpisodes} 集`);
+      setError(
+        formatPlayError('invalid-episode-index', { totalEpisodes })
+      );
       return;
     }
 
     if (!videoUrl) {
-      setError('视频地址无效');
+      setError(formatPlayError('invalid-video-url'));
       return;
     }
     console.log(videoUrl);
