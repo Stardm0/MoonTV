@@ -3,10 +3,12 @@ import {
   EXTERNAL_PLAYERS,
   ExternalPlayerId,
   isPlayerLikelySupported,
+  launchExternalPlayer,
 } from '../external-player';
 
 const M3U8 = 'https://cdn.example.com/live/index.m3u8';
-const PROXY = 'https://site.com/api/m3u8?url=https%3A%2F%2Fcdn.example.com%2Fa.m3u8';
+const PROXY =
+  'https://site.com/api/m3u8?url=https%3A%2F%2Fcdn.example.com%2Fa.m3u8';
 
 describe('EXTERNAL_PLAYERS 清单', () => {
   it('包含 6 个播放器', () => {
@@ -185,5 +187,90 @@ describe('isPlayerLikelySupported 平台判断', () => {
 
   it('未知播放器返回 false', () => {
     expect(isPlayerLikelySupported('unknown' as any, UA.win)).toBe(false);
+  });
+});
+
+describe('launchExternalPlayer —— 不弹空白标签页', () => {
+  /**
+   * 这是本模块最容易回归的地方：改回 `window.open(..., '_blank')`
+   * 会让未安装客户端的用户每次点完都多出一个空白标签页。
+   * 下面几条把「只挂 iframe / 绝不 window.open」钉死。
+   */
+  let openCalls: string[];
+  let originalOpen: typeof window.open;
+
+  beforeEach(() => {
+    openCalls = [];
+    originalOpen = window.open;
+    // 用探针替换，阻止 jsdom 真的去开窗
+    window.open = function (...args: any[]) {
+      openCalls.push(String(args[0]));
+      return null;
+    };
+  });
+
+  afterEach(() => {
+    window.open = originalOpen;
+    document.body.innerHTML = '';
+  });
+
+  it('把地址挂到隐藏 iframe 上，而不是 window.open', () => {
+    const ok = launchExternalPlayer('potplayer', M3U8);
+    expect(ok).toBe(true);
+    expect(openCalls).toEqual([]);
+
+    const iframe = document.body.querySelector('iframe');
+    expect(iframe).not.toBeNull();
+    expect(iframe!.getAttribute('src')).toBe(`potplayer://${M3U8}`);
+  });
+
+  it('iframe 不可见、不参与布局、不进 tab 顺序', () => {
+    launchExternalPlayer('vlc', M3U8);
+    const iframe = document.body.querySelector('iframe')!;
+    const style = iframe.style;
+    // 关键：不能用 display:none —— 部分浏览器会跳过导航，唤起静默失效
+    expect(style.display).not.toBe('none');
+    expect(style.width).toBe('0px');
+    expect(style.height).toBe('0px');
+    expect(style.opacity).toBe('0');
+    expect(style.pointerEvents).toBe('none');
+    expect(iframe.getAttribute('aria-hidden')).toBe('true');
+    expect(iframe.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('地址非法（空 url）时不创建 iframe，返回 false', () => {
+    expect(launchExternalPlayer('vlc', '')).toBe(false);
+    expect(document.body.querySelector('iframe')).toBeNull();
+    expect(openCalls).toEqual([]);
+  });
+
+  it('无 document 时返回 false 而不是抛异常', () => {
+    expect(launchExternalPlayer('vlc', M3U8, undefined, null)).toBe(false);
+  });
+
+  it('IINA 的地址被 encode（与其他播放器的差异点）', () => {
+    launchExternalPlayer('iina', M3U8);
+    const src = document.body.querySelector('iframe')!.getAttribute('src')!;
+    expect(src.startsWith('iina://weblink?url=')).toBe(true);
+    expect(src).toContain(encodeURIComponent(M3U8));
+    expect(src).not.toContain(`url=${M3U8}`);
+  });
+
+  it('MX Player 走 intent scheme 且带标题', () => {
+    launchExternalPlayer('mxplayer', M3U8, '我的剧集');
+    const src = document.body.querySelector('iframe')!.getAttribute('src')!;
+    expect(src.startsWith('intent://')).toBe(true);
+    expect(src).toContain('package=com.mxtech.videoplayer.ad');
+    expect(src).toContain('S.title=');
+  });
+
+  it('多次调用各自插入 iframe，不互相覆盖', () => {
+    launchExternalPlayer('vlc', M3U8);
+    launchExternalPlayer('mpv', M3U8);
+    const iframes = document.body.querySelectorAll('iframe');
+    expect(iframes).toHaveLength(2);
+    const srcs = Array.from(iframes).map((f) => f.getAttribute('src'));
+    expect(srcs).toContain(`vlc://${M3U8}`);
+    expect(srcs).toContain(`mpv://${M3U8}`);
   });
 });

@@ -58,16 +58,18 @@ import {
   MIN_PLAYBACK_RATE,
   savePlaybackRate,
 } from '@/lib/playback-rate';
-import {
-  describeHlsError,
-  PlaybackRecovery,
-} from '@/lib/playback-recovery';
+import { describeHlsError, PlaybackRecovery } from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
+import { DEFAULT_VOLUME, loadVolume, saveVolume } from '@/lib/playback-volume';
 import {
-  DEFAULT_VOLUME,
-  loadVolume,
-  saveVolume,
-} from '@/lib/playback-volume';
+  buildScreenshotFilename,
+  clearDirectoryHandle,
+  describeScreenshotDirectory,
+  pickScreenshotDirectory,
+  sanitizeFilenamePart,
+  saveScreenshot,
+  SCREENSHOT_FILENAME_PREFIX,
+} from '@/lib/screenshot-save';
 import {
   clearBindings,
   eventToKeyString,
@@ -214,6 +216,25 @@ function buildExternalPlayerOptions(): Array<{
   ).map((player) => ({ html: player.label, value: player.id }));
 }
 
+/** 截图保存目录设置项在面板里的名字（同时用作 name 定位 DOM 节点） */
+const SCREENSHOT_DIR_SETTING_NAME = '截图保存位置';
+
+/**
+ * 「截图保存位置」子面板的固定动作。
+ *
+ * 当前目录名**不放进选项**：selector 是启动时构建一次的数组，
+ * 目录名会随用户操作变化，写死在选项里就会显示过期信息。
+ */
+function buildScreenshotDirOptions(): Array<{
+  html: string;
+  value: 'choose' | 'clear';
+}> {
+  return [
+    { html: '选择保存文件夹…', value: 'choose' },
+    { html: '改用浏览器下载目录', value: 'clear' },
+  ];
+}
+
 /**
  * 组装「快捷键」子面板的选项列表。
  *
@@ -354,13 +375,20 @@ export function usePlayEngine() {
   // `nextWarmupKeyRef` 记录"已经为哪一集的哪个档位预热过"，防止重复排队。
   const nextWarmupKeyRef = useRef<string | null>(null);
 
+  // 「截图保存位置」当前状态的 tooltip 文本。
+  // 读 IndexedDB 是异步的，而设置面板是同步构建的 —— 用 ref 当缓存，
+  // 面板首帧先用它渲染，异步查到真实状态后再走 DOM setter 覆盖。
+  const screenshotDirTooltipRef = useRef('未设置，截图存到浏览器下载文件夹');
+
   // 弹幕源选择相关
   const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<
     string | null
   >(null);
   const [selectedDanmakuAnime, setSelectedDanmakuAnime] =
     useState<AnimeOption | null>(null);
-  const [selectedDanmakuEpisode, setSelectedDanmakuEpisode] = useState<number | undefined>(undefined);
+  const [selectedDanmakuEpisode, setSelectedDanmakuEpisode] = useState<
+    number | undefined
+  >(undefined);
   const [showDanmakuSelector, setShowDanmakuSelector] = useState(false);
   const [showCacheManager, setShowCacheManager] = useState(false);
   const selectedDanmakuSourceRef = useRef<string | null>(null);
@@ -391,24 +419,24 @@ export function usePlayEngine() {
 
   // 自动匹配弹幕设置
   const [autoDanmakuEnabled, setAutoDanmakuEnabled] = useState(false);
-  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] = useState("bilibili1");
+  const [preferredDanmakuPlatform, setPreferredDanmakuPlatform] =
+    useState('bilibili1');
 
   const [currentTooltip, setCurrentTooltip] = useState('');
   const [selectedState, setSelectedState] = useState(false);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
+    if (typeof window === 'undefined') return;
 
-    const savedAuto = localStorage.getItem("autoDanmakuEnabled");
+    const savedAuto = localStorage.getItem('autoDanmakuEnabled');
     if (savedAuto !== null) {
       setAutoDanmakuEnabled(JSON.parse(savedAuto));
     }
 
-    const savedPlatform = localStorage.getItem("preferredDanmakuPlatform");
+    const savedPlatform = localStorage.getItem('preferredDanmakuPlatform');
     if (savedPlatform) {
       setPreferredDanmakuPlatform(savedPlatform);
     }
-
   }, []);
 
   const currentSourceRef = useRef(currentSource);
@@ -464,12 +492,11 @@ export function usePlayEngine() {
 
     /** ① 用户手动选择某一集（权重大最高） */
     if (selectedDanmakuEpisode !== undefined && selectedState) {
-      matchedEpisode = selectedDanmakuAnime.episodes[selectedDanmakuEpisode - 1];
+      matchedEpisode =
+        selectedDanmakuAnime.episodes[selectedDanmakuEpisode - 1];
       setSelectedState(false);
-    }
-
-    /** ② 自动匹配模式：直接使用第 0 集 */
-    else if (autoDanmakuEnabled) {
+    } else if (autoDanmakuEnabled) {
+      /** ② 自动匹配模式：直接使用第 0 集 */
       matchedEpisode = selectedDanmakuAnime.episodes[0];
     }
 
@@ -480,7 +507,11 @@ export function usePlayEngine() {
 
     // 更新 tooltip（走 DOM setter，不触发面板重建）
     setTimeout(() => {
-      setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, matchedEpisode.episodeTitle);
+      setSettingTooltip(
+        artPlayerRef.current,
+        DANMAKU_SETTING_NAME,
+        matchedEpisode.episodeTitle
+      );
     }, 100);
 
     // 加载弹幕 URL
@@ -489,9 +520,12 @@ export function usePlayEngine() {
         const url = await getDanmakuBySelectedAnime(
           selectedDanmakuAnime,
           episodeNumber,
-          "xml"
+          'xml'
         );
-        if (danmukuPluginInstanceRef.current && url !== lastDanmakuUrlRef.current) {
+        if (
+          danmukuPluginInstanceRef.current &&
+          url !== lastDanmakuUrlRef.current
+        ) {
           console.log('动态更新弹幕源:', url);
           // 先把地址交给插件：即使后续解析失败，弹幕也已经能显示出来。
           danmukuPluginInstanceRef.current.config({ danmuku: url });
@@ -519,7 +553,7 @@ export function usePlayEngine() {
           void applyCorrectedDanmaku(url);
         }
       } catch (e) {
-        console.error("获取弹幕 URL 失败:", e);
+        console.error('获取弹幕 URL 失败:', e);
       }
     })();
   }, [currentEpisodeIndex, selectedDanmakuAnime, selectedDanmakuEpisode]);
@@ -860,7 +894,7 @@ export function usePlayEngine() {
       return a.index - b.index;
     });
 
-    const sortedSources = scoredSources.map(item => item.source);
+    const sortedSources = scoredSources.map((item) => item.source);
 
     // 检查是否已取消
     if (isCancelled?.()) {
@@ -926,7 +960,7 @@ export function usePlayEngine() {
           if (inst.option) {
             const next = { ...inst.option };
             if ('mount' in next) next.mount = undefined;
-            if ('danmuku' in next) next.danmuku = "";
+            if ('danmuku' in next) next.danmuku = '';
             danmakuConfigRef.current = next;
           } else if (typeof inst.visible === 'boolean') {
             danmakuConfigRef.current.visible = inst.visible;
@@ -1282,8 +1316,10 @@ export function usePlayEngine() {
 
   // 视频初始化后即可匹配弹幕
   useEffect(() => {
-    if (isDanmakuPluginReady && isBlockAdChanged){
-      danmukuPluginInstanceRef.current.config({ danmuku: lastDanmakuUrlRef.current });
+    if (isDanmakuPluginReady && isBlockAdChanged) {
+      danmukuPluginInstanceRef.current.config({
+        danmuku: lastDanmakuUrlRef.current,
+      });
       danmukuPluginInstanceRef.current.load();
       setIsBlockAdChanged(false);
       return;
@@ -1318,9 +1354,10 @@ export function usePlayEngine() {
         attempt++;
         try {
           const title = videoTitleRef.current;
-          const currentEpisodeTitle = detail?.episodes_titles?.[currentEpisodeIndex];
+          const currentEpisodeTitle =
+            detail?.episodes_titles?.[currentEpisodeIndex];
           if (!currentEpisodeTitle) {
-            throw new Error("无法获取当前集数标题（episodes_titles 无效）");
+            throw new Error('无法获取当前集数标题（episodes_titles 无效）');
           }
           let epNum = extractEpisodeNumber(currentEpisodeTitle);
           if (!epNum) {
@@ -1353,7 +1390,7 @@ export function usePlayEngine() {
             break;
           } else {
             if (retryCount === -1 || attempt <= retryCount) {
-              await new Promise(res => setTimeout(res, 1500)); // 间隔1.5秒重试
+              await new Promise((res) => setTimeout(res, 1500)); // 间隔1.5秒重试
             }
           }
         } catch (err) {
@@ -1363,12 +1400,12 @@ export function usePlayEngine() {
           }
           console.error(`自动弹幕匹配第${attempt}次失败:`, err);
           if (retryCount === -1 || attempt <= retryCount) {
-            await new Promise(res => setTimeout(res, 1500));
+            await new Promise((res) => setTimeout(res, 1500));
           }
         }
       }
       if (!success) {
-        triggerGlobalError("自动加载弹幕失败，请手动选择弹幕源");
+        triggerGlobalError('自动加载弹幕失败，请手动选择弹幕源');
       }
       if (!abortController.signal.aborted) {
         setIsDanmakuLoading(false);
@@ -1383,7 +1420,12 @@ export function usePlayEngine() {
         abortControllerRef.current = null;
       }
     };
-  }, [currentEpisodeIndex, autoDanmakuEnabled, isDanmakuPluginReady, preferredDanmakuPlatform]);
+  }, [
+    currentEpisodeIndex,
+    autoDanmakuEnabled,
+    isDanmakuPluginReady,
+    preferredDanmakuPlatform,
+  ]);
 
   // -----------------------------------------------------------------------------
   // 播放记录与跳过配置恢复
@@ -1599,7 +1641,9 @@ export function usePlayEngine() {
     triedSourcesRef.current.add(`${candidate.source}:${candidate.id}`);
 
     const notice = `播放失败，已自动切换到「${candidate.source}」`;
-    console.warn(`[auto-switch] ${reason} → ${candidate.source}:${candidate.id}`);
+    console.warn(
+      `[auto-switch] ${reason} → ${candidate.source}:${candidate.id}`
+    );
     try {
       if (artPlayerRef.current) {
         artPlayerRef.current.notice.show = notice;
@@ -1628,14 +1672,21 @@ export function usePlayEngine() {
         saveCurrentPlayProgress();
       }
       if (artPlayerRef.current) {
-        setCurrentTooltip("");
+        setCurrentTooltip('');
       }
       // 检查是否有历史播放记录
       try {
         const allRecords = await getAllPlayRecords();
-        const key = generateStorageKey(currentSourceRef.current, currentIdRef.current);
+        const key = generateStorageKey(
+          currentSourceRef.current,
+          currentIdRef.current
+        );
         const record = allRecords[key];
-        if (record && record.index - 1 === episodeNumber && record.play_time > 0) {
+        if (
+          record &&
+          record.index - 1 === episodeNumber &&
+          record.play_time > 0
+        ) {
           resumeTimeRef.current = record.play_time;
         } else {
           resumeTimeRef.current = 0;
@@ -1657,8 +1708,8 @@ export function usePlayEngine() {
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
       }
-      if(artPlayerRef.current){
-        setCurrentTooltip("");
+      if (artPlayerRef.current) {
+        setCurrentTooltip('');
       }
       setCurrentEpisodeIndex(idx - 1);
     }
@@ -1674,8 +1725,8 @@ export function usePlayEngine() {
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
       }
-      if(artPlayerRef.current){
-        setCurrentTooltip("");
+      if (artPlayerRef.current) {
+        setCurrentTooltip('');
       }
       setCurrentEpisodeIndex(idx + 1);
     }
@@ -1848,11 +1899,16 @@ export function usePlayEngine() {
 
     const title = detailRef.current?.title || '';
     const ok = launchExternalPlayer(playerId, url, title);
+    const playerLabel =
+      EXTERNAL_PLAYERS.find((p) => p.id === playerId)?.label || '外部播放器';
 
     if (artPlayerRef.current) {
+      // 浏览器**无法**判断客户端是否真的装了（不提供这种能力），
+      // 所以不能在失败时说「未安装」—— 那是猜测。文案只陈述事实：
+      // 已经把这个地址交给系统了，没反应就是没装或被拦。
       artPlayerRef.current.notice.show = ok
-        ? `已尝试用外部播放器打开（需本机已安装）`
-        : '无法唤起该播放器';
+        ? `已交给系统打开，若无反应请确认已安装 ${playerLabel}`
+        : `无法唤起 ${playerLabel}`;
     }
   };
 
@@ -1863,7 +1919,6 @@ export function usePlayEngine() {
       (e.target as HTMLElement).tagName === 'INPUT' ||
       (e.target as HTMLElement).tagName === 'TEXTAREA'
     )
-
       return;
 
     const art = artPlayerRef.current;
@@ -1969,7 +2024,8 @@ export function usePlayEngine() {
 
     run('screenshot', () => {
       if (!art || typeof art.screenshot !== 'function') return false;
-      // 截图失败（跨域保护等）已在 ready 里包装提示，这里吞掉异常
+      // 失败提示在 ready 的包装里统一处理（跨域保护 / 数据无效），
+      // 这里只兜住 Promise，避免 unhandled rejection。
       void Promise.resolve(art.screenshot()).catch(() => {
         /* 已提示 */
       });
@@ -1993,7 +2049,10 @@ export function usePlayEngine() {
     const adjustPlaybackRate = (delta: number) => {
       if (!art) return false;
       const next = Math.round((art.playbackRate + delta) * 100) / 100;
-      const clamped = Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, next));
+      const clamped = Math.min(
+        MAX_PLAYBACK_RATE,
+        Math.max(MIN_PLAYBACK_RATE, next)
+      );
       if (clamped === art.playbackRate) return false;
       art.playbackRate = clamped;
       art.notice.show = `倍速: ${clamped}x`;
@@ -2147,8 +2206,9 @@ export function usePlayEngine() {
         if (!mounted) return;
         artLibRef.current = Art;
         hlsLibRef.current = Hls;
-        danmukuPluginRef.current =
-          wrapArtplayerPluginDanmuku(artplayerPluginDanmuku);
+        danmukuPluginRef.current = wrapArtplayerPluginDanmuku(
+          artplayerPluginDanmuku
+        );
         setLibsReady(true);
       } catch (err) {
         console.error('加载播放器库失败:', err);
@@ -2202,9 +2262,7 @@ export function usePlayEngine() {
       !detail.episodes ||
       !isValidEpisodeIndex(detail.episodes.length, currentEpisodeIndex)
     ) {
-      setError(
-        formatPlayError('invalid-episode-index', { totalEpisodes })
-      );
+      setError(formatPlayError('invalid-episode-index', { totalEpisodes }));
       return;
     }
 
@@ -2286,6 +2344,70 @@ export function usePlayEngine() {
         }
       };
 
+      /** 统一的提示出口（notice 可能随播放器销毁而失效，故做保护） */
+      const showPlayNotice = (text: string) => {
+        const art = artPlayerRef.current;
+        if (art) art.notice.show = text;
+      };
+
+      /**
+       * 把「截图保存位置」的当前状态刷进 tooltip。
+       *
+       * 同样必须走 DOM setter：`update()` 会把正在浏览子面板的用户踢回根面板，
+       * 而用户点完「选择保存文件夹」后大概率还想继续操作同一个子面板。
+       */
+      const updateScreenshotDirTooltip = (text: string) => {
+        screenshotDirTooltipRef.current = text;
+        const art = artPlayerRef.current;
+        if (!art) return;
+        setSettingTooltip(art, SCREENSHOT_DIR_SETTING_NAME, text);
+      };
+
+      /** 从存储里读一次真实状态并刷新 tooltip（不弹任何窗） */
+      const refreshScreenshotDirState = async () => {
+        const state = await describeScreenshotDirectory();
+        if (!state.supported) {
+          updateScreenshotDirTooltip('当前浏览器不支持选定文件夹');
+          return;
+        }
+        if (!state.directoryName) {
+          updateScreenshotDirTooltip('未设置，截图存到浏览器下载文件夹');
+          return;
+        }
+        // 权限不跨会话保留，prompt 状态只要点「选择」就会重新授权
+        updateScreenshotDirTooltip(
+          state.permission === 'granted'
+            ? `当前：${state.directoryName}`
+            : `当前：${state.directoryName}（需重新授权）`
+        );
+      };
+
+      /**
+       * 让用户选一个截图保存文件夹并记住它。
+       *
+       * `pickScreenshotDirectory` 必须在用户点击的调用栈里直接 await ——
+       * 它内部会调 `showDirectoryPicker()`，浏览器要求这是用户手势触发的。
+       * 所以这里**先 pick，再刷新状态**，顺序不能反。
+       */
+      const chooseScreenshotDirectory = async () => {
+        const picked = await pickScreenshotDirectory();
+        if (!picked) {
+          // 用户取消 / 不支持 / 句柄存不下，三种情况都不改变现状
+          await refreshScreenshotDirState();
+          return;
+        }
+        await refreshScreenshotDirState();
+        updateScreenshotDirTooltip(`当前：${picked.name}`);
+        showPlayNotice(`截图将保存到「${picked.name}」`);
+      };
+
+      /** 放弃已选文件夹，改用浏览器下载目录 */
+      const resetScreenshotDirectory = async () => {
+        await clearDirectoryHandle();
+        updateScreenshotDirTooltip('未设置，截图存到浏览器下载文件夹');
+        showPlayNotice('截图改为保存到浏览器下载文件夹');
+      };
+
       /**
        * 启动 / 续跑前向预缓存。
        * ensure 是幂等的：窗口仍然够用时直接返回，可以放心高频调用。
@@ -2342,7 +2464,9 @@ export function usePlayEngine() {
 
         const preferred = preferredHeightRef.current;
         // 画质档位也是预热键的一部分：换了档位，预热过的分片 URL 就不同了
-        const key = `${currentSourceRef.current}:${currentIdRef.current}:${nextIndex}:${preferred ?? 'auto'}`;
+        const key = `${currentSourceRef.current}:${
+          currentIdRef.current
+        }:${nextIndex}:${preferred ?? 'auto'}`;
         if (nextWarmupKeyRef.current === key) return;
         nextWarmupKeyRef.current = key;
 
@@ -2447,9 +2571,7 @@ export function usePlayEngine() {
         moreVideoAttr: {
           crossOrigin: 'anonymous',
         },
-        plugins: [
-          danmukuPluginRef.current(danmakuConfigRef.current),
-        ],
+        plugins: [danmukuPluginRef.current(danmakuConfigRef.current)],
         // HLS 支持配置
         customType: {
           m3u8: function (video: HTMLVideoElement, url: string) {
@@ -2509,27 +2631,30 @@ export function usePlayEngine() {
               syncQualitySetting(hls);
             });
 
-            hls.on(Hls.Events.LEVEL_SWITCHED, function (_event: any, data: any) {
-              const level = hls.levels?.[data?.level];
-              updateQualityTooltip(
-                hls.autoLevelEnabled
-                  ? `自动${level ? ` · ${describeLevel(level)}` : ''}`
-                  : describeLevel(level)
-              );
+            hls.on(
+              Hls.Events.LEVEL_SWITCHED,
+              function (_event: any, data: any) {
+                const level = hls.levels?.[data?.level];
+                updateQualityTooltip(
+                  hls.autoLevelEnabled
+                    ? `自动${level ? ` · ${describeLevel(level)}` : ''}`
+                    : describeLevel(level)
+                );
 
-              // 暂停状态下切换档位时，浏览器不会自动重绘新解码的帧，
-              // 画面会停在旧档位，用户容易误判成"切了没反应"。
-              // 用一次 10ms 的微 seek 强制刷新——偏移落在同一分片内，
-              // 不会触发重新加载。
-              const media = artPlayerRef.current?.video;
-              if (media?.paused && media.currentTime > 0.05) {
-                try {
-                  media.currentTime = media.currentTime - 0.01;
-                } catch {
-                  // 忽略：极端情况下媒体尚未就绪
+                // 暂停状态下切换档位时，浏览器不会自动重绘新解码的帧，
+                // 画面会停在旧档位，用户容易误判成"切了没反应"。
+                // 用一次 10ms 的微 seek 强制刷新——偏移落在同一分片内，
+                // 不会触发重新加载。
+                const media = artPlayerRef.current?.video;
+                if (media?.paused && media.currentTime > 0.05) {
+                  try {
+                    media.currentTime = media.currentTime - 0.01;
+                  } catch {
+                    // 忽略：极端情况下媒体尚未就绪
+                  }
                 }
               }
-            });
+            );
 
             // 分片加载成功（含命中本项目的片段缓存）即视为链路仍在推进
             hls.on(Hls.Events.FRAG_LOADED, function () {
@@ -2701,7 +2826,9 @@ export function usePlayEngine() {
             onSelect: function (item: any) {
               const value = Number(item.value);
               const hls = artPlayerRef.current?.video?.hls;
-              const levels: any[] = Array.isArray(hls?.levels) ? hls.levels : [];
+              const levels: any[] = Array.isArray(hls?.levels)
+                ? hls.levels
+                : [];
 
               const isAuto = value === AUTO_LEVEL || Number.isNaN(value);
               const isMax = value === MAX_LEVEL;
@@ -2782,6 +2909,29 @@ export function usePlayEngine() {
             },
           },
           {
+            // 截图保存位置。做成 selector 子面板而不是单个 onClick：
+            // 需要同时给出「选目录」「改用下载目录」两个动作，且要能显示
+            // 当前生效的目录名 —— 用户设置过什么必须一眼可见。
+            //
+            // 注意 selector 是**启动时构建**的，目录名会变（用户可能中途改
+            // 设置），所以选项里放固定动作，当前状态通过 tooltip 呈现；
+            // 每次操作后都刷新 tooltip（走 DOM setter，不触发 update()）。
+            name: SCREENSHOT_DIR_SETTING_NAME,
+            html: '截图保存位置',
+            tooltip: screenshotDirTooltipRef.current,
+            selector: buildScreenshotDirOptions(),
+            onSelect: function (item: any) {
+              const action = item?.value;
+              if (action === 'choose') {
+                void chooseScreenshotDirectory();
+              } else if (action === 'clear') {
+                void resetScreenshotDirectory();
+              }
+              // 返回空串 = 留在子面板里，方便连续操作后看到状态变化
+              return '';
+            },
+          },
+          {
             // 快捷键面板。用 selector 而非 onClick，才能展开成子面板
             // 逐条列出按键（onClick 只会执行动作、不展示内容）。
             // 点某一条进入录制态，再按任意组合键即可完成改键。
@@ -2820,7 +2970,10 @@ export function usePlayEngine() {
               if (value === '__add__') {
                 const input =
                   typeof window !== 'undefined'
-                    ? window.prompt('输入要屏蔽的关键词（在词首加 re: 使用正则）', '')
+                    ? window.prompt(
+                        '输入要屏蔽的关键词（在词首加 re: 使用正则）',
+                        ''
+                      )
                     : null;
                 if (input && input.trim()) {
                   const raw = input.trim();
@@ -2914,18 +3067,32 @@ export function usePlayEngine() {
       artPlayerRef.current.on('ready', () => {
         setError(null);
 
-        // 截图跨域保护。
+        // 异步读出「截图保存位置」的真实状态覆盖面板首帧的占位文本。
+        // 放在 ready 里而不是构造前，是因为它要写 DOM 节点，得等面板渲染完。
+        void refreshScreenshotDirState();
+
+        // 截图：跨域保护翻译 + 保存到「用户选的目录」或「浏览器下载目录」。
         //
-        // ArtPlayer 的截图是裸的 drawImage + toDataURL，当视频被标记为
-        // 跨域污染时会抛 SecurityError，用户只看到一句英文报错。
-        // 这里包一层，把不可用的情况翻译成明确的提示。
+        // 两件事必须一起做，否则用户依然困惑：
+        // 1) ArtPlayer 的截图是裸的 drawImage + toDataURL，视频被标记为跨域
+        //    污染时会抛 SecurityError，用户只看到一句英文报错 —— 翻译成中文。
+        // 2) 原生实现走 `<a download>`，文件名带冒号（`artplayer_00:12:34.png`）
+        //    会被 Windows 拒绝，而且**页面永远拿不到落盘路径**（浏览器安全模型），
+        //    用户「截了但忘了去哪找」。这里改成自己生成合法文件名，并在
+        //    用户授权过的目录里直接写文件 —— 那条路径下我们**真的知道路径**。
         try {
           const art: any = artPlayerRef.current;
           const originalScreenshot = art.screenshot?.bind(art);
           if (typeof originalScreenshot === 'function') {
             art.screenshot = async (name?: string) => {
+              let dataUrl: string;
               try {
-                return await originalScreenshot(name);
+                // 用 getDataURL 自己取数据，绕开原生 screenshot 的下载行为
+                // （我们要自己决定文件名与落盘位置）。
+                dataUrl =
+                  typeof art.getDataURL === 'function'
+                    ? await art.getDataURL()
+                    : await originalScreenshot(name);
               } catch (err) {
                 const message =
                   err instanceof Error ? err.message : String(err);
@@ -2938,6 +3105,28 @@ export function usePlayEngine() {
                 }
                 throw err;
               }
+
+              // 自定义了名字就尊重调用方（并补上 .png），否则按进度 + 标题生成
+              const filename =
+                typeof name === 'string' && name.trim()
+                  ? `${
+                      sanitizeFilenamePart(name, 60) ||
+                      SCREENSHOT_FILENAME_PREFIX
+                    }.png`
+                  : buildScreenshotFilename({
+                      currentTime: art.currentTime || 0,
+                      title: detailRef.current?.title || '',
+                    });
+
+              const result = await saveScreenshot(dataUrl, filename);
+              art.notice.show = result.message;
+              // 保留原生事件（下载插件等可能依赖），但不影响上面的提示
+              try {
+                art.emit?.('screenshot', dataUrl);
+              } catch {
+                /* 事件订阅方出错不影响截图结果 */
+              }
+              return dataUrl;
             };
           }
         } catch {
@@ -3066,8 +3255,8 @@ export function usePlayEngine() {
           typeof hls.loadLevel === 'number' && hls.loadLevel >= 0
             ? hls.loadLevel
             : typeof hls.currentLevel === 'number' && hls.currentLevel >= 0
-              ? hls.currentLevel
-              : 0;
+            ? hls.currentLevel
+            : 0;
         const cap =
           typeof hls.autoLevelCapping === 'number' && hls.autoLevelCapping >= 0
             ? hls.autoLevelCapping
@@ -3297,7 +3486,11 @@ export function usePlayEngine() {
   useEffect(() => {
     // 监听页面可见性变化
     const handleVisibilityChange = () => {
-      if (!document.hidden && artPlayerRef.current && !artPlayerRef.current.paused) {
+      if (
+        !document.hidden &&
+        artPlayerRef.current &&
+        !artPlayerRef.current.paused
+      ) {
         // 页面变为可见且视频正在播放时，重新请求 Wake Lock
         requestWakeLock();
       } else if (document.hidden) {
@@ -3338,10 +3531,7 @@ export function usePlayEngine() {
   // 弹幕选择回调（供渲染层绑定 DanmakuSelector）
   // -----------------------------------------------------------------------------
 
-  const handleDanmakuSelect = (
-    anime: AnimeOption,
-    episodeNumber?: number
-  ) => {
+  const handleDanmakuSelect = (anime: AnimeOption, episodeNumber?: number) => {
     const sourceName = anime.animeTitle;
     setSelectedDanmakuSource(sourceName);
     selectedDanmakuSourceRef.current = sourceName;
@@ -3354,7 +3544,11 @@ export function usePlayEngine() {
   const handleDanmakuClose = () => {
     setShowDanmakuSelector(false);
     // 更新 tooltip（走 DOM setter，不触发面板重建）
-    setSettingTooltip(artPlayerRef.current, DANMAKU_SETTING_NAME, currentTooltip || '未选择');
+    setSettingTooltip(
+      artPlayerRef.current,
+      DANMAKU_SETTING_NAME,
+      currentTooltip || '未选择'
+    );
   };
 
   // -----------------------------------------------------------------------------

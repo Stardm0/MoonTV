@@ -1,8 +1,8 @@
 /**
  * 外部播放器跳转。
  *
- * 原理：各播放器注册了自己的 URL scheme，浏览器 `window.open()` 一个
- * 形如 `potplayer://<url>` 的地址，系统就会唤起对应客户端。
+ * 原理：各播放器注册了自己的 URL scheme，往页面里挂一个指向
+ * `potplayer://<url>` 的隐藏 iframe，系统就会唤起对应客户端。
  *
  * 为什么单独抽模块：
  * 1) 各播放器的 scheme 格式不一致（见下表），散落在组件里容易写错。
@@ -94,24 +94,62 @@ export function buildExternalPlayerUrl(
 /**
  * 唤起外部播放器。
  *
- * 用 `window.open(url, '_blank')` 而非 `location.href`：
- * 后者在未安装客户端时会把当前页面导航到一个无效地址，用户直接丢失播放进度。
- * `_blank` 即使失败也只是开一个空标签页，不会破坏当前页面。
+ * ## 为什么不用 `window.open(url, '_blank')`
  *
- * 返回 true 表示已尝试唤起。
+ * 未安装客户端时，自定义 scheme **必然**失败，而失败的表现是浏览器把
+ * 那个地址当成一个普通 URL 去访问 —— 结果就是**多出一个空白标签页**，
+ * 用户既没打开播放器，还得手动关掉它。已安装时它也会留下一个标签页
+ * （部分浏览器会在唤起 App 后把新标签页收回去，但不保证）。
+ *
+ * ## 用隐藏 iframe 的差别
+ *
+ * iframe 的导航失败是**静默**的：不会新开窗口、不会动当前页面、不会
+ * 弹出错误。这正是我们想要的"尽力而为"语义 —— 唤起成功就成功，
+ * 失败也只是什么都没发生，随后由 UI 提示「需本机已安装」。
+ *
+ * ⚠️ 仍然**无法判断**到底是"没装"还是"装了但被浏览器拦了"。
+ * 浏览器不提供这种能力，任何声称能检测的写法都是靠超时猜测。所以这里
+ * 只返回"已发起唤起"，提示文案由调用方按"需已安装"来写。
+ *
+ * 返回 true 表示已发起唤起（不代表播放器一定被打开）。
  */
 export function launchExternalPlayer(
   playerId: ExternalPlayerId,
   mediaUrl: string,
-  title?: string
+  title?: string,
+  doc: Document | null = typeof document === 'undefined' ? null : document
 ): boolean {
-  if (typeof window === 'undefined') return false;
+  if (!doc) return false;
 
   const target = buildExternalPlayerUrl(playerId, mediaUrl, title);
   if (!target) return false;
 
   try {
-    window.open(target, '_blank');
+    const iframe = doc.createElement('iframe');
+    // 隐藏但不 `display:none` —— 后者在部分浏览器里会**跳过导航**，
+    // 导致唤起静默失效（看起来像"根本没反应"）。
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+    iframe.setAttribute('aria-hidden', 'true');
+    iframe.setAttribute('tabindex', '-1');
+    // 必须挂上 DOM 才会有实际导航行为
+    doc.body.appendChild(iframe);
+    iframe.src = target;
+
+    // 唤起后延迟移除，给系统足够时间去接管协议。
+    // 太早移除会让部分浏览器取消这次导航。
+    setTimeout(() => {
+      try {
+        iframe.remove();
+      } catch {
+        /* 已随页面卸载，忽略 */
+      }
+    }, 3000);
+
     return true;
   } catch {
     return false;
