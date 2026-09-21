@@ -1,81 +1,43 @@
 /**
- * 截图保存：优先「用户选定的目录」，降级「浏览器下载目录」。
+ * 截图保存：一律走浏览器下载目录。
  *
- * ## 为什么需要这个模块
+ * ## 为什么从「可选目录」退回到「只有下载」
  *
- * ArtPlayer 5.3.0 的原生截图实现是：
+ * 曾经实现过「让用户选一个目录并记住」的两级策略（File System Access API
+ * + IndexedDB 存目录句柄），但**在真机上不可靠**：
+ *
+ * - 目录权限**不跨会话保留**，刷新后要重新授权，用户感受就是「设置没生效」；
+ * - 只有 Chromium 系支持 `showDirectoryPicker`，Firefox / Safari 直接没有；
+ * - 授权窗必须落在用户手势的调用栈里，而截图是由按钮/快捷键间接触发的，
+ *   中间多一次 `await` 就会静默失败。
+ *
+ * 结果是设置里写着「当前：电影下载」，实际却存到了浏览器下载文件夹 ——
+ * **一个兑现不了的承诺比没有这个设置更糟**，所以去掉该设置，
+ * 只保留能确定做对的事：自己生成合法文件名 + 触发下载。
+ *
+ * ## ArtPlayer 原生截图的两个问题（本模块存在的理由）
+ *
  * ```js
  * let dataURL = await this.getDataURL();          // canvas.toDataURL('image/png')
  * let name = name || `artplayer_${secondToTime(currentTime)}`;
- * download(dataURL, `${name}.png`);                // <a download> 触发浏览器下载
+ * download(dataURL, `${name}.png`);                // <a download>
  * ```
  *
- * 问题在于**浏览器从不告诉页面文件落到哪了**。`<a download>` 只是把字节
- * 交给浏览器的下载管理器，具体目录由浏览器设置决定，页面无从读取 ——
- * 这是浏览器的安全模型，不是实现缺陷。
- *
- * 于是用户的真实痛点是：「截了，但忘了去哪个文件夹找」。
- *
- * ## 两级策略
- *
- * **B —— File System Access API（`showSaveFilePicker`）**
- * 让用户**选一次目录并授权**，把 `FileSystemDirectoryHandle` 存进 IndexedDB。
- * 之后每次截图直接写进那个目录，页面**真的知道路径**，可以把
- * 「文件名 + 目录名」显示出来，并能提供「打开文件夹」。
- * Chromium 系（Chrome / Edge）支持。
- *
- * **A —— 降级：浏览器下载目录**
- * 不支持上述 API、或用户拒绝授权时，退回 `<a download>`，提示里只敢说
- * 「已保存到浏览器下载目录」—— 因为确实不知道路径，**不能编造**。
- *
- * ## 关键约束
- *
- * - 目录句柄**必须存 IndexedDB**，不能存 localStorage：它是结构化对象，
- *   localStorage 只能存字符串；`JSON.stringify` 会把它变成 `{}`。
- * - 权限**不会跨会话自动保留**。即使句柄存下来了，新会话仍需
- *   `requestPermission()` 确认一次；`queryPermission()` 只用来判断当前状态。
- * - 写入必须用 `createWritable()` + `close()`；没 `close()` 文件是空的。
+ * 1. 默认文件名带**冒号**（`artplayer_00:12:34.png`）—— Windows 不允许，
+ *    会被浏览器改名甚至写失败；
+ * 2. 「截了但忘了去哪找」。浏览器**从不告诉页面**落盘路径（安全模型），
+ *    所以文案只敢说「浏览器下载文件夹」，**绝不编造具体路径**。
  */
-
-/** IndexedDB 库名 / 对象仓库名（与视频缓存分开，避免互相影响） */
-const DB_NAME = 'moontv-screenshot-fs';
-const STORE_NAME = 'handles';
-const DIR_KEY = 'screenshot-dir';
 
 /** 默认文件名前缀。与 ArtPlayer 原生保持一致，便于用户建立预期。 */
 export const SCREENSHOT_FILENAME_PREFIX = 'artplayer';
 
-/** 截图保存模式 */
-export type ScreenshotSaveMode =
-  /** 已授权目录，直接写入并知道路径 */
-  | 'directory'
-  /** 退回到浏览器下载目录 */
-  | 'download';
-
 /** 一次截图的结果 */
 export interface ScreenshotSaveResult {
-  mode: ScreenshotSaveMode;
-  /** 文件名（含扩展名），两种模式都有 */
+  /** 文件名（含扩展名） */
   filename: string;
-  /** 仅 `directory` 模式有值：用户选定目录的名字 */
-  directoryName?: string;
   /** 给用户看的提示文案 */
   message: string;
-}
-
-/**
- * 该环境是否支持「选目录保存」。
- *
- * 只认 `showDirectoryPicker` —— 我们**需要目录句柄**才能「下次直接写进去」。
- * `showSaveFilePicker` 只能拿到文件句柄、推不出目录，做不出「记住路径」这件事，
- * 所以不算支持（早前误把它当降级路径，会给出一个兑现不了的承诺）。
- */
-export function supportsDirectorySave(
-  win: unknown = typeof window === 'undefined' ? null : window
-): boolean {
-  if (!win || typeof win !== 'object') return false;
-  const w = win as Record<string, unknown>;
-  return typeof w.showDirectoryPicker === 'function';
 }
 
 // ---------------------------------------------------------------------------
@@ -156,140 +118,6 @@ export function sanitizeFilenamePart(input: string, maxLength = 40): string {
 }
 
 // ---------------------------------------------------------------------------
-// IndexedDB 存取目录句柄
-// ---------------------------------------------------------------------------
-
-/**
- * 目录句柄的宽松类型（`FileSystemDirectoryHandle` 在 TS DOM lib 里
- * 随版本差异较大，这里只用得到 name / 写入相关方法）。
- */
-export interface DirectoryHandleLike {
-  name?: string;
-  getFileHandle?: (
-    name: string,
-    options?: { create?: boolean }
-  ) => Promise<FileHandleLike>;
-  queryPermission?: (descriptor?: { mode?: string }) => Promise<string>;
-  requestPermission?: (descriptor?: { mode?: string }) => Promise<string>;
-}
-
-export interface FileHandleLike {
-  createWritable?: () => Promise<WritableLike>;
-}
-
-export interface WritableLike {
-  write?: (data: unknown) => Promise<void> | void;
-  close?: () => Promise<void> | void;
-}
-
-function openDb(): Promise<IDBDatabase | null> {
-  return new Promise((resolve) => {
-    if (typeof indexedDB === 'undefined') {
-      resolve(null);
-      return;
-    }
-    try {
-      const req = indexedDB.open(DB_NAME, 1);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      // 某些隐私模式下会一直挂起，超时兜底
-      setTimeout(() => resolve(null), 2000);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-/** 保存目录句柄。句柄是结构化对象，**不能**走 localStorage。 */
-export async function saveDirectoryHandle(
-  handle: DirectoryHandleLike | null
-): Promise<boolean> {
-  const db = await openDb();
-  if (!db) return false;
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readwrite');
-      const store = tx.objectStore(STORE_NAME);
-      if (handle) store.put(handle, DIR_KEY);
-      else store.delete(DIR_KEY);
-      tx.oncomplete = () => resolve(true);
-      tx.onerror = () => resolve(false);
-      tx.onabort = () => resolve(false);
-    } catch {
-      resolve(false);
-    }
-  });
-}
-
-/** 读取已保存的目录句柄（不校验权限，权限要单独查） */
-export async function loadDirectoryHandle(): Promise<DirectoryHandleLike | null> {
-  const db = await openDb();
-  if (!db) return null;
-  return new Promise((resolve) => {
-    try {
-      const tx = db.transaction(STORE_NAME, 'readonly');
-      const req = tx.objectStore(STORE_NAME).get(DIR_KEY);
-      req.onsuccess = () =>
-        resolve((req.result as DirectoryHandleLike) ?? null);
-      req.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
-/** 清除已保存的目录（用户改主意 / 句柄失效时用） */
-export async function clearDirectoryHandle(): Promise<void> {
-  await saveDirectoryHandle(null);
-}
-
-/** 权限状态 */
-export type DirPermission = 'granted' | 'denied' | 'prompt' | 'unknown';
-
-/** 查询当前权限（不会弹窗） */
-export async function queryDirectoryPermission(
-  handle: DirectoryHandleLike | null
-): Promise<DirPermission> {
-  if (!handle?.queryPermission) return 'unknown';
-  try {
-    const state = await handle.queryPermission({ mode: 'readwrite' });
-    if (state === 'granted' || state === 'denied' || state === 'prompt') {
-      return state;
-    }
-    return 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
-/**
- * 申请权限（**会弹窗**，必须由用户手势触发）。
- *
- * 必须在 click 的调用栈里直接 await，不能先 await 别的东西再调 ——
- * 否则浏览器认为不是用户手势，直接拒绝。调用方注意顺序。
- */
-export async function requestDirectoryPermission(
-  handle: DirectoryHandleLike | null
-): Promise<DirPermission> {
-  if (!handle?.requestPermission) return 'unknown';
-  try {
-    const state = await handle.requestPermission({ mode: 'readwrite' });
-    if (state === 'granted' || state === 'denied' || state === 'prompt') {
-      return state;
-    }
-    return 'unknown';
-  } catch {
-    return 'unknown';
-  }
-}
-
-// ---------------------------------------------------------------------------
 // 保存
 // ---------------------------------------------------------------------------
 
@@ -315,31 +143,11 @@ export function dataUrlToBlob(dataUrl: string): Blob | null {
   }
 }
 
-/** 把 Blob 写进指定目录，返回是否成功 */
-export async function writeBlobToDirectory(
-  dir: DirectoryHandleLike,
-  filename: string,
-  blob: Blob
-): Promise<boolean> {
-  if (!dir?.getFileHandle) return false;
-  try {
-    const fileHandle = await dir.getFileHandle(filename, { create: true });
-    const writable = await fileHandle?.createWritable?.();
-    if (!writable?.write) return false;
-    await writable.write(blob);
-    // ⚠️ 不 close() 文件是空的 —— 最容易被忘的一步
-    await writable.close?.();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * 触发浏览器下载（降级路径 A）。
+ * 触发浏览器下载。
  *
  * 用 `URL.createObjectURL` + `<a download>`，与 ArtPlayer 原生一致；
- * 但我们**自己控制文件名**，并会在完成后 revoke 掉 objectURL。
+ * 但我们**自己控制文件名**，并在完成后 revoke 掉 objectURL。
  */
 export function triggerBrowserDownload(blob: Blob, filename: string): boolean {
   if (typeof document === 'undefined' || typeof URL === 'undefined')
@@ -365,75 +173,22 @@ export function triggerBrowserDownload(blob: Blob, filename: string): boolean {
 }
 
 /**
- * 保存截图：有授权目录就写进去（B），否则退回下载目录（A）。
- *
- * ## 为什么必须在这里 `requestPermission()`
- *
- * 目录句柄能存下来，但**权限不跨会话保留** —— 刷新页面后
- * `queryPermission()` 会回到 `'prompt'`。早前这里只 `query`，
- * 于是「用户设置过目录 → 刷新 → 截图仍落到下载文件夹」，
- * 而且因为走了降级分支、用户以为设置根本没生效。
- *
- * `requestPermission()` 要求调用处在**用户手势的调用栈**里。截图是由
- * 点按钮 / 按快捷键触发的，天然满足；只要不先 `await` 别的东西
- * （比如别先 await 长时间的网络请求）就能弹窗成功。
+ * 保存截图到浏览器下载目录。
  *
  * @param dataUrl  ArtPlayer `getDataURL()` 的产物
  * @param filename 目标文件名（含扩展名），由 {@link buildScreenshotFilename} 生成
- * @param options.allowPermissionPrompt 是否允许弹权限窗（默认允许）
  */
 export async function saveScreenshot(
   dataUrl: string,
-  filename: string,
-  options: { allowPermissionPrompt?: boolean } = {}
+  filename: string
 ): Promise<ScreenshotSaveResult> {
-  const { allowPermissionPrompt = true } = options;
-
   const blob = dataUrlToBlob(dataUrl);
   if (!blob) {
-    return {
-      mode: 'download',
-      filename,
-      message: '截图数据无效',
-    };
+    return { filename, message: '截图数据无效' };
   }
 
-  // B：已保存目录 + 权限仍有效 → 直接写入，且我们知道路径
-  const handle = await loadDirectoryHandle();
-  if (handle) {
-    let permission = await queryDirectoryPermission(handle);
-    // 权限掉了就补一次授权（仍在用户手势栈里，能弹窗）
-    if (permission !== 'granted' && allowPermissionPrompt) {
-      permission = await requestDirectoryPermission(handle);
-    }
-    if (permission === 'granted') {
-      const ok = await writeBlobToDirectory(handle, filename, blob);
-      if (ok) {
-        const dirName = handle.name || '所选文件夹';
-        return {
-          mode: 'directory',
-          filename,
-          directoryName: dirName,
-          message: `已截图：${filename}（保存在「${dirName}」）`,
-        };
-      }
-      // 写入失败通常是句柄失效（目录被删/改名）。提示用户重设，
-      // 否则他会一直以为截图存进了那个目录。
-      const fallbackOk = triggerBrowserDownload(blob, filename);
-      return {
-        mode: 'download',
-        filename,
-        message: fallbackOk
-          ? `原目录不可写，已改存到浏览器下载文件夹：${filename}`
-          : `原目录不可写，截图已生成：${filename}，请到浏览器下载文件夹查看`,
-      };
-    }
-  }
-
-  // A：降级到浏览器下载目录。**不能声称知道路径** —— 浏览器不告诉我们。
   const ok = triggerBrowserDownload(blob, filename);
   return {
-    mode: 'download',
     filename,
     message: ok
       ? `已截图：${filename}（已保存到浏览器下载文件夹）`
@@ -441,54 +196,4 @@ export async function saveScreenshot(
         // 措辞用「请查看」而不是「已保存」，不把没做到的事说成做到了。
         `截图已生成：${filename}，请到浏览器下载文件夹查看`,
   };
-}
-
-/**
- * 读取当前截图保存目录的状态，用于设置面板展示。
- *
- * 只做**查询**，不会弹权限窗 —— 设置面板渲染时调用它是安全的。
- * 权限需要在用户点击时单独 {@link requestDirectoryPermission}。
- */
-export async function describeScreenshotDirectory(): Promise<{
-  /** 是否支持选目录（Chromium 系） */
-  supported: boolean;
-  /** 已保存目录的名字，无则为 null */
-  directoryName: string | null;
-  /** 已保存目录当前的权限状态 */
-  permission: DirPermission;
-}> {
-  const supported = supportsDirectorySave();
-  const handle = await loadDirectoryHandle();
-  if (!handle) {
-    return { supported, directoryName: null, permission: 'unknown' };
-  }
-  const permission = await queryDirectoryPermission(handle);
-  return {
-    supported,
-    directoryName: handle.name || '所选文件夹',
-    permission,
-  };
-}
-
-export async function pickScreenshotDirectory(
-  win: unknown = typeof window === 'undefined' ? null : window
-): Promise<{ name: string } | null> {
-  if (!supportsDirectorySave(win)) return null;
-  try {
-    const showDirectoryPicker = (
-      win as {
-        showDirectoryPicker: (o?: unknown) => Promise<DirectoryHandleLike>;
-      }
-    ).showDirectoryPicker;
-    const dir = await showDirectoryPicker({ mode: 'readwrite' });
-    if (!dir) return null;
-    // 句柄存不下来（隐私模式 / IndexedDB 不可用）时，不能假装设置成功 ——
-    // 否则下次截图会退回下载目录，用户以为设过了却找不到文件。
-    const saved = await saveDirectoryHandle(dir);
-    if (!saved) return null;
-    return { name: dir.name || '所选文件夹' };
-  } catch {
-    // 用户取消（AbortError）或权限拒绝都走这里
-    return null;
-  }
 }

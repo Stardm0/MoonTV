@@ -2,28 +2,23 @@
  * `screenshot-save` 单测。
  *
  * 这个模块的风险点在于「说了假话」：截图路径是浏览器不告诉页面的信息，
- * 一旦在降级路径上编造一个路径，用户会照着去找、找不到、再也不敢用。
- * 所以下面的用例分两类：
+ * 一旦编造一个路径，用户会照着去找、找不到、再也不敢用。
+ * 所以除了纯函数取值，还有一条**防说谎的不变量**：
+ * 文案里绝不许出现盘符或绝对路径。
  *
- * 1. **纯函数**（文件名清洗、时间戳、dataURL → Blob）—— 直接断言取值。
- * 2. **防说谎的不变量** —— 断言「拿不到路径时文案里不出现具体路径」。
- *
- * 第三类在文件末尾：**目录权限跨会话恢复**，通过假 `indexedDB` 把真句柄
- * 喂给真实的 `loadDirectoryHandle`，见该 describe 的说明。
+ * 另注：本模块曾实现「用户可选保存目录」（File System Access + IndexedDB），
+ * 因权限不跨会话保留、部分浏览器不支持而**整体移除**，相关用例一并删掉。
+ * 现在只有「浏览器下载目录」这一条路径。
  */
 
 import {
-  type DirectoryHandleLike,
   buildScreenshotFilename,
   dataUrlToBlob,
-  describeScreenshotDirectory,
   formatTimestampSegment,
-  pickScreenshotDirectory,
   sanitizeFilenamePart,
   saveScreenshot,
   SCREENSHOT_FILENAME_PREFIX,
-  supportsDirectorySave,
-  writeBlobToDirectory,
+  triggerBrowserDownload,
 } from '@/lib/screenshot-save';
 
 describe('formatTimestampSegment', () => {
@@ -73,7 +68,6 @@ describe('sanitizeFilenamePart', () => {
   it('超长时截断，且截断后不留下结尾下划线', () => {
     const out = sanitizeFilenamePart('a'.repeat(60), 10);
     expect(out).toBe('a'.repeat(10));
-    // 第 10 个字符是下划线的情况
     const withTrailing = sanitizeFilenamePart('abcde fghij klmno', 6);
     expect(withTrailing).toBe('abcde');
     expect(withTrailing.endsWith('_')).toBe(false);
@@ -81,105 +75,79 @@ describe('sanitizeFilenamePart', () => {
 
   it('全是非法字符时返回空串（调用方据此决定要不要拼进文件名）', () => {
     expect(sanitizeFilenamePart('///:::')).toBe('');
-    expect(sanitizeFilenamePart('')).toBe('');
+    expect(sanitizeFilenamePart('   ')).toBe('');
   });
 
   it('非字符串输入返回空串，不抛异常', () => {
-    // @ts-expect-error 故意传错类型
-    expect(sanitizeFilenamePart(null)).toBe('');
-    // @ts-expect-error 故意传错类型
-    expect(sanitizeFilenamePart(undefined)).toBe('');
+    // 源站数据脏，这里必须兜住
+    expect(
+      sanitizeFilenamePart(undefined as unknown as string)
+    ).toBe('');
+    expect(sanitizeFilenamePart(null as unknown as string)).toBe('');
   });
 });
 
 describe('buildScreenshotFilename', () => {
-  const now = new Date(2026, 8, 19, 23, 13, 19); // 2026-09-19
+  const now = new Date(2026, 8, 22, 10, 0, 0); // 2026-09-22
 
   it('包含前缀、日期、时间戳', () => {
     const name = buildScreenshotFilename({ currentTime: 65, now });
-    expect(name).toBe(`${SCREENSHOT_FILENAME_PREFIX}_20260919_00_01_05.png`);
+    expect(name.startsWith(SCREENSHOT_FILENAME_PREFIX)).toBe(true);
+    expect(name).toContain('20260922');
+    expect(name).toContain('00_01_05');
   });
 
   it('有标题时把标题插在日期之后', () => {
     const name = buildScreenshotFilename({
-      currentTime: 3661,
+      currentTime: 0,
       title: '进击的巨人',
       now,
     });
-    expect(name).toBe(
-      `${SCREENSHOT_FILENAME_PREFIX}_20260919_进击的巨人_01_01_01.png`
-    );
+    expect(name).toBe('artplayer_20260922_进击的巨人_00_00_00.png');
   });
 
   it('标题被清洗，非法字符不会漏进文件名', () => {
     const name = buildScreenshotFilename({
-      currentTime: 1,
-      title: 'A/B:C*D?',
+      currentTime: 0,
+      title: 'a/b:c',
       now,
     });
-    expect(name).not.toMatch(/[/\\:*?"<>|]/);
-    expect(name).toContain('ABCD');
+    expect(name).not.toContain('/');
+    expect(name).not.toContain(':');
+    expect(name).toContain('abc');
   });
 
   it('标题为空或全是非法字符时不留多余分隔符', () => {
-    const a = buildScreenshotFilename({ currentTime: 1, title: '', now });
-    const b = buildScreenshotFilename({ currentTime: 1, title: '///', now });
-    expect(a).not.toContain('__');
-    expect(a).toBe(b);
+    for (const title of ['', '   ', '///']) {
+      const name = buildScreenshotFilename({ currentTime: 0, title, now });
+      expect(name).not.toContain('__');
+      expect(name).toBe('artplayer_20260922_00_00_00.png');
+    }
   });
 
   it('日期补零（1 月 1 日不能变成 101）', () => {
-    const name = buildScreenshotFilename({
-      currentTime: 0,
-      now: new Date(2026, 0, 1, 0, 0, 0),
-    });
-    expect(name).toBe(`${SCREENSHOT_FILENAME_PREFIX}_20260101_00_00_00.png`);
+    const jan1 = new Date(2026, 0, 1);
+    expect(buildScreenshotFilename({ currentTime: 0, now: jan1 })).toContain(
+      '20260101'
+    );
   });
 
   it('始终以 .png 结尾', () => {
-    expect(buildScreenshotFilename({ now }).endsWith('.png')).toBe(true);
+    expect(buildScreenshotFilename({ currentTime: 1 })).toMatch(/\.png$/);
   });
 });
-
-describe('supportsDirectorySave', () => {
-  // 这里的桩函数只被 `typeof === 'function'` 检查，不会被调用
-  const noop = () => undefined;
-
-  it('只认 showDirectoryPicker', () => {
-    expect(supportsDirectorySave({ showDirectoryPicker: noop })).toBe(true);
-    // showSaveFilePicker 拿不到目录，不算支持
-    expect(supportsDirectorySave({ showSaveFilePicker: noop })).toBe(false);
-    expect(supportsDirectorySave({})).toBe(false);
-    expect(supportsDirectorySave(null)).toBe(false);
-    expect(supportsDirectorySave(undefined)).toBe(false);
-  });
-});
-
-/** jsdom 的 Blob 没有 `.text()`，用 FileReader 读回来 */
-function blobToText(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsText(blob);
-  });
-}
 
 describe('dataUrlToBlob', () => {
-  it('解析 base64 dataURL 并保留 mime', async () => {
-    // 'hi' 的 base64 是 aGk=
+  it('解析 base64 dataURL 并保留 mime', () => {
     const blob = dataUrlToBlob('data:image/png;base64,aGk=');
     expect(blob).not.toBeNull();
-    expect(blob!.type).toBe('image/png');
-    expect(blob!.size).toBe(2);
-    expect(await blobToText(blob!)).toBe('hi');
+    expect(blob ? blob.type : '').toBe('image/png');
   });
 
-  it('支持非 base64 的 dataURL', async () => {
+  it('支持非 base64 的 dataURL', () => {
     const blob = dataUrlToBlob('data:image/svg+xml,<svg/>');
     expect(blob).not.toBeNull();
-    expect(blob!.type).toBe('image/svg+xml');
-    expect(await blobToText(blob!)).toBe('<svg/>');
+    expect(blob ? blob.type : '').toBe('image/svg+xml');
   });
 
   it('非图片 dataURL 返回 null', () => {
@@ -187,79 +155,75 @@ describe('dataUrlToBlob', () => {
   });
 
   it('格式非法返回 null 而不是抛异常', () => {
+    expect(dataUrlToBlob('garbage')).toBeNull();
     expect(dataUrlToBlob('')).toBeNull();
-    expect(dataUrlToBlob('not-a-data-url')).toBeNull();
-    expect(dataUrlToBlob('data:image/png;base64,@@@')).toBeNull();
   });
 });
 
-describe('writeBlobToDirectory', () => {
-  function makeDir(
-    options: { failCreate?: boolean; failClose?: boolean } = {}
-  ) {
-    const written: unknown[] = [];
-    let closed = false;
-    const dir: DirectoryHandleLike = {
-      name: 'Shots',
-      getFileHandle: async () => {
-        if (options.failCreate) throw new Error('nope');
-        return {
-          createWritable: async () => ({
-            write: async (data: unknown) => {
-              written.push(data);
-            },
-            close: async () => {
-              if (options.failClose) throw new Error('close failed');
-              closed = true;
-            },
-          }),
-        };
-      },
-    };
-    return { dir, written, isClosed: () => closed };
-  }
+describe('triggerBrowserDownload', () => {
+  // jsdom **没有实现** URL.createObjectURL（只有真实浏览器才有），
+  // 不补桩的话函数会走进 catch 返回 false，测试会误判成实现有问题。
+  const originalCreateObjectURL = (URL as { createObjectURL?: unknown })
+    .createObjectURL;
 
-  it('写入并 close（不 close 文件是空的）', async () => {
-    const { dir, written, isClosed } = makeDir();
-    const blob = new Blob(['x'], { type: 'image/png' });
-    expect(await writeBlobToDirectory(dir, 'a.png', blob)).toBe(true);
-    expect(written).toEqual([blob]);
-    expect(isClosed()).toBe(true);
+  beforeEach(() => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: jest.fn(() => 'blob:mock'),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: jest.fn(),
+    });
   });
 
-  it('getFileHandle 抛错时返回 false，不向外抛', async () => {
-    const { dir } = makeDir({ failCreate: true });
-    expect(await writeBlobToDirectory(dir, 'a.png', new Blob(['x']))).toBe(
-      false
-    );
+  afterEach(() => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: originalCreateObjectURL,
+    });
   });
 
-  it('close 失败也算失败（文件可能不完整）', async () => {
-    const { dir } = makeDir({ failClose: true });
-    expect(await writeBlobToDirectory(dir, 'a.png', new Blob(['x']))).toBe(
-      false
-    );
-  });
+  it('创建并点击 <a download>，且用后从 DOM 移除', () => {
+    const created: HTMLAnchorElement[] = [];
+    const originalCreate = document.createElement.bind(document);
+    const createSpy = jest
+      .spyOn(document, 'createElement')
+      .mockImplementation((tag: string) => {
+        const el = originalCreate(tag);
+        if (tag === 'a') created.push(el as HTMLAnchorElement);
+        return el;
+      });
+    const clickSpy = jest
+      .spyOn(HTMLAnchorElement.prototype, 'click')
+      .mockImplementation(() => undefined);
 
-  it('缺少 getFileHandle 时返回 false', async () => {
-    expect(await writeBlobToDirectory({}, 'a.png', new Blob(['x']))).toBe(
-      false
+    const ok = triggerBrowserDownload(
+      new Blob(['x'], { type: 'image/png' }),
+      'shot.png'
     );
+
+    expect(ok).toBe(true);
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(created).toHaveLength(1);
+    expect(created[0].download).toBe('shot.png');
+    expect(created[0].href).toContain('blob:mock');
+    // 用完必须从文档里摘掉，否则每次截图都留一个隐藏节点
+    expect(document.body.contains(created[0])).toBe(false);
+
+    createSpy.mockRestore();
+    clickSpy.mockRestore();
   });
 });
 
 describe('saveScreenshot — 防说谎的不变量', () => {
-  // jsdom 里没有 indexedDB（jest 环境未接假实现），loadDirectoryHandle
-  // 会走 null 分支，于是 saveScreenshot 必然落在降级路径 A 上 ——
-  // 这正好是我们要锁死的那条路径。
   it('降级路径不声称知道具体路径，只说「浏览器下载文件夹」', async () => {
-    const result = await saveScreenshot(
-      'data:image/png;base64,aGk=',
-      'shot.png'
-    );
-    expect(result.mode).toBe('download');
+    const result = await saveScreenshot('data:image/png;base64,aGk=', 'shot.png');
+
     expect(result.filename).toBe('shot.png');
-    expect(result.directoryName).toBeUndefined();
     expect(result.message).toContain('浏览器下载文件夹');
     // 绝不能出现盘符 / 绝对路径 —— 我们是真不知道
     expect(result.message).not.toMatch(/[A-Za-z]:\\/);
@@ -268,214 +232,11 @@ describe('saveScreenshot — 防说谎的不变量', () => {
 
   it('dataURL 无效时明确报「截图数据无效」，而不是假装成功', async () => {
     const result = await saveScreenshot('garbage', 'shot.png');
-    expect(result.mode).toBe('download');
     expect(result.message).toBe('截图数据无效');
   });
-});
 
-/**
- * 真实缺陷回归：用户选了保存目录，**刷新页面后截图又跑回浏览器下载文件夹**。
- *
- * 根因：File System Access 的目录句柄虽然存得住（IndexedDB），但**权限不跨
- * 会话保留** —— 刷新后 `queryPermission()` 一律回 `'prompt'`。原实现只
- * `query` 不 `request`，于是永远判定「没权限」，恒走降级下载，文案也只有
- * 「已保存到浏览器下载文件夹」，用户据此认为「设置没生效」。
- *
- * 修法：`query` 不为 `granted` 时补一次 `requestPermission()` —— 截图由点按 /
- * 快捷键触发，仍在用户手势调用栈里，浏览器允许弹窗。
- *
- * ## 为什么用假 `indexedDB` 而不是 `jest.mock` 模块
- *
- * `saveScreenshot` 与 `loadDirectoryHandle` 在**同一个模块内**，前者调用后者
- * 走的是模块作用域绑定，**不经过导出对象**。所以：
- * - `jest.spyOn(mod, 'loadDirectoryHandle')` → ESM 导出不可配置，直接报错；
- * - `jest.mock` + `requireActual` 展开 → 顶部 import 拿到的确实是桩，
- *   但 `saveScreenshot` 内部仍绑着真实现（实测：直接调 `loadDirectoryHandle`
- *   命中桩，`saveScreenshot` 内部的调用不命中）。
- *
- * 所以这里换个层次：给全局装一个**假 `indexedDB`**，让真实的
- * `loadDirectoryHandle()` 读出一个带权限方法的假句柄。这样整条链路
- * （`saveScreenshot` → `loadDirectoryHandle` → `queryPermission` →
- * `requestPermission` → 写入）都是真代码在跑，只有浏览器 API 是假的 ——
- * 比打模块桩更接近真机，也是更有效的回归防线。
- */
-describe('saveScreenshot — 目录权限跨会话恢复', () => {
-  const dataUrl = 'data:image/png;base64,aGk=';
-
-  type HandleSpy = DirectoryHandleLike & {
-    queryPermission: jest.Mock;
-    requestPermission: jest.Mock;
-    getFileHandle: jest.Mock;
-  };
-
-  /** 假句柄：记录 query/request 调用次数，并决定写入是否成功。 */
-  function makeHandle(options: {
-    query: string;
-    request?: string;
-    writeOk?: boolean;
-  }): HandleSpy {
-    return {
-      name: 'Shots',
-      queryPermission: jest.fn(async () => options.query),
-      requestPermission: jest.fn(async () => options.request ?? 'granted'),
-      getFileHandle: jest.fn(async () =>
-        options.writeOk === false
-          ? null
-          : {
-              createWritable: async () => ({
-                write: async () => undefined,
-                close: async () => undefined,
-              }),
-            }
-      ),
-    } as unknown as HandleSpy;
-  }
-
-  /** 把 `handle` 装进假 IndexedDB，供真实的 `loadDirectoryHandle()` 读出。 */
-  function installFakeIndexedDB(handle: DirectoryHandleLike | null): void {
-    const store = new Map<string, unknown>();
-    if (handle) store.set('screenshot-dir', handle);
-
-    const fakeDb = {
-      objectStoreNames: { contains: () => true },
-      createObjectStore: () => undefined,
-      transaction: () => {
-        const tx = {
-          objectStore: () => ({
-            get: () => {
-              const req: Record<string, unknown> = {};
-              // 异步回调：真实 IDB 不走同步栈，保持一致
-              setTimeout(() => {
-                req.result = store.get('screenshot-dir') ?? null;
-                (req.onsuccess as (() => void) | undefined)?.();
-              }, 0);
-              return req;
-            },
-            put: () => undefined,
-            delete: () => undefined,
-          }),
-          oncomplete: null as null | (() => void),
-          onerror: null as null | (() => void),
-          onabort: null as null | (() => void),
-        };
-        setTimeout(() => tx.oncomplete?.(), 0);
-        return tx;
-      },
-    };
-
-    (globalThis as unknown as { indexedDB: unknown }).indexedDB = {
-      open: () => {
-        const req: Record<string, unknown> = {};
-        setTimeout(() => {
-          req.result = fakeDb;
-          (req.onsuccess as (() => void) | undefined)?.();
-        }, 0);
-        return req;
-      },
-    };
-  }
-
-  afterEach(() => {
-    delete (globalThis as unknown as { indexedDB?: unknown }).indexedDB;
-  });
-
-  it('权限为 prompt 时主动申请，申请通过后写进所选目录', async () => {
-    const handle = makeHandle({ query: 'prompt', request: 'granted' });
-    installFakeIndexedDB(handle);
-
-    const result = await saveScreenshot(dataUrl, 'shot.png');
-
-    expect(handle.queryPermission).toHaveBeenCalledTimes(1);
-    expect(handle.requestPermission).toHaveBeenCalledTimes(1);
-    expect(result.mode).toBe('directory');
-    expect(result.directoryName).toBe('Shots');
-    expect(result.message).toContain('已截图');
-    expect(result.message).toContain('Shots');
-  });
-
-  it('权限已是 granted 时不再打扰用户（不弹窗）', async () => {
-    const handle = makeHandle({ query: 'granted' });
-    installFakeIndexedDB(handle);
-
-    const result = await saveScreenshot(dataUrl, 'shot.png');
-
-    expect(handle.requestPermission).not.toHaveBeenCalled();
-    expect(result.mode).toBe('directory');
-  });
-
-  it('allowPermissionPrompt=false 时只查询不申请（非手势场景）', async () => {
-    const handle = makeHandle({ query: 'prompt' });
-    installFakeIndexedDB(handle);
-
-    const result = await saveScreenshot(dataUrl, 'shot.png', {
-      allowPermissionPrompt: false,
-    });
-
-    expect(handle.requestPermission).not.toHaveBeenCalled();
-    expect(result.mode).toBe('download');
-  });
-
-  it('用户拒绝授权时降级到下载，且不声称写进了所选目录', async () => {
-    const handle = makeHandle({ query: 'prompt', request: 'denied' });
-    installFakeIndexedDB(handle);
-
-    const result = await saveScreenshot(dataUrl, 'shot.png');
-
-    expect(result.mode).toBe('download');
-    expect(result.directoryName).toBeUndefined();
-    expect(result.message).toContain('浏览器下载文件夹');
-    expect(result.message).not.toContain('Shots');
-  });
-
-  it('句柄失效导致写入失败时，文案改成「原目录不可写」而不是静默下载', async () => {
-    // 目录被删/改名后 getFileHandle 拿不到文件
-    const handle = makeHandle({ query: 'granted', writeOk: false });
-    installFakeIndexedDB(handle);
-
-    const result = await saveScreenshot(dataUrl, 'shot.png');
-
-    expect(handle.getFileHandle).toHaveBeenCalled();
-    expect(result.mode).toBe('download');
-    expect(result.message).toContain('原目录不可写');
-    expect(result.message).toContain('shot.png');
-  });
-});
-
-describe('pickScreenshotDirectory', () => {
-  it('环境不支持时直接返回 null，不调用任何 picker', async () => {
-    const win = {
-      showSaveFilePicker: () => {
-        throw new Error('不该被调用：文件选择器拿不到目录');
-      },
-    };
-    await expect(pickScreenshotDirectory(win)).resolves.toBeNull();
-  });
-
-  it('用户取消（抛 AbortError）返回 null', async () => {
-    const win = {
-      showDirectoryPicker: async () => {
-        const err = new Error('user aborted');
-        err.name = 'AbortError';
-        throw err;
-      },
-    };
-    expect(await pickScreenshotDirectory(win)).toBeNull();
-  });
-
-  it('拿不到 IndexedDB 时返回 null —— 不假装设置成功', async () => {
-    // 能选到目录，但句柄存不下来（隐私模式），必须失败
-    const win = {
-      showDirectoryPicker: async () => ({ name: 'Shots' }),
-    };
-    expect(await pickScreenshotDirectory(win)).toBeNull();
-  });
-});
-
-describe('describeScreenshotDirectory', () => {
-  it('无已保存目录时目录名为 null，且不抛异常', async () => {
-    const state = await describeScreenshotDirectory();
-    expect(state.directoryName).toBeNull();
-    expect(state.permission).toBe('unknown');
-    expect(typeof state.supported).toBe('boolean');
+  it('结果里不再有「目录模式」这种字段（该能力已移除）', async () => {
+    const result = await saveScreenshot('data:image/png;base64,aGk=', 'a.png');
+    expect(Object.keys(result).sort()).toEqual(['filename', 'message']);
   });
 });

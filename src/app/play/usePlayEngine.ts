@@ -63,9 +63,6 @@ import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
 import { DEFAULT_VOLUME, loadVolume, saveVolume } from '@/lib/playback-volume';
 import {
   buildScreenshotFilename,
-  clearDirectoryHandle,
-  describeScreenshotDirectory,
-  pickScreenshotDirectory,
   sanitizeFilenamePart,
   saveScreenshot,
   SCREENSHOT_FILENAME_PREFIX,
@@ -115,6 +112,7 @@ import {
   shouldClampEpisodeIndex,
   shouldFallbackEpisodeToLast,
 } from './lib/playerViewState';
+import { describeCacheSwitch, describeSkipConfig } from './lib/settingsLayout';
 import {
   applyDanmakuFilter,
   calculateSourceScore,
@@ -145,11 +143,40 @@ const MAX_AUTO_SOURCE_SWITCHES = 3;
 /** 「画质」设置项的 name，`setting.update` 靠它定位 */
 const QUALITY_SETTING_NAME = '画质';
 
-/** 「视频缓存」设置项的 name */
+/**
+ * 「视频缓存」分组项的 name（根面板入口）。
+ *
+ * 分组后真正的开关在子面板里（`CACHE_SWITCH_SETTING_NAME`），
+ * 这一项只承载「缓存进度」摘要 + 展开入口。
+ */
 const CACHE_SETTING_NAME = '视频缓存';
+
+/** 「视频缓存」子面板里的启用开关 */
+const CACHE_SWITCH_SETTING_NAME = '启用缓存';
 
 /** 「弹幕源」设置项的 name */
 const DANMAKU_SETTING_NAME = '弹幕源';
+
+/**
+ * 「弹幕」分组项的 name（根面板入口）。
+ *
+ * 弹幕源与弹幕屏蔽都归到它下面，根面板不再同时出现这两个平铺项。
+ */
+const DANMAKU_GROUP_SETTING_NAME = '弹幕';
+
+/** 「跳过片头片尾」分组项的 name（根面板入口） */
+const SKIP_SETTING_NAME = '跳过片头片尾';
+
+/** 「跳过片头片尾」子面板里的启用开关 */
+const SKIP_ENABLE_SETTING_NAME = '启用跳过片头片尾';
+
+/** 「设置片头 / 设置片尾」的 name */
+const INTRO_SETTING_NAME = '设置片头';
+const OUTRO_SETTING_NAME = '设置片尾';
+
+/** 片头/片尾尚未设置时的占位提示 */
+const INTRO_PLACEHOLDER = '设置片头时间';
+const OUTRO_PLACEHOLDER = '设置片尾时间';
 
 /**
  * 快捷键设置项的 name。
@@ -162,6 +189,13 @@ const SHORTCUT_SETTING_NAME = '快捷键';
 
 /** 「弹幕屏蔽」设置项的 name */
 const DANMAKU_FILTER_SETTING_NAME = '弹幕屏蔽';
+
+/**
+ * 快捷键子面板里「恢复默认键位」这一条的 value。
+ *
+ * 用 `__` 包裹以区别于动作 id（`ShortcutActionId` 都是普通单词，不会撞）。
+ */
+const SHORTCUT_RESET_VALUE = '__reset__';
 
 /**
  * 组装「弹幕屏蔽」子面板的选项列表。
@@ -216,9 +250,6 @@ function buildExternalPlayerOptions(): Array<{
   ).map((player) => ({ html: player.label, value: player.id }));
 }
 
-/** 截图保存目录设置项在面板里的名字（同时用作 name 定位 DOM 节点） */
-const SCREENSHOT_DIR_SETTING_NAME = '截图保存位置';
-
 /**
  * 「外部播放器」控制栏按钮的图标。
  *
@@ -231,34 +262,30 @@ const EXTERNAL_PLAYER_CONTROL_ICON =
   '<i class="art-icon flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></i>';
 
 /**
- * 「截图保存位置」子面板的固定动作。
- *
- * 当前目录名**不放进选项**：selector 是启动时构建一次的数组，
- * 目录名会随用户操作变化，写死在选项里就会显示过期信息。
- */
-function buildScreenshotDirOptions(): Array<{
-  html: string;
-  value: 'choose' | 'clear';
-}> {
-  return [
-    { html: '选择保存文件夹…', value: 'choose' },
-    { html: '改用浏览器下载目录', value: 'clear' },
-  ];
-}
-
-/**
  * 组装「快捷键」子面板的选项列表。
  *
  * `value` 用动作 id 而不是按键串：按键串会随改键变化，
  * 而 ArtPlayer 的 selector 缓存是按 value 做键的，用 id 才能稳定复用节点。
  */
 function buildShortcutOptions(
-  bindings: Record<ShortcutActionId, string>
+  bindings: Record<ShortcutActionId, string>,
+  recorderId?: ShortcutActionId | null
 ): Array<{ html: string; value: string }> {
-  return SHORTCUT_ACTIONS.map((action) => ({
-    html: `${action.label}  ·  ${formatKeyString(bindings[action.id])}`,
-    value: action.id,
-  }));
+  const list: Array<{ html: string; value: string }> = SHORTCUT_ACTIONS.map(
+    (action) => ({
+    html:
+      action.id === recorderId
+        ? `${action.label}  ·  按下新按键…`
+        : `${action.label}  ·  ${formatKeyString(bindings[action.id])}`,
+      value: action.id,
+    })
+  );
+
+  // 「恢复默认」并入键位列表末尾，不再单独占一个根面板行。
+  // 它本来就是键位面板的一部分，跟着键位走更好找。
+  list.push({ html: '↺  恢复默认键位', value: SHORTCUT_RESET_VALUE });
+
+  return list;
 }
 
 /**
@@ -385,11 +412,6 @@ export function usePlayEngine() {
   // 下一集预热（落地路线第 3 步）。独立实例，避免打断当前集的队列。
   // `nextWarmupKeyRef` 记录"已经为哪一集的哪个档位预热过"，防止重复排队。
   const nextWarmupKeyRef = useRef<string | null>(null);
-
-  // 「截图保存位置」当前状态的 tooltip 文本。
-  // 读 IndexedDB 是异步的，而设置面板是同步构建的 —— 用 ref 当缓存，
-  // 面板首帧先用它渲染，异步查到真实状态后再走 DOM setter 覆盖。
-  const screenshotDirTooltipRef = useRef('未设置，截图存到浏览器下载文件夹');
 
   // 弹幕源选择相关
   const [selectedDanmakuSource, setSelectedDanmakuSource] = useState<
@@ -1004,6 +1026,36 @@ export function usePlayEngine() {
   // 跳过片头片尾
   // -----------------------------------------------------------------------------
 
+  /**
+   * 把「跳过片头片尾」分组的三处状态一次性刷新到面板上。
+   *
+   * 全走 DOM setter（`artplayer-setting.ts`），**不**用 `setting.update()`：
+   * `update()` 会无条件 `render()` 把面板弹回根面板，而改片头/片尾是在
+   * 子面板里操作的，弹回去等于每改一次都要重新点进来。
+   */
+  const refreshSkipPanel = () => {
+    const art = artPlayerRef.current;
+    if (!art) return;
+
+    const config = skipConfigRef.current;
+    setSettingTooltip(art, SKIP_SETTING_NAME, describeSkipConfig(config));
+    setSettingSwitch(art, SKIP_ENABLE_SETTING_NAME, config.enable);
+    setSettingTooltip(
+      art,
+      INTRO_SETTING_NAME,
+      config.intro_time === 0
+        ? INTRO_PLACEHOLDER
+        : formatTime(config.intro_time)
+    );
+    setSettingTooltip(
+      art,
+      OUTRO_SETTING_NAME,
+      config.outro_time >= 0
+        ? OUTRO_PLACEHOLDER
+        : `-${formatTime(-config.outro_time)}`
+    );
+  };
+
   // 跳过片头片尾配置相关函数
   const handleSkipConfigChange = async (newConfig: SkipConfig) => {
     if (!currentSourceRef.current || !currentIdRef.current) return;
@@ -1012,63 +1064,6 @@ export function usePlayEngine() {
       setSkipConfig(newConfig);
       if (!newConfig.enable && !newConfig.intro_time && !newConfig.outro_time) {
         await deleteSkipConfig(currentSourceRef.current, currentIdRef.current);
-        artPlayerRef.current.setting.update({
-          name: '跳过片头片尾',
-          html: '跳过片头片尾',
-          switch: skipConfigRef.current.enable,
-          onSwitch: function (item: any) {
-            const newConfig = {
-              ...skipConfigRef.current,
-              enable: !item.switch,
-            };
-            handleSkipConfigChange(newConfig);
-            return !item.switch;
-          },
-        });
-        artPlayerRef.current.setting.update({
-          name: '设置片头',
-          html: '设置片头',
-          icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="12" r="2" fill="#ffffff"/><path d="M9 12L17 12" stroke="#ffffff" stroke-width="2"/><path d="M17 6L17 18" stroke="#ffffff" stroke-width="2"/></svg>',
-          tooltip:
-            skipConfigRef.current.intro_time === 0
-              ? '设置片头时间'
-              : `${formatTime(skipConfigRef.current.intro_time)}`,
-          onClick: function () {
-            const currentTime = artPlayerRef.current?.currentTime || 0;
-            if (currentTime > 0) {
-              const newConfig = {
-                ...skipConfigRef.current,
-                intro_time: currentTime,
-              };
-              handleSkipConfigChange(newConfig);
-              return `${formatTime(currentTime)}`;
-            }
-          },
-        });
-        artPlayerRef.current.setting.update({
-          name: '设置片尾',
-          html: '设置片尾',
-          icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6L7 18" stroke="#ffffff" stroke-width="2"/><path d="M7 12L15 12" stroke="#ffffff" stroke-width="2"/><circle cx="19" cy="12" r="2" fill="#ffffff"/></svg>',
-          tooltip:
-            skipConfigRef.current.outro_time >= 0
-              ? '设置片尾时间'
-              : `-${formatTime(-skipConfigRef.current.outro_time)}`,
-          onClick: function () {
-            const outroTime =
-              -(
-                artPlayerRef.current?.duration -
-                artPlayerRef.current?.currentTime
-              ) || 0;
-            if (outroTime < 0) {
-              const newConfig = {
-                ...skipConfigRef.current,
-                outro_time: outroTime,
-              };
-              handleSkipConfigChange(newConfig);
-              return `-${formatTime(-outroTime)}`;
-            }
-          },
-        });
       } else {
         await saveSkipConfig(
           currentSourceRef.current,
@@ -1076,6 +1071,8 @@ export function usePlayEngine() {
           newConfig
         );
       }
+      // 无论存/删都同步一次面板：开关、片头、片尾、分组摘要四处状态同源
+      refreshSkipPanel();
       console.log('跳过片头片尾配置已保存:', newConfig);
     } catch (err) {
       console.error('保存跳过片头片尾配置失败:', err);
@@ -1779,18 +1776,9 @@ export function usePlayEngine() {
     }
 
     // 把该条在面板上标成"待录入"，用户才知道系统在等他按键
-    const recorderId = actionId;
     updateSettingPreservingPanel(artPlayerRef.current, {
       name: SHORTCUT_SETTING_NAME,
-      selector: SHORTCUT_ACTIONS.map((item) => ({
-        html:
-          item.id === recorderId
-            ? `${item.label}  ·  按下新按键…`
-            : `${item.label}  ·  ${formatKeyString(
-                shortcutBindingsRef.current[item.id]
-              )}`,
-        value: item.id,
-      })),
+      selector: buildShortcutOptions(shortcutBindingsRef.current, actionId),
     });
   };
 
@@ -2336,6 +2324,15 @@ export function usePlayEngine() {
       Artplayer.PLAYBACK_RATE = [0.5, 0.75, 1, 1.25, 1.5, 2, 3];
       Artplayer.USE_RAF = true;
 
+      // 设置面板尺寸。默认 250×35 太挤：面板里既要放标签，又要放状态摘要
+      // （如「当前：电影下载」），250px 下两者必然贴在一起。
+      //
+      // ⚠️ 必须走这两个**公开静态属性**，不要用 CSS `min-width` 硬撑 ——
+      // `setting.resize()` 会用 SETTING_WIDTH 反算面板的 left 与 width，
+      // 从 CSS 侧改宽度会让它算出来的位置对不上，面板越出播放器右缘。
+      Artplayer.SETTING_WIDTH = 320;
+      Artplayer.SETTING_ITEM_HEIGHT = 44;
+
       // 在这里定义自定义 Loader，确保 Hls 已就绪。
       // blockAd 反映当前开关（切换时会重建播放器），useProxy 需与预取器保持一致。
       const CustomHlsJsLoader = createCustomHlsLoader(Hls, {
@@ -2354,75 +2351,22 @@ export function usePlayEngine() {
       const updateCacheTooltip = (text: string, switchState?: boolean) => {
         const art = artPlayerRef.current;
         if (!art) return;
+        // 进度写在分组项上（根面板一眼可见），开关状态写在子面板的开关项上
         setSettingTooltip(art, CACHE_SETTING_NAME, text);
         if (switchState !== undefined) {
-          setSettingSwitch(art, CACHE_SETTING_NAME, switchState);
+          setSettingSwitch(art, CACHE_SWITCH_SETTING_NAME, switchState);
+          setSettingTooltip(
+            art,
+            CACHE_SWITCH_SETTING_NAME,
+            describeCacheSwitch(switchState)
+          );
         }
       };
 
-      /** 统一的提示出口（notice 可能随播放器销毁而失效，故做保护） */
-      const showPlayNotice = (text: string) => {
-        const art = artPlayerRef.current;
-        if (art) art.notice.show = text;
-      };
-
-      /**
-       * 把「截图保存位置」的当前状态刷进 tooltip。
-       *
-       * 同样必须走 DOM setter：`update()` 会把正在浏览子面板的用户踢回根面板，
-       * 而用户点完「选择保存文件夹」后大概率还想继续操作同一个子面板。
-       */
-      const updateScreenshotDirTooltip = (text: string) => {
-        screenshotDirTooltipRef.current = text;
-        const art = artPlayerRef.current;
-        if (!art) return;
-        setSettingTooltip(art, SCREENSHOT_DIR_SETTING_NAME, text);
-      };
-
-      /** 从存储里读一次真实状态并刷新 tooltip（不弹任何窗） */
-      const refreshScreenshotDirState = async () => {
-        const state = await describeScreenshotDirectory();
-        if (!state.supported) {
-          updateScreenshotDirTooltip('当前浏览器不支持选定文件夹');
-          return;
-        }
-        if (!state.directoryName) {
-          updateScreenshotDirTooltip('未设置，截图存到浏览器下载文件夹');
-          return;
-        }
-        // 权限不跨会话保留，prompt 状态只要点「选择」就会重新授权
-        updateScreenshotDirTooltip(
-          state.permission === 'granted'
-            ? `当前：${state.directoryName}`
-            : `当前：${state.directoryName}（需重新授权）`
-        );
-      };
-
-      /**
-       * 让用户选一个截图保存文件夹并记住它。
-       *
-       * `pickScreenshotDirectory` 必须在用户点击的调用栈里直接 await ——
-       * 它内部会调 `showDirectoryPicker()`，浏览器要求这是用户手势触发的。
-       * 所以这里**先 pick，再刷新状态**，顺序不能反。
-       */
-      const chooseScreenshotDirectory = async () => {
-        const picked = await pickScreenshotDirectory();
-        if (!picked) {
-          // 用户取消 / 不支持 / 句柄存不下，三种情况都不改变现状
-          await refreshScreenshotDirState();
-          return;
-        }
-        await refreshScreenshotDirState();
-        updateScreenshotDirTooltip(`当前：${picked.name}`);
-        showPlayNotice(`截图将保存到「${picked.name}」`);
-      };
-
-      /** 放弃已选文件夹，改用浏览器下载目录 */
-      const resetScreenshotDirectory = async () => {
-        await clearDirectoryHandle();
-        updateScreenshotDirTooltip('未设置，截图存到浏览器下载文件夹');
-        showPlayNotice('截图改为保存到浏览器下载文件夹');
-      };
+      // 注：「截图保存位置」（可选目录 / File System Access）能力已整体移除。
+      // 原因见 src/lib/screenshot-save.ts 的头部说明：目录权限不跨会话保留、
+      // 非 Chromium 浏览器不支持，实际表现为「设置写着某目录、截图却存到下载
+      // 文件夹」——一个兑现不了的承诺。现在截图固定走浏览器下载目录。
 
       /**
        * 启动 / 续跑前向预缓存。
@@ -2551,6 +2495,90 @@ export function usePlayEngine() {
             // 忽略：极端情况下 levels 正在重建
           }
         }
+      };
+
+      /**
+       * 「弹幕屏蔽」设置项。
+       *
+       * 抽成变量是因为它是「弹幕」分组的**子项**，而设置面板是嵌套的对象字面量，
+       * 写在 `settings: []` 里就得把整块缩进搬进分组内部。抽出来后分组结构
+       * （见下方 `settings`）能一眼看全，也不会在移动时漏掉这段逻辑。
+       */
+      const danmakuFilterSettingItem = {
+        name: DANMAKU_FILTER_SETTING_NAME,
+        html: '弹幕屏蔽',
+        tooltip: buildDanmakuFilterTooltip(loadDanmakuFilterConfig()),
+        selector: buildDanmakuFilterOptions(loadDanmakuFilterConfig()),
+        onSelect: function (item: any) {
+          const value = item?.value;
+          const config = loadDanmakuFilterConfig();
+
+          // 「＋ 添加规则」用 prompt 就地输入。播放页是全屏沉浸场景，
+          // 弹一个独立模态会打断观看；prompt 由浏览器渲染在顶层，
+          // 也不会被播放器的全屏层遮住。
+          if (value === '__add__') {
+            const input =
+              typeof window !== 'undefined'
+                ? window.prompt(
+                    '输入要屏蔽的关键词（在词首加 re: 使用正则）',
+                    ''
+                  )
+                : null;
+            if (input && input.trim()) {
+              const raw = input.trim();
+              const isRegex = raw.startsWith('re:');
+              const created = createDanmakuFilterRule(
+                isRegex ? raw.slice(3) : raw,
+                isRegex ? 'regex' : 'normal'
+              );
+              if (!created) {
+                if (artPlayerRef.current) {
+                  artPlayerRef.current.notice.show = isRegex
+                    ? '正则表达式不合法'
+                    : '关键词不能为空';
+                }
+              } else {
+                const next = [...config.rules, created];
+                saveDanmakuFilterConfig({ rules: next });
+                applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
+                if (artPlayerRef.current) {
+                  artPlayerRef.current.notice.show = `已屏蔽「${created.keyword}」`;
+                }
+              }
+            }
+            // ⚠️ 返回刷新后的摘要，不能返回空串 —— 设置面板 selector 的
+            // 返回值会被写成 `$parent.tooltip`，返回 '' 会把刚写好的摘要清空。
+            return refreshDanmakuFilterPanel();
+          }
+
+          // 「清空」一键移除全部规则
+          if (value === '__clear__') {
+            clearDanmakuFilterConfig();
+            applyDanmakuFilter(danmukuPluginInstanceRef.current, []);
+            if (artPlayerRef.current) {
+              artPlayerRef.current.notice.show = '已清空屏蔽规则';
+            }
+            return refreshDanmakuFilterPanel();
+          }
+
+          // 点击某条规则 = 切换启用/停用
+          const target = config.rules.find((r) => r.id === value);
+          if (target) {
+            const next = config.rules.map((r) =>
+              r.id === value ? { ...r, enabled: !r.enabled } : r
+            );
+            saveDanmakuFilterConfig({ rules: next });
+            applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
+            if (artPlayerRef.current) {
+              artPlayerRef.current.notice.show = target.enabled
+                ? `已停用「${target.keyword}」`
+                : `已启用「${target.keyword}」`;
+            }
+            return refreshDanmakuFilterPanel();
+          }
+          // 没命中任何规则（选项被重建过）：只回显，不白改 tooltip
+          return buildDanmakuFilterTooltip(config);
+        },
       };
 
       artPlayerRef.current = new Artplayer({
@@ -2727,113 +2755,6 @@ export function usePlayEngine() {
         },
         settings: [
           {
-            html: '去广告',
-            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
-            tooltip: blockAdEnabled ? '已开启' : '已关闭',
-            onClick() {
-              const newVal = !blockAdEnabled;
-              try {
-                localStorage.setItem('enable_blockad', String(newVal));
-                if (artPlayerRef.current) {
-                  resumeTimeRef.current = artPlayerRef.current.currentTime;
-                  if (
-                    artPlayerRef.current.video &&
-                    artPlayerRef.current.video.hls
-                  ) {
-                    artPlayerRef.current.video.hls.destroy();
-                  }
-                  artPlayerRef.current.destroy();
-                  artPlayerRef.current = null;
-                }
-                setBlockAdEnabled(newVal);
-                setIsDanmakuPluginReady(false);
-                setIsBlockAdChanged(true);
-              } catch (_) {
-                // ignore
-              }
-              return newVal ? '当前开启' : '当前关闭';
-            },
-          },
-          {
-            name: '跳过片头片尾',
-            html: '跳过片头片尾',
-            switch: skipConfigRef.current.enable,
-            onSwitch: function (item: any) {
-              const newConfig = {
-                ...skipConfigRef.current,
-                enable: !item.switch,
-              };
-              handleSkipConfigChange(newConfig);
-              return !item.switch;
-            },
-          },
-          {
-            html: '删除跳过配置',
-            onClick: function () {
-              handleSkipConfigChange({
-                enable: false,
-                intro_time: 0,
-                outro_time: 0,
-              });
-              // 显式返回空串，**不要省略 return**：设置面板 button 项的返回值会被
-              // 写成 `e.tooltip`（`e.tooltip = await onClick(...)`），省略即写入
-              // undefined，而它会被 append 进 tooltip 节点、渲染出字面量 "undefined"。
-              return '';
-            },
-          },
-          {
-            name: '设置片头',
-            html: '设置片头',
-            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="12" r="2" fill="#ffffff"/><path d="M9 12L17 12" stroke="#ffffff" stroke-width="2"/><path d="M17 6L17 18" stroke="#ffffff" stroke-width="2"/></svg>',
-            tooltip:
-              skipConfigRef.current.intro_time === 0
-                ? '设置片头时间'
-                : `${formatTime(skipConfigRef.current.intro_time)}`,
-            onClick: function () {
-              const currentTime = artPlayerRef.current?.currentTime || 0;
-              if (currentTime > 0) {
-                const newConfig = {
-                  ...skipConfigRef.current,
-                  intro_time: currentTime,
-                };
-                handleSkipConfigChange(newConfig);
-                return `${formatTime(currentTime)}`;
-              }
-            },
-          },
-          {
-            name: '设置片尾',
-            html: '设置片尾',
-            icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6L7 18" stroke="#ffffff" stroke-width="2"/><path d="M7 12L15 12" stroke="#ffffff" stroke-width="2"/><circle cx="19" cy="12" r="2" fill="#ffffff"/></svg>',
-            tooltip:
-              skipConfigRef.current.outro_time >= 0
-                ? '设置片尾时间'
-                : `-${formatTime(-skipConfigRef.current.outro_time)}`,
-            onClick: function () {
-              const outroTime =
-                -(
-                  artPlayerRef.current?.duration -
-                  artPlayerRef.current?.currentTime
-                ) || 0;
-              if (outroTime < 0) {
-                const newConfig = {
-                  ...skipConfigRef.current,
-                  outro_time: outroTime,
-                };
-                handleSkipConfigChange(newConfig);
-                return `-${formatTime(-outroTime)}`;
-              }
-            },
-          },
-          {
-            name: '弹幕源',
-            html: '弹幕源',
-            tooltip: currentTooltip || '未选择',
-            onClick: function () {
-              setShowDanmakuSelector(true);
-            },
-          },
-          {
             // 画质切换（P1-6）。档位列表在 MANIFEST_PARSED 后由
             // syncQualitySetting() 动态写入，这里先给个占位。
             // 占位用 `selector`（而不是 onClick）是刻意为之：ArtPlayer 只有
@@ -2900,61 +2821,142 @@ export function usePlayEngine() {
               return item.html;
             },
           },
+          // ---- 「跳过片头片尾」分组：开关 + 两个时间点 + 清除入口 ----
           {
-            name: '视频缓存',
-            html: '视频缓存',
-            switch: loadCacheSettings().enabled,
+            name: SKIP_SETTING_NAME,
+            html: SKIP_SETTING_NAME,
+            tooltip: describeSkipConfig(skipConfigRef.current),
+            selector: [
+              {
+                name: SKIP_ENABLE_SETTING_NAME,
+                html: '启用跳过',
+                switch: skipConfigRef.current.enable,
+                onSwitch: function (item: any) {
+                  const newConfig = {
+                    ...skipConfigRef.current,
+                    enable: !item.switch,
+                  };
+                  handleSkipConfigChange(newConfig);
+                  return !item.switch;
+                },
+              },
+              {
+                name: INTRO_SETTING_NAME,
+                html: INTRO_SETTING_NAME,
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="5" cy="12" r="2" fill="#ffffff"/><path d="M9 12L17 12" stroke="#ffffff" stroke-width="2"/><path d="M17 6L17 18" stroke="#ffffff" stroke-width="2"/></svg>',
+                tooltip:
+                  skipConfigRef.current.intro_time === 0
+                    ? INTRO_PLACEHOLDER
+                    : `${formatTime(skipConfigRef.current.intro_time)}`,
+                onClick: function () {
+                  const currentTime = artPlayerRef.current?.currentTime || 0;
+                  if (currentTime > 0) {
+                    const newConfig = {
+                      ...skipConfigRef.current,
+                      intro_time: currentTime,
+                    };
+                    handleSkipConfigChange(newConfig);
+                    return `${formatTime(currentTime)}`;
+                  }
+                },
+              },
+              {
+                name: OUTRO_SETTING_NAME,
+                html: OUTRO_SETTING_NAME,
+                icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7 6L7 18" stroke="#ffffff" stroke-width="2"/><path d="M7 12L15 12" stroke="#ffffff" stroke-width="2"/><circle cx="19" cy="12" r="2" fill="#ffffff"/></svg>',
+                tooltip:
+                  skipConfigRef.current.outro_time >= 0
+                    ? OUTRO_PLACEHOLDER
+                    : `-${formatTime(-skipConfigRef.current.outro_time)}`,
+                onClick: function () {
+                  const outroTime =
+                    -(
+                      artPlayerRef.current?.duration -
+                      artPlayerRef.current?.currentTime
+                    ) || 0;
+                  if (outroTime < 0) {
+                    const newConfig = {
+                      ...skipConfigRef.current,
+                      outro_time: outroTime,
+                    };
+                    handleSkipConfigChange(newConfig);
+                    return `-${formatTime(-outroTime)}`;
+                  }
+                },
+              },
+              {
+                html: '删除跳过配置',
+                onClick: function () {
+                  handleSkipConfigChange({
+                    enable: false,
+                    intro_time: 0,
+                    outro_time: 0,
+                  });
+                  // 显式返回空串，**不要省略 return**：设置面板 button 项的返回值会被
+                  // 写成 `e.tooltip`（`e.tooltip = await onClick(...)`），省略即写入
+                  // undefined，而它会被 append 进 tooltip 节点、渲染出字面量 "undefined"。
+                  return '';
+                },
+              },
+            ],
+          },
+          // ---- 「弹幕」分组：弹幕源 + 屏蔽规则 ----
+          {
+            name: DANMAKU_GROUP_SETTING_NAME,
+            html: DANMAKU_GROUP_SETTING_NAME,
+            tooltip: '弹幕源 · 屏蔽规则',
+            selector: [
+              {
+                name: DANMAKU_SETTING_NAME,
+                html: DANMAKU_SETTING_NAME,
+                tooltip: currentTooltip || '未选择',
+                onClick: function () {
+                  setShowDanmakuSelector(true);
+                },
+              },
+              danmakuFilterSettingItem,
+            ],
+          },
+          // ---- 「视频缓存」分组：开关 + 缓存管理入口 ----
+          //
+          // 分组项右侧放**进度摘要**（预取回调按分片频率刷新），
+          // 开关状态放在子面板里 —— 两处职责不同，不要合并成一处。
+          {
+            name: CACHE_SETTING_NAME,
+            html: CACHE_SETTING_NAME,
             tooltip: loadCacheSettings().enabled ? '未开始' : '已关闭',
-            onSwitch: function (item: any) {
-              const enabled = !item.switch;
-              saveCacheSettings({ enabled });
-              if (enabled) {
-                updateCacheTooltip('未开始');
-                ensurePrefetchCurrent(artPlayerRef.current?.currentTime || 0);
-              } else {
-                prefetcherRef.current.stop();
-                getNextEpisodePrefetcher().stop();
-                nextWarmupKeyRef.current = null;
-                updateCacheTooltip('已关闭');
-              }
-              return enabled;
-            },
-          },
-          {
-            html: '缓存管理',
-            onClick: function () {
-              setShowCacheManager(true);
-              // 同「删除跳过配置」：空串是刻意返回的，省略 return 会写入 undefined。
-              return '';
-            },
-          },
-          {
-            // 截图保存位置。做成 selector 子面板而不是单个 onClick：
-            // 需要同时给出「选目录」「改用下载目录」两个动作，且要能显示
-            // 当前生效的目录名 —— 用户设置过什么必须一眼可见。
-            //
-            // 注意 selector 是**启动时构建**的，目录名会变（用户可能中途改
-            // 设置），所以选项里放固定动作，当前状态通过 tooltip 呈现；
-            // 每次操作后都刷新 tooltip（走 DOM setter，不触发 update()）。
-            name: SCREENSHOT_DIR_SETTING_NAME,
-            html: '截图保存位置',
-            tooltip: screenshotDirTooltipRef.current,
-            selector: buildScreenshotDirOptions(),
-            onSelect: function (item: any) {
-              const action = item?.value;
-              if (action === 'choose') {
-                void chooseScreenshotDirectory();
-              } else if (action === 'clear') {
-                void resetScreenshotDirectory();
-              }
-              // ⚠️ 设置面板的 selector 用**返回值覆盖 tooltip**
-              // （`e.$parent.tooltip = await e.$parent.onSelect(...)`），
-              // 与控制栏「覆盖按钮图标」的语义不同。
-              // 返回 '' 会把状态提示清空，所以这里回显当前状态。
-              // 实际的异步刷新由 choose/reset 内部走 DOM setter 完成
-              // （见 updateScreenshotDirTooltip 的说明）。
-              return screenshotDirTooltipRef.current;
-            },
+            selector: [
+              {
+                name: CACHE_SWITCH_SETTING_NAME,
+                html: CACHE_SWITCH_SETTING_NAME,
+                switch: loadCacheSettings().enabled,
+                tooltip: describeCacheSwitch(loadCacheSettings().enabled),
+                onSwitch: function (item: any) {
+                  const enabled = !item.switch;
+                  saveCacheSettings({ enabled });
+                  if (enabled) {
+                    updateCacheTooltip('未开始');
+                    ensurePrefetchCurrent(
+                      artPlayerRef.current?.currentTime || 0
+                    );
+                  } else {
+                    prefetcherRef.current.stop();
+                    getNextEpisodePrefetcher().stop();
+                    nextWarmupKeyRef.current = null;
+                    updateCacheTooltip('已关闭');
+                  }
+                  return enabled;
+                },
+              },
+              {
+                html: '缓存管理',
+                onClick: function () {
+                  setShowCacheManager(true);
+                  // 同「删除跳过配置」：空串是刻意返回的，省略 return 会写入 undefined。
+                  return '';
+                },
+              },
+            ],
           },
           {
             // 快捷键面板。用 selector 而非 onClick，才能展开成子面板
@@ -2965,6 +2967,14 @@ export function usePlayEngine() {
             tooltip: buildShortcutTooltip(shortcutOverridesRef.current),
             selector: buildShortcutOptions(shortcutBindingsRef.current),
             onSelect: function (item: any) {
+              // 「恢复默认键位」并入了键位列表，作为一条特殊选项
+              if (item?.value === SHORTCUT_RESET_VALUE) {
+                resetShortcutBindings();
+                // 同其它 selector：返回值会被写成 `$parent.tooltip`，
+                // 返回 '' 会把刚写好的摘要清空，所以回显摘要本身。
+                return buildShortcutTooltip(shortcutOverridesRef.current);
+              }
+
               const actionId = item?.value as ShortcutActionId | undefined;
               if (actionId) {
                 startShortcutRecording(actionId);
@@ -2979,90 +2989,34 @@ export function usePlayEngine() {
               return buildShortcutTooltip(shortcutOverridesRef.current);
             },
           },
+          // 去广告放在最后：它会销毁并重建播放器，属于低频操作，
+          // 不该挤在高频入口（画质 / 弹幕 / 缓存）前面。
           {
-            html: '快捷键 · 恢复默认',
-            onClick: function () {
-              // 本项自身没有 tooltip；复位后的键位摘要由 resetShortcutBindings
-              // 内部走 refreshShortcutPanel() 写到「快捷键」那一项上。
-              resetShortcutBindings();
-              // 同「删除跳过配置」：空串是刻意返回的，省略 return 会写入 undefined。
-              return '';
-            },
-          },
-          {
-            name: DANMAKU_FILTER_SETTING_NAME,
-            html: '弹幕屏蔽',
-            tooltip: buildDanmakuFilterTooltip(loadDanmakuFilterConfig()),
-            selector: buildDanmakuFilterOptions(loadDanmakuFilterConfig()),
-            onSelect: function (item: any) {
-              const value = item?.value;
-              const config = loadDanmakuFilterConfig();
-
-              // 「＋ 添加规则」用 prompt 就地输入。播放页是全屏沉浸场景，
-              // 弹一个独立模态会打断观看；prompt 由浏览器渲染在顶层，
-              // 也不会被播放器的全屏层遮住。
-              if (value === '__add__') {
-                const input =
-                  typeof window !== 'undefined'
-                    ? window.prompt(
-                        '输入要屏蔽的关键词（在词首加 re: 使用正则）',
-                        ''
-                      )
-                    : null;
-                if (input && input.trim()) {
-                  const raw = input.trim();
-                  const isRegex = raw.startsWith('re:');
-                  const created = createDanmakuFilterRule(
-                    isRegex ? raw.slice(3) : raw,
-                    isRegex ? 'regex' : 'normal'
-                  );
-                  if (!created) {
-                    if (artPlayerRef.current) {
-                      artPlayerRef.current.notice.show = isRegex
-                        ? '正则表达式不合法'
-                        : '关键词不能为空';
-                    }
-                  } else {
-                    const next = [...config.rules, created];
-                    saveDanmakuFilterConfig({ rules: next });
-                    applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
-                    if (artPlayerRef.current) {
-                      artPlayerRef.current.notice.show = `已屏蔽「${created.keyword}」`;
-                    }
+            html: '去广告',
+            icon: '<text x="50%" y="50%" font-size="20" font-weight="bold" text-anchor="middle" dominant-baseline="middle" fill="#ffffff">AD</text>',
+            tooltip: blockAdEnabled ? '已开启' : '已关闭',
+            onClick() {
+              const newVal = !blockAdEnabled;
+              try {
+                localStorage.setItem('enable_blockad', String(newVal));
+                if (artPlayerRef.current) {
+                  resumeTimeRef.current = artPlayerRef.current.currentTime;
+                  if (
+                    artPlayerRef.current.video &&
+                    artPlayerRef.current.video.hls
+                  ) {
+                    artPlayerRef.current.video.hls.destroy();
                   }
+                  artPlayerRef.current.destroy();
+                  artPlayerRef.current = null;
                 }
-                // ⚠️ 返回刷新后的摘要，不能返回空串 —— 设置面板 selector 的
-                // 返回值会被写成 `$parent.tooltip`，返回 '' 会把刚写好的摘要清空。
-                return refreshDanmakuFilterPanel();
+                setBlockAdEnabled(newVal);
+                setIsDanmakuPluginReady(false);
+                setIsBlockAdChanged(true);
+              } catch (_) {
+                // ignore
               }
-
-              // 「清空」一键移除全部规则
-              if (value === '__clear__') {
-                clearDanmakuFilterConfig();
-                applyDanmakuFilter(danmukuPluginInstanceRef.current, []);
-                if (artPlayerRef.current) {
-                  artPlayerRef.current.notice.show = '已清空屏蔽规则';
-                }
-                return refreshDanmakuFilterPanel();
-              }
-
-              // 点击某条规则 = 切换启用/停用
-              const target = config.rules.find((r) => r.id === value);
-              if (target) {
-                const next = config.rules.map((r) =>
-                  r.id === value ? { ...r, enabled: !r.enabled } : r
-                );
-                saveDanmakuFilterConfig({ rules: next });
-                applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
-                if (artPlayerRef.current) {
-                  artPlayerRef.current.notice.show = target.enabled
-                    ? `已停用「${target.keyword}」`
-                    : `已启用「${target.keyword}」`;
-                }
-                return refreshDanmakuFilterPanel();
-              }
-              // 没命中任何规则（选项被重建过）：只回显，不白改 tooltip
-              return buildDanmakuFilterTooltip(config);
+              return newVal ? '当前开启' : '当前关闭';
             },
           },
         ],
@@ -3111,19 +3065,15 @@ export function usePlayEngine() {
       artPlayerRef.current.on('ready', () => {
         setError(null);
 
-        // 异步读出「截图保存位置」的真实状态覆盖面板首帧的占位文本。
-        // 放在 ready 里而不是构造前，是因为它要写 DOM 节点，得等面板渲染完。
-        void refreshScreenshotDirState();
-
-        // 截图：跨域保护翻译 + 保存到「用户选的目录」或「浏览器下载目录」。
+        // 截图：跨域保护翻译 + 存到浏览器下载目录。
         //
         // 两件事必须一起做，否则用户依然困惑：
         // 1) ArtPlayer 的截图是裸的 drawImage + toDataURL，视频被标记为跨域
         //    污染时会抛 SecurityError，用户只看到一句英文报错 —— 翻译成中文。
         // 2) 原生实现走 `<a download>`，文件名带冒号（`artplayer_00:12:34.png`）
-        //    会被 Windows 拒绝，而且**页面永远拿不到落盘路径**（浏览器安全模型），
-        //    用户「截了但忘了去哪找」。这里改成自己生成合法文件名，并在
-        //    用户授权过的目录里直接写文件 —— 那条路径下我们**真的知道路径**。
+        //    会被 Windows 拒绝。这里改成自己生成合法文件名，并明确告知
+        //    「存到了浏览器下载文件夹」—— 页面**拿不到落盘路径**（浏览器安全模型），
+        //    所以绝不编造具体路径。详见 src/lib/screenshot-save.ts。
         try {
           const art: any = artPlayerRef.current;
           const originalScreenshot = art.screenshot?.bind(art);

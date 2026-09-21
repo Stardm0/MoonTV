@@ -16,6 +16,7 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
+import { applyImageFallback } from '@/lib/douban-image';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
@@ -413,13 +414,17 @@ export default function VideoCard({
           loading='lazy'
           onLoad={() => setIsLoading(true)}
           onError={(e) => {
-            const img = e.target as HTMLImageElement;
-            if (!img.dataset.retried) {
-              img.dataset.retried = 'true';
-              setTimeout(() => {
-                img.src = processImageUrl(actualPoster);
-              }, 2000);
-            }
+            // 逐级回退：用户配置的方式 → 自带服务端代理 → 公共 CDN。
+            //
+            // 原实现是失败后把**同一个** URL（`processImageUrl(actualPoster)`）
+            // 再赋一次，等于什么都没做，所以「有时图片出不来」一直存在。
+            // 现在每次失败都换到下一个**不同**的候选；候选用尽后返回 false，
+            // 保留占位图，不再空转。
+            applyImageFallback(
+              e.target as HTMLImageElement,
+              actualPoster,
+              processImageUrl(actualPoster)
+            );
           }}
         />
 

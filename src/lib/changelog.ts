@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.2.6",
+    date: "2026-09-22",
+    added: [
+    "豆瓣封面图自动回退: 直连失败依次走服务器代理、公共 CDN",
+    "设置面板按用途分组: 根面板 12 项收敛为 6 项, 其余折叠进二级面板"
+    ],
+    changed: [
+    "「恢复默认键位」并入快捷键子面板",
+    "「去广告」移到设置面板末尾",
+    "移除「截图保存位置」设置, 截图固定存浏览器下载文件夹"
+    ],
+    fixed: [
+    "设置面板文字被右侧状态压住"
+    ]
+  },
+  {
     version: "4.2.5",
     date: "2026-09-22",
     added: [

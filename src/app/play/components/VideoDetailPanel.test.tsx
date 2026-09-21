@@ -164,6 +164,26 @@ describe('VideoDetailPanel 背景层闸门（决策 C）', () => {
   });
 });
 
+describe('VideoDetailPanel 海报位置', () => {
+  it('🔒 海报固定在文字左侧：DOM 里是第一个孩子，且不用 order-* 位移', () => {
+    setViewportWidth(1440);
+    const { container } = render(
+      <VideoDetailPanel {...makeProps({ videoCover: POSTER })} />
+    );
+
+    const img = mustQuery(container, 'img');
+    const row = img.parentElement;
+    expect(row).not.toBeNull();
+
+    // flex-row 下 DOM 顺序即视觉顺序 → 海报必须是第一个孩子才在最左
+    const children = Array.from(row ? row.children : []);
+    expect(children[0]?.tagName).toBe('IMG');
+
+    // 不许再用 order-* 把它在宽屏挪到右侧（用户明确要求放左侧）
+    expect(img.className).not.toMatch(/\border-/);
+  });
+});
+
 describe('VideoDetailPanel 简介展开（决策 D1）', () => {
   const LONG = '字'.repeat(300);
 

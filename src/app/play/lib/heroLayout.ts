@@ -57,12 +57,15 @@ export const HERO_DESC_CLAMP_CLASS = 'line-clamp-3';
 /**
  * 前景海报尺寸。
  *
- * ⚠️ 刻意写成**CSS 断点驱动**而不是算出来的：这样首帧就是正确尺寸，
+ * 位置固定在**文字左侧**（标题旁边），所有断点一致 —— 用户明确要求放左侧，
+ * 不要再靠 `order-*` 在桌面端挪到右边。
+ *
+ * ⚠️ 尺寸刻意写成**CSS 断点驱动**而不是算出来的：这样首帧就是正确尺寸，
  * 不会出现「SSR 时小、hydration 后突然变大」的跳动。
  * 唯一需要 JS 判断的只有背景层（因为它牵涉要不要发图片请求）。
  */
 export const HERO_POSTER_CLASS =
-  'w-20 sm:w-24 md:w-28 lg:w-40 xl:w-48 aspect-[2/3] rounded-lg object-cover shadow-lg flex-shrink-0';
+  'w-24 sm:w-28 md:w-32 lg:w-40 xl:w-48 aspect-[2/3] rounded-lg object-cover shadow-lg flex-shrink-0';
 
 /**
  * 是否渲染背景层。

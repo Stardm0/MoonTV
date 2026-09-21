@@ -5,6 +5,7 @@
 import { Download, Heart } from 'lucide-react';
 import { useState, useSyncExternalStore } from 'react';
 
+import { applyImageFallback } from '@/lib/douban-image';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
@@ -73,8 +74,8 @@ function getServerViewportWidth() {
  * section（relative + overflow-hidden，背景层的锚点）
  * ├─ 背景层  同一张竖版海报 放大+模糊+遮罩   ← ≥768px 才渲染，手机不下载
  * └─ 内容层  flex
- *            ├─ 前景海报  order-1 md:order-2   ← 手机在标题左侧，桌面到右侧（B1）
- *            └─ 文字      order-2 md:order-1
+ *            ├─ 前景海报  固定在最左（标题旁）   ← 用户要求放左侧
+ *            └─ 文字
  * ```
  *
  * 两处刻意与旧实现不同：
@@ -137,17 +138,27 @@ export function VideoDetailPanel(props: VideoDetailPanelProps) {
 
       {/* 内容层 */}
       <div className='relative z-10 flex flex-row items-start gap-4 p-4 md:gap-6 md:p-6'>
-        {/* 前景海报：手机上小图在标题左侧，桌面端移到大图放右侧 */}
+        {/* 前景海报：固定在文字左侧（标题旁）。
+            容器 flex-row 下 DOM 顺序即视觉顺序，不再用 order-* 挪到右侧。 */}
         {posterUrl && (
           <img
             src={posterUrl}
             alt=''
             loading='lazy'
-            className={`${HERO_POSTER_CLASS} order-1 md:order-2`}
+            className={HERO_POSTER_CLASS}
+            onError={(e) =>
+              // 与首页卡片同一条回退链（直连 → 自带代理 → CDN），
+              // 否则豆瓣图一失败 Hero 就只剩空框
+              applyImageFallback(
+                e.target as HTMLImageElement,
+                rawPoster,
+                posterUrl
+              )
+            }
           />
         )}
 
-        <div className='order-2 min-w-0 flex-1 md:order-1'>
+        <div className='min-w-0 flex-1'>
           {/* 标题（只放 phrasing content —— 按钮已移出） */}
           <h1 className='text-xl font-bold tracking-wide break-words md:text-3xl'>
             {videoTitle || '影片标题'}
