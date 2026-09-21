@@ -21,6 +21,7 @@ import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
+import ThemePaletteSelector from './ThemePaletteSelector';
 import { VersionPanel } from './VersionPanel';
 
 interface AuthInfo {
@@ -1217,6 +1218,12 @@ export const UserMenu: React.FC = () => {
               </div>
             </label>
           </div>
+
+          {/* 分割线 */}
+          <div className='border-t border-gray-200 dark:border-gray-700'></div>
+
+          {/* 主题配色（第二层主题） */}
+          <ThemePaletteSelector />
         </div>
 
         {/* 底部说明 */}

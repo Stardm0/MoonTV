@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 第二层主题：22 套色阶（skills/colors.css）必须加载在 base 之后，
+   它提供的 `.theme-<name>` 类同时承担两个职责：
+   ① `--theme-preview-*` 给 JS 读色值，避免在 JS 里再抄一份真源；
+   ② `--tw-color-primary-*` 被 `:root` 继承后即成为全站主色。 */
+@import '../styles/colors.css';
+
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none; /* IE and Edge */
@@ -15,6 +21,12 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
+
+  /* 主题色三元组，供下面的渐变背景使用。默认值与 `globals.css` 中的
+     sky 色阶一致；`applyThemePalette()` 换主色时会同步改写这两条。 */
+  --theme-surface-from: 230 243 251;
+  --theme-surface-via: 247 247 243;
+  --theme-surface-to: 211 221 230;
 }
 
 html,
@@ -32,12 +44,12 @@ body {
 html:not(.dark) body {
   background: linear-gradient(
     180deg,
-    #e6f3fb 0%,
+    rgb(var(--theme-surface-from)) 0%,
     #eaf3f7 18%,
-    #f7f7f3 38%,
+    rgb(var(--theme-surface-via)) 38%,
     #e9ecef 60%,
     #dbe3ea 80%,
-    #d3dde6 100%
+    rgb(var(--theme-surface-to)) 100%
   );
   background-attachment: fixed;
 }

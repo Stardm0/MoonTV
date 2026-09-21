@@ -18,6 +18,13 @@ import {
   matchAnime,
 } from '@/lib/danmaku.client';
 import {
+  clearDanmakuFilterConfig,
+  createDanmakuFilterRule,
+  DanmakuFilterConfig,
+  loadDanmakuFilterConfig,
+  saveDanmakuFilterConfig,
+} from '@/lib/danmaku-filter';
+import {
   deleteSkipConfig,
   generateStorageKey,
   getAllPlayRecords,
@@ -25,6 +32,12 @@ import {
   savePlayRecord,
   saveSkipConfig,
 } from '@/lib/db.client';
+import {
+  EXTERNAL_PLAYERS,
+  ExternalPlayerId,
+  isPlayerLikelySupported,
+  launchExternalPlayer,
+} from '@/lib/external-player';
 import {
   AUTO_LEVEL,
   buildQualityOptions,
@@ -39,10 +52,35 @@ import {
   savePreferredQualityHeight,
 } from '@/lib/hls-quality';
 import {
+  DEFAULT_PLAYBACK_RATE,
+  loadPlaybackRate,
+  MAX_PLAYBACK_RATE,
+  MIN_PLAYBACK_RATE,
+  savePlaybackRate,
+} from '@/lib/playback-rate';
+import {
   describeHlsError,
   PlaybackRecovery,
 } from '@/lib/playback-recovery';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
+import {
+  DEFAULT_VOLUME,
+  loadVolume,
+  saveVolume,
+} from '@/lib/playback-volume';
+import {
+  clearBindings,
+  eventToKeyString,
+  findConflicts,
+  formatKeyString,
+  loadBindings,
+  matchesKeyString,
+  resolveBindings,
+  saveBindings,
+  SHORTCUT_ACTIONS,
+  ShortcutActionId,
+  ShortcutBindings,
+} from '@/lib/shortcuts';
 import { SearchResult } from '@/lib/types';
 import { getRequestTimeout, getVideoResolutionFromM3u8 } from '@/lib/utils';
 import {
@@ -63,6 +101,7 @@ import { wrapArtplayerPluginDanmuku } from './danmuku-live-font-size';
 import { useVideoActions } from './hooks/useVideoActions';
 import { useWakeLock } from './hooks/useWakeLock';
 import {
+  applyDanmakuFilter,
   calculateSourceScore,
   createCustomHlsLoader,
   createDanmakuInitialConfig,
@@ -96,6 +135,97 @@ const CACHE_SETTING_NAME = '视频缓存';
 
 /** 「弹幕源」设置项的 name */
 const DANMAKU_SETTING_NAME = '弹幕源';
+
+/**
+ * 快捷键设置项的 name。
+ *
+ * 面板里展示的是**当前生效的键位**（默认值叠加上用户覆盖），
+ * 点任意一条即可录制新键位，所以文案由 `SHORTCUT_ACTIONS` 派生，
+ * 不再是写死的说明表——写死的表迟早会和实际实现漂移。
+ */
+const SHORTCUT_SETTING_NAME = '快捷键';
+
+/** 「弹幕屏蔽」设置项的 name */
+const DANMAKU_FILTER_SETTING_NAME = '弹幕屏蔽';
+
+/**
+ * 组装「弹幕屏蔽」子面板的选项列表。
+ *
+ * 结构：每条已存规则（点击切换启停）+ 添加入口 + 清空入口。
+ * `value` 用规则 id，与快捷键面板同理 —— 文案会随启停状态变化，
+ * 用稳定 id 才能让 ArtPlayer 的 selector 缓存复用节点。
+ */
+function buildDanmakuFilterOptions(
+  config: DanmakuFilterConfig
+): Array<{ html: string; value: string }> {
+  const list = config.rules.map((rule) => ({
+    html: `${rule.enabled ? '开' : '关'}  ·  ${
+      rule.type === 'regex' ? '正则' : '关键词'
+    }  ·  ${rule.keyword}`,
+    value: rule.id,
+  }));
+
+  list.push({ html: '＋ 添加屏蔽词', value: '__add__' });
+
+  if (config.rules.length) {
+    list.push({ html: '清空全部规则', value: '__clear__' });
+  }
+
+  return list;
+}
+
+/** 组装「弹幕屏蔽」设置项的 tooltip */
+function buildDanmakuFilterTooltip(config: DanmakuFilterConfig): string {
+  const enabled = config.rules.filter((rule) => rule.enabled).length;
+  if (!config.rules.length) return '未设置';
+  return enabled === config.rules.length
+    ? `${enabled} 条生效`
+    : `${enabled}/${config.rules.length} 条生效`;
+}
+
+/**
+ * 组装「外部播放器」下拉项。
+ *
+ * 用运行时的 `navigator.userAgent` 过滤明显不适用的项：
+ * 手机上没有 PotPlayer/MPV，桌面上也没有 MX Player。
+ * 但**不做"是否已安装"判断** —— 浏览器不提供这种能力，
+ * 声称能检测的写法都是靠超时猜测，误判率高。
+ */
+function buildExternalPlayerOptions(): Array<{
+  html: string;
+  value: ExternalPlayerId;
+}> {
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+  return EXTERNAL_PLAYERS.filter((player) =>
+    isPlayerLikelySupported(player.id, ua)
+  ).map((player) => ({ html: player.label, value: player.id }));
+}
+
+/**
+ * 组装「快捷键」子面板的选项列表。
+ *
+ * `value` 用动作 id 而不是按键串：按键串会随改键变化，
+ * 而 ArtPlayer 的 selector 缓存是按 value 做键的，用 id 才能稳定复用节点。
+ */
+function buildShortcutOptions(
+  bindings: Record<ShortcutActionId, string>
+): Array<{ html: string; value: string }> {
+  return SHORTCUT_ACTIONS.map((action) => ({
+    html: `${action.label}  ·  ${formatKeyString(bindings[action.id])}`,
+    value: action.id,
+  }));
+}
+
+/**
+ * 组装「快捷键」设置项的 tooltip。
+ *
+ * 有自定义键位时提示条数，用户才知道自己改过键（否则换了设备会
+ * 困惑"为什么按键不一样"）。
+ */
+function buildShortcutTooltip(overrides: ShortcutBindings): string {
+  const count = Object.keys(overrides).length;
+  return count > 0 ? `已自定义 ${count} 项` : '点击可改键';
+}
 
 /**
  * 下一集预热的覆盖时长（秒）。
@@ -275,6 +405,41 @@ export function usePlayEngine() {
   const detailRef = useRef<SearchResult | null>(detail);
   const currentEpisodeIndexRef = useRef(currentEpisodeIndex);
 
+  /**
+   * 用「颜色已修正」的弹幕数据覆盖插件自行解析的结果。
+   *
+   * 插件内部的颜色解析是 `#${Number(t[3]).toString(16)}`，缺补零，
+   * 深色系弹幕会变成透明或错误颜色。这里改为由我们解析并补零。
+   *
+   * 失败时静默保留插件已加载的弹幕 —— 宁可颜色有损，也不能没有弹幕。
+   *
+   * 注意：本函数引用的 ref 均在其下方声明。这只在「函数体延迟执行」时成立，
+   * 因此它只能被 effect / 事件回调调用，不可在渲染期直接调用。
+   */
+  const applyCorrectedDanmaku = async (url: string) => {
+    if (!url || correctedDanmakuUrlRef.current === url) return;
+    if (!danmukuPluginInstanceRef.current) return;
+
+    try {
+      const { fetchPluginDanmaku } = await import('@/lib/danmaku.client');
+      const list = await fetchPluginDanmaku(url);
+
+      // 解析期间可能已切集/切源，此时结果已过期，丢弃
+      if (lastDanmakuUrlRef.current !== url) return;
+      if (!list.length) return;
+
+      // 二次确认插件实例仍在，且没被换集重建
+      if (!danmukuPluginInstanceRef.current) return;
+      danmukuPluginInstanceRef.current.config({ danmuku: list });
+      await danmukuPluginInstanceRef.current.load();
+
+      correctedDanmakuUrlRef.current = url;
+      console.log(`弹幕颜色已修正: ${list.length} 条`);
+    } catch (err) {
+      console.warn('弹幕颜色修正失败，沿用插件原始解析:', err);
+    }
+  };
+
   // 用户手动/自动选择弹幕番剧后，加载对应集的弹幕
   useEffect(() => {
     if (!selectedDanmakuAnime || !detail) return;
@@ -315,6 +480,7 @@ export function usePlayEngine() {
         );
         if (danmukuPluginInstanceRef.current && url !== lastDanmakuUrlRef.current) {
           console.log('动态更新弹幕源:', url);
+          // 先把地址交给插件：即使后续解析失败，弹幕也已经能显示出来。
           danmukuPluginInstanceRef.current.config({ danmuku: url });
           danmukuPluginInstanceRef.current.load();
           lastDanmakuUrlRef.current = url;
@@ -333,6 +499,11 @@ export function usePlayEngine() {
           }
 
           setCurrentTooltip(matchedEpisode.episodeTitle);
+
+          // 再用「已修正颜色」的数据覆盖一遍。
+          // 插件自行解析时会丢掉 hex 的前导零，导致深色系弹幕
+          // 透明/变色（见 lib/danmaku-color.ts）。这里接管解析。
+          void applyCorrectedDanmaku(url);
         }
       } catch (e) {
         console.error("获取弹幕 URL 失败:", e);
@@ -376,10 +547,10 @@ export function usePlayEngine() {
 
   // 用于记录是否需要在播放器 ready 后跳转到指定进度
   const resumeTimeRef = useRef<number | null>(null);
-  // 上次使用的音量，默认 0.7
-  const lastVolumeRef = useRef<number>(0.7);
-  // 上次使用的播放速率，默认 1.0
-  const lastPlaybackRateRef = useRef<number>(1.0);
+  // 上次使用的音量。初值取记住的偏好，保证首次播放就用对音量。
+  const lastVolumeRef = useRef<number>(loadVolume());
+  // 上次使用的播放速率。同样以记住的偏好为初值。
+  const lastPlaybackRateRef = useRef<number>(loadPlaybackRate());
   const lastFullscreenRef = useRef<boolean>(false);
   const lastFullscreenWebRef = useRef<boolean>(false);
   // 弹幕插件配置：默认配置叠加本地持久化的用户设置，保证刷新后自动恢复
@@ -425,6 +596,8 @@ export function usePlayEngine() {
   const artRef = useRef<HTMLDivElement | null>(null);
   const danmukuPluginInstanceRef = useRef<any>(null); // 弹幕插件实例
   const lastDanmakuUrlRef = useRef<string>(''); // 上一次加载的弹幕 URL
+  /** 已应用「颜色修正」的弹幕地址，避免同一集重复解析 */
+  const correctedDanmakuUrlRef = useRef<string>('');
   const pendingDanmakuVisibleRestoreRef = useRef<boolean | null>(null); // 切集后待恢复的弹幕可见状态
 
   // ---- P1-5 / P1-6 相关 ----
@@ -451,6 +624,36 @@ export function usePlayEngine() {
     loadPreferredQualityHeight()
   );
   const isEpisodeSwitchingRef = useRef(false); // 标记当前是否为切集切换
+  /**
+   * 标记「正在加载新源」。
+   *
+   * 期间浏览器会把 playbackRate 重置为 1，这个 1 不是用户的选择，
+   * 不能写进倍速偏好（否则用户设的 1.5x 会被悄悄清掉）。
+   */
+  const isSwitchingSourceRef = useRef(false);
+  /**
+   * 当前生效的快捷键绑定（动作 → 按键串）。
+   *
+   * keydown 监听器只注册一次，直接读 state 会拿到过期闭包，
+   * 因此走 ref；改键后由设置面板同步刷新它。
+   */
+  const shortcutBindingsRef = useRef<Record<ShortcutActionId, string>>(
+    resolveBindings(loadBindings())
+  );
+  /**
+   * 用户的键位覆盖表（只存改过的那几项）。
+   *
+   * 与 `shortcutBindingsRef`（合并默认值后的全量表）分开存：
+   * 「恢复默认」只需要清空覆盖表，不必逐项比对默认值。
+   */
+  const shortcutOverridesRef = useRef<ShortcutBindings>(loadBindings());
+  /**
+   * 正在等待用户按键的动作 id。
+   *
+   * 非 null 时全局 keydown 进入"录制模式"：吞掉按键只做绑定，
+   * 不执行任何播放器操作——否则用户按 `←` 想改键，视频会先倒回去 10 秒。
+   */
+  const shortcutRecorderRef = useRef<ShortcutActionId | null>(null);
   const danmakuVisibleRestoreTimerRef = useRef<NodeJS.Timeout | null>(null); // 延迟恢复弹幕可见性的定时器
 
   // Wake Lock（屏幕常亮）
@@ -724,6 +927,12 @@ export function usePlayEngine() {
         // 销毁 ArtPlayer 实例
         artPlayerRef.current.destroy();
         artPlayerRef.current = null;
+
+        // 播放器已销毁，弹幕插件实例随之失效。
+        // 必须清掉这两个 ref，否则重建后 URL 与旧值相同会被判定为
+        // 「已加载过」而跳过，导致新实例退回插件原始解析（颜色有损）。
+        lastDanmakuUrlRef.current = '';
+        correctedDanmakuUrlRef.current = '';
 
         console.log('播放器资源已清理');
       } catch (err) {
@@ -1264,6 +1473,8 @@ export function usePlayEngine() {
       // 显示换源加载状态
       setVideoLoadingStage('sourceChanging');
       setIsVideoLoading(true);
+      // 新源加载期间 playbackRate 会被重置为 1，不要把它写进偏好
+      isSwitchingSourceRef.current = true;
 
       // 记录当前播放进度（仅在同一集数切换时恢复）
       const currentPlayTime = artPlayerRef.current?.currentTime || 0;
@@ -1395,18 +1606,12 @@ export function usePlayEngine() {
     );
   };
 
-  useEffect(() => {
-    document.addEventListener('keydown', handleKeyboardShortcuts);
-    return () => {
-      document.removeEventListener('keydown', handleKeyboardShortcuts);
-    };
-  }, []);
-
   // 处理集数切换
   const handleEpisodeChange = async (episodeNumber: number) => {
     if (episodeNumber === currentEpisodeIndexRef.current) return;
     if (episodeNumber >= 0 && episodeNumber < totalEpisodes) {
       isEpisodeSwitchingRef.current = true;
+      isSwitchingSourceRef.current = true;
       hideDanmakuDuringEpisodeSwitch();
       // 在更换集数前保存当前播放进度
       if (artPlayerRef.current && artPlayerRef.current.paused) {
@@ -1437,6 +1642,7 @@ export function usePlayEngine() {
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx > 0) {
       isEpisodeSwitchingRef.current = true;
+      isSwitchingSourceRef.current = true;
       hideDanmakuDuringEpisodeSwitch();
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
@@ -1453,6 +1659,7 @@ export function usePlayEngine() {
     const idx = currentEpisodeIndexRef.current;
     if (d && d.episodes && idx < d.episodes.length - 1) {
       isEpisodeSwitchingRef.current = true;
+      isSwitchingSourceRef.current = true;
       hideDanmakuDuringEpisodeSwitch();
       if (artPlayerRef.current && !artPlayerRef.current.paused) {
         saveCurrentPlayProgress();
@@ -1468,6 +1675,177 @@ export function usePlayEngine() {
   // 键盘快捷键
   // -----------------------------------------------------------------------------
 
+  /**
+   * 把「快捷键」子面板刷新成最新键位。
+   *
+   * 必须走 `updateSettingPreservingPanel` 而不是裸 `update()`：
+   * 用户是在子面板里点的某一条改键，裸 `update()` 会把他弹回根面板，
+   * 表现就是"改一个键就得重新点进来一次"。
+   */
+  const refreshShortcutPanel = () => {
+    updateSettingPreservingPanel(artPlayerRef.current, {
+      name: SHORTCUT_SETTING_NAME,
+      selector: buildShortcutOptions(shortcutBindingsRef.current),
+    });
+    setSettingTooltip(
+      artPlayerRef.current,
+      SHORTCUT_SETTING_NAME,
+      buildShortcutTooltip(shortcutOverridesRef.current)
+    );
+  };
+
+  /** 进入录制态：面板上提示"请按键"，并记住要改哪个动作 */
+  const startShortcutRecording = (actionId: ShortcutActionId) => {
+    const action = SHORTCUT_ACTIONS.find((a) => a.id === actionId);
+    if (!action || !action.customizable) return;
+
+    shortcutRecorderRef.current = actionId;
+    if (artPlayerRef.current) {
+      artPlayerRef.current.notice.show = `请按下新的按键：${action.label}（Esc 取消）`;
+    }
+
+    // 把该条在面板上标成"待录入"，用户才知道系统在等他按键
+    const recorderId = actionId;
+    updateSettingPreservingPanel(artPlayerRef.current, {
+      name: SHORTCUT_SETTING_NAME,
+      selector: SHORTCUT_ACTIONS.map((item) => ({
+        html:
+          item.id === recorderId
+            ? `${item.label}  ·  按下新按键…`
+            : `${item.label}  ·  ${formatKeyString(
+                shortcutBindingsRef.current[item.id]
+              )}`,
+        value: item.id,
+      })),
+    });
+  };
+
+  /**
+   * 提交录制结果。返回 true 表示这次按键已被录制流程消费。
+   *
+   * 三种情况：
+   * - Esc → 取消录制
+   * - 单按修饰键 → 不是有效绑定，继续等待
+   * - 其它 → 落库并退出录制
+   */
+  const commitShortcutRecording = (e: KeyboardEvent): boolean => {
+    const actionId = shortcutRecorderRef.current;
+    if (!actionId) return false;
+
+    if (e.key === 'Escape') {
+      shortcutRecorderRef.current = null;
+      if (artPlayerRef.current) {
+        artPlayerRef.current.notice.show = '已取消改键';
+      }
+      return true;
+    }
+
+    const keyString = eventToKeyString(e);
+    if (!keyString) return false; // 只按了修饰键，继续等
+
+    const conflicts = findConflicts(
+      shortcutBindingsRef.current,
+      keyString,
+      actionId
+    );
+
+    // 冲突则接管：把占用该键的**其它**动作恢复默认，
+    // 否则两个动作会同时响应同一个键。比直接拒绝更符合直觉
+    // （用户想用这个键，那就给他）。
+    const nextOverrides: ShortcutBindings = { ...shortcutOverridesRef.current };
+    for (const conflictingId of conflicts) {
+      delete nextOverrides[conflictingId];
+    }
+
+    const action = SHORTCUT_ACTIONS.find((a) => a.id === actionId);
+    if (action && keyString === action.defaultKeys) {
+      // 改回默认值 = 取消这项自定义，别在存储里留冗余
+      delete nextOverrides[actionId];
+    } else {
+      nextOverrides[actionId] = keyString;
+    }
+
+    shortcutOverridesRef.current = nextOverrides;
+    shortcutBindingsRef.current = resolveBindings(nextOverrides);
+    saveBindings(nextOverrides);
+    shortcutRecorderRef.current = null;
+
+    const conflictNames = conflicts
+      .map((id) => SHORTCUT_ACTIONS.find((a) => a.id === id)?.label)
+      .filter(Boolean)
+      .join('、');
+
+    if (artPlayerRef.current) {
+      const suffix = conflictNames ? `（${conflictNames} 已恢复默认）` : '';
+      artPlayerRef.current.notice.show = `已绑定 ${formatKeyString(
+        keyString
+      )}${suffix}`;
+    }
+
+    refreshShortcutPanel();
+    return true;
+  };
+
+  /** 「恢复默认键位」：清空覆盖表并刷新面板 */
+  const resetShortcutBindings = () => {
+    clearBindings();
+    shortcutOverridesRef.current = {};
+    shortcutBindingsRef.current = resolveBindings({});
+    shortcutRecorderRef.current = null;
+    if (artPlayerRef.current) {
+      artPlayerRef.current.notice.show = '已恢复默认键位';
+    }
+    refreshShortcutPanel();
+  };
+
+  /**
+   * 刷新「弹幕屏蔽」子面板。
+   *
+   * 与快捷键面板同理必须走 `updateSettingPreservingPanel`：用户是在子面板里
+   * 点某条规则切换启停的，裸 `update()` 会把他弹回根面板。
+   */
+  const refreshDanmakuFilterPanel = () => {
+    const config = loadDanmakuFilterConfig();
+    updateSettingPreservingPanel(artPlayerRef.current, {
+      name: DANMAKU_FILTER_SETTING_NAME,
+      selector: buildDanmakuFilterOptions(config),
+    });
+    setSettingTooltip(
+      artPlayerRef.current,
+      DANMAKU_FILTER_SETTING_NAME,
+      buildDanmakuFilterTooltip(config)
+    );
+  };
+
+  /**
+   * 用外部播放器打开当前视频。
+   *
+   * 取地址一律走 `currentVideoUrlRef`（实时地址）而不是闭包里的 `videoUrl` ——
+   * 与预取器同理：切集时播放器实例被复用，闭包变量不会更新，
+   * 会把**上一集**的地址交给外部播放器。
+   *
+   * 外链地址优先用原始地址而非同源代理：外部播放器能直连大多数源站，
+   * 绕一层代理反而增加失败面（且代理需要 token，很多播放器不会带）。
+   */
+  const openInExternalPlayer = (playerId: ExternalPlayerId) => {
+    const url = currentVideoUrlRef.current;
+    if (!url) {
+      if (artPlayerRef.current) {
+        artPlayerRef.current.notice.show = '当前没有可用的视频地址';
+      }
+      return;
+    }
+
+    const title = detailRef.current?.title || '';
+    const ok = launchExternalPlayer(playerId, url, title);
+
+    if (artPlayerRef.current) {
+      artPlayerRef.current.notice.show = ok
+        ? `已尝试用外部播放器打开（需本机已安装）`
+        : '无法唤起该播放器';
+    }
+  };
+
   // 处理全局快捷键
   const handleKeyboardShortcuts = (e: KeyboardEvent) => {
     // 忽略输入框中的按键事件
@@ -1475,85 +1853,156 @@ export function usePlayEngine() {
       (e.target as HTMLElement).tagName === 'INPUT' ||
       (e.target as HTMLElement).tagName === 'TEXTAREA'
     )
+
       return;
 
-    // Alt + 左箭头 = 上一集
-    if (e.altKey && e.key === 'ArrowLeft') {
-      if (detailRef.current && currentEpisodeIndexRef.current > 0) {
-        handlePreviousEpisode();
-        e.preventDefault();
-      }
+    const art = artPlayerRef.current;
+
+    // 录制模式优先：此时按键只用于绑定，不触发播放器操作
+    if (shortcutRecorderRef.current) {
+      const recorded = commitShortcutRecording(e);
+      if (recorded) return;
+      // 无效按键（单按修饰键）继续往下走，让 Esc 之类的兜底逻辑生效
     }
 
-    // Alt + 右箭头 = 下一集
-    if (e.altKey && e.key === 'ArrowRight') {
+    const bindings = shortcutBindingsRef.current;
+
+    /**
+     * 依次尝试每个动作，命中即执行并阻止默认行为。
+     *
+     * 用「动作 → 处理器」的映射表替代原先一串 if：新增动作只需
+     * 在 lib/shortcuts.ts 注册 + 在这里补一个处理器，
+     * 不必再手写按键判断（那正是键位无法自定义的原因）。
+     */
+    const run = (
+      actionId: ShortcutActionId,
+      handler: () => boolean
+    ): boolean => {
+      const keyString = bindings[actionId];
+      if (!keyString) return false;
+      if (!matchesKeyString(e, keyString)) return false;
+      if (!handler()) return false;
+      e.preventDefault();
+      return true;
+    };
+
+    run('prevEpisode', () => {
+      if (detailRef.current && currentEpisodeIndexRef.current > 0) {
+        handlePreviousEpisode();
+        return true;
+      }
+      return false;
+    });
+
+    run('nextEpisode', () => {
       const d = detailRef.current;
       const idx = currentEpisodeIndexRef.current;
       if (d && idx < d.episodes.length - 1) {
         handleNextEpisode();
-        e.preventDefault();
+        return true;
       }
-    }
+      return false;
+    });
 
-    // 左箭头 = 快退
-    if (!e.altKey && e.key === 'ArrowLeft') {
-      if (artPlayerRef.current && artPlayerRef.current.currentTime > 5) {
-        artPlayerRef.current.currentTime -= 10;
-        e.preventDefault();
+    run('seekBackward', () => {
+      if (art && art.currentTime > 5) {
+        art.currentTime -= 10;
+        return true;
       }
-    }
+      return false;
+    });
 
-    // 右箭头 = 快进
-    if (!e.altKey && e.key === 'ArrowRight') {
-      if (
-        artPlayerRef.current &&
-        artPlayerRef.current.currentTime < artPlayerRef.current.duration - 5
-      ) {
-        artPlayerRef.current.currentTime += 10;
-        e.preventDefault();
+    run('seekForward', () => {
+      if (art && art.currentTime < art.duration - 5) {
+        art.currentTime += 10;
+        return true;
       }
-    }
+      return false;
+    });
 
-    // 上箭头 = 音量+
-    if (e.key === 'ArrowUp') {
-      if (artPlayerRef.current && artPlayerRef.current.volume < 1) {
-        artPlayerRef.current.volume =
-          Math.round((artPlayerRef.current.volume + 0.1) * 10) / 10;
-        artPlayerRef.current.notice.show = `音量: ${Math.round(
-          artPlayerRef.current.volume * 100
-        )}`;
-        e.preventDefault();
+    run('volumeUp', () => {
+      if (art && art.volume < 1) {
+        art.volume = Math.round((art.volume + 0.1) * 10) / 10;
+        art.notice.show = `音量: ${Math.round(art.volume * 100)}`;
+        return true;
       }
-    }
+      return false;
+    });
 
-    // 下箭头 = 音量-
-    if (e.key === 'ArrowDown') {
-      if (artPlayerRef.current && artPlayerRef.current.volume > 0) {
-        artPlayerRef.current.volume =
-          Math.round((artPlayerRef.current.volume - 0.1) * 10) / 10;
-        artPlayerRef.current.notice.show = `音量: ${Math.round(
-          artPlayerRef.current.volume * 100
-        )}`;
-        e.preventDefault();
+    run('volumeDown', () => {
+      if (art && art.volume > 0) {
+        art.volume = Math.round((art.volume - 0.1) * 10) / 10;
+        art.notice.show = `音量: ${Math.round(art.volume * 100)}`;
+        return true;
       }
-    }
+      return false;
+    });
 
-    // 空格 = 播放/暂停
-    if (e.key === ' ') {
-      if (artPlayerRef.current) {
-        artPlayerRef.current.toggle();
-        e.preventDefault();
-      }
-    }
+    run('toggleMute', () => {
+      if (!art) return false;
+      art.muted = !art.muted;
+      art.notice.show = art.muted ? '已静音' : '已取消静音';
+      return true;
+    });
 
-    // f 键 = 切换全屏
-    if (e.key === 'f' || e.key === 'F') {
-      if (artPlayerRef.current) {
-        artPlayerRef.current.fullscreen = !artPlayerRef.current.fullscreen;
-        e.preventDefault();
+    run('togglePlay', () => {
+      if (!art) return false;
+      art.toggle();
+      return true;
+    });
+
+    run('toggleFullscreen', () => {
+      if (!art) return false;
+      art.fullscreen = !art.fullscreen;
+      return true;
+    });
+
+    run('screenshot', () => {
+      if (!art || typeof art.screenshot !== 'function') return false;
+      // 截图失败（跨域保护等）已在 ready 里包装提示，这里吞掉异常
+      void Promise.resolve(art.screenshot()).catch(() => {
+        /* 已提示 */
+      });
+      return true;
+    });
+
+    run('toggleDanmaku', () => {
+      const plugin = danmukuPluginInstanceRef.current;
+      if (!plugin) return false;
+      const nextVisible =
+        typeof plugin.visible === 'boolean' ? !plugin.visible : true;
+      plugin.config({ visible: nextVisible });
+      danmakuConfigRef.current.visible = nextVisible;
+      if (art) {
+        art.notice.show = nextVisible ? '弹幕已开启' : '弹幕已关闭';
       }
-    }
+      return true;
+    });
+
+    // 倍速微调：每次 0.25x，钳制在 [0.5, 3]
+    const adjustPlaybackRate = (delta: number) => {
+      if (!art) return false;
+      const next = Math.round((art.playbackRate + delta) * 100) / 100;
+      const clamped = Math.min(MAX_PLAYBACK_RATE, Math.max(MIN_PLAYBACK_RATE, next));
+      if (clamped === art.playbackRate) return false;
+      art.playbackRate = clamped;
+      art.notice.show = `倍速: ${clamped}x`;
+      // 手动调节倍速属于明确意愿，直接记住
+      savePlaybackRate(clamped);
+      return true;
+    };
+
+    run('speedUp', () => adjustPlaybackRate(0.25));
+    run('speedDown', () => adjustPlaybackRate(-0.25));
   };
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => {
+      document.removeEventListener('keydown', handleKeyboardShortcuts);
+    };
+    // 监听器只注册一次；内部读 ref，因此不会因为改键而失效
+  }, []);
 
   // -----------------------------------------------------------------------------
   // 播放进度保存
@@ -1958,14 +2407,14 @@ export function usePlayEngine() {
         container: artRef.current,
         url: videoUrl,
         poster: videoCover,
-        volume: 0.7,
+        volume: loadVolume(),
         isLive: false,
         muted: false,
         autoplay: true,
         pip: true,
         autoSize: false,
         autoMini: false,
-        screenshot: false,
+        screenshot: true,
         setting: true,
         loop: false,
         flip: false,
@@ -2322,6 +2771,102 @@ export function usePlayEngine() {
               return '';
             },
           },
+          {
+            // 快捷键面板。用 selector 而非 onClick，才能展开成子面板
+            // 逐条列出按键（onClick 只会执行动作、不展示内容）。
+            // 点某一条进入录制态，再按任意组合键即可完成改键。
+            name: SHORTCUT_SETTING_NAME,
+            html: SHORTCUT_SETTING_NAME,
+            tooltip: buildShortcutTooltip(shortcutOverridesRef.current),
+            selector: buildShortcutOptions(shortcutBindingsRef.current),
+            onSelect: function (item: any) {
+              const actionId = item?.value as ShortcutActionId | undefined;
+              if (actionId) {
+                startShortcutRecording(actionId);
+              }
+              // 返回空串 = 不关闭面板，保持在子面板里等待按键
+              return '';
+            },
+          },
+          {
+            html: '快捷键 · 恢复默认',
+            onClick: function () {
+              resetShortcutBindings();
+              return '';
+            },
+          },
+          {
+            name: DANMAKU_FILTER_SETTING_NAME,
+            html: '弹幕屏蔽',
+            tooltip: buildDanmakuFilterTooltip(loadDanmakuFilterConfig()),
+            selector: buildDanmakuFilterOptions(loadDanmakuFilterConfig()),
+            onSelect: function (item: any) {
+              const value = item?.value;
+              const config = loadDanmakuFilterConfig();
+
+              // 「＋ 添加规则」用 prompt 就地输入。播放页是全屏沉浸场景，
+              // 弹一个独立模态会打断观看；prompt 由浏览器渲染在顶层，
+              // 也不会被播放器的全屏层遮住。
+              if (value === '__add__') {
+                const input =
+                  typeof window !== 'undefined'
+                    ? window.prompt('输入要屏蔽的关键词（在词首加 re: 使用正则）', '')
+                    : null;
+                if (input && input.trim()) {
+                  const raw = input.trim();
+                  const isRegex = raw.startsWith('re:');
+                  const created = createDanmakuFilterRule(
+                    isRegex ? raw.slice(3) : raw,
+                    isRegex ? 'regex' : 'normal'
+                  );
+                  if (!created) {
+                    if (artPlayerRef.current) {
+                      artPlayerRef.current.notice.show = isRegex
+                        ? '正则表达式不合法'
+                        : '关键词不能为空';
+                    }
+                  } else {
+                    const next = [...config.rules, created];
+                    saveDanmakuFilterConfig({ rules: next });
+                    applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
+                    if (artPlayerRef.current) {
+                      artPlayerRef.current.notice.show = `已屏蔽「${created.keyword}」`;
+                    }
+                  }
+                }
+                refreshDanmakuFilterPanel();
+                return '';
+              }
+
+              // 「清空」一键移除全部规则
+              if (value === '__clear__') {
+                clearDanmakuFilterConfig();
+                applyDanmakuFilter(danmukuPluginInstanceRef.current, []);
+                if (artPlayerRef.current) {
+                  artPlayerRef.current.notice.show = '已清空屏蔽规则';
+                }
+                refreshDanmakuFilterPanel();
+                return '';
+              }
+
+              // 点击某条规则 = 切换启用/停用
+              const target = config.rules.find((r) => r.id === value);
+              if (target) {
+                const next = config.rules.map((r) =>
+                  r.id === value ? { ...r, enabled: !r.enabled } : r
+                );
+                saveDanmakuFilterConfig({ rules: next });
+                applyDanmakuFilter(danmukuPluginInstanceRef.current, next);
+                if (artPlayerRef.current) {
+                  artPlayerRef.current.notice.show = target.enabled
+                    ? `已停用「${target.keyword}」`
+                    : `已启用「${target.keyword}」`;
+                }
+                refreshDanmakuFilterPanel();
+              }
+              return '';
+            },
+          },
         ],
         // 控制栏配置
         controls: [
@@ -2334,12 +2879,60 @@ export function usePlayEngine() {
               handleNextEpisode();
             },
           },
+          {
+            // 外部播放器。做成一个下拉而不是 6 个平铺按钮：
+            // 控制栏空间有限，且这些按钮对多数用户根本用不到，
+            // 平铺会挤压播放/进度等高频控件。
+            position: 'right',
+            index: 10,
+            name: 'external-player',
+            html: '<i class="art-icon flex"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg></i>',
+            tooltip: '用外部播放器打开',
+            selector: buildExternalPlayerOptions(),
+            onSelect: function (item: any) {
+              const playerId = item?.value as ExternalPlayerId | undefined;
+              if (playerId) {
+                openInExternalPlayer(playerId);
+              }
+              return '';
+            },
+          },
         ],
       });
 
       // 监听播放器事件
       artPlayerRef.current.on('ready', () => {
         setError(null);
+
+        // 截图跨域保护。
+        //
+        // ArtPlayer 的截图是裸的 drawImage + toDataURL，当视频被标记为
+        // 跨域污染时会抛 SecurityError，用户只看到一句英文报错。
+        // 这里包一层，把不可用的情况翻译成明确的提示。
+        try {
+          const art: any = artPlayerRef.current;
+          const originalScreenshot = art.screenshot?.bind(art);
+          if (typeof originalScreenshot === 'function') {
+            art.screenshot = async (name?: string) => {
+              try {
+                return await originalScreenshot(name);
+              } catch (err) {
+                const message =
+                  err instanceof Error ? err.message : String(err);
+                if (/tainted|SecurityError|insecure/i.test(message)) {
+                  art.notice.show =
+                    '当前片源限制截图（跨域保护），可先下载后再截图';
+                } else {
+                  art.notice.show = '截图失败';
+                  console.warn('截图失败:', err);
+                }
+                throw err;
+              }
+            };
+          }
+        } catch {
+          // 包装失败不应影响播放
+        }
 
         // 捕获弹幕插件实例
         if (artPlayerRef.current?.plugins?.artplayerPluginDanmuku) {
@@ -2371,6 +2964,17 @@ export function usePlayEngine() {
           }
         } catch (_) {
           // ignore
+        }
+      });
+
+      // 设置面板关闭时结束改键录制。
+      //
+      // 录制态是"下一次按键即生效"，如果用户点了某一条之后改主意、
+      // 直接点面板外面关掉，那个悬着的录制态会在几分钟后吃掉他
+      // 无意间按下的任意键，把快捷键悄悄改掉。宁可什么都不改。
+      artPlayerRef.current.on('setting', (show: boolean) => {
+        if (!show && shortcutRecorderRef.current) {
+          shortcutRecorderRef.current = null;
         }
       });
 
@@ -2487,10 +3091,23 @@ export function usePlayEngine() {
       }
 
       artPlayerRef.current.on('video:volumechange', () => {
-        lastVolumeRef.current = artPlayerRef.current.volume;
+        const volume = artPlayerRef.current.volume;
+        lastVolumeRef.current = volume;
+
+        // 与倍速同理：加载新源时的被动重置不写入偏好
+        if (isSwitchingSourceRef.current) return;
+
+        saveVolume(volume);
       });
       artPlayerRef.current.on('video:ratechange', () => {
-        lastPlaybackRateRef.current = artPlayerRef.current.playbackRate;
+        const rate = artPlayerRef.current.playbackRate;
+        lastPlaybackRateRef.current = rate;
+
+        // 加载新源时浏览器会把倍速重置为 1，此时不能覆盖用户偏好。
+        // 用「是否处于换源/切集流程」来区分主动切换与被动重置。
+        if (isSwitchingSourceRef.current) return;
+
+        savePlaybackRate(rate);
       });
 
       // 监听视频可播放事件，这时恢复播放进度更可靠
@@ -2512,19 +3129,43 @@ export function usePlayEngine() {
         resumeTimeRef.current = null;
 
         setTimeout(() => {
+          // 恢复音量：优先用记住的偏好，其次沿用会话内的值
+          const savedVolume = loadVolume();
+          const targetVolume =
+            savedVolume !== DEFAULT_VOLUME
+              ? savedVolume
+              : lastVolumeRef.current;
+
           if (
-            Math.abs(artPlayerRef.current.volume - lastVolumeRef.current) > 0.01
+            Number.isFinite(targetVolume) &&
+            Math.abs(artPlayerRef.current.volume - targetVolume) > 0.01
           ) {
-            artPlayerRef.current.volume = lastVolumeRef.current;
+            artPlayerRef.current.volume = targetVolume;
           }
+
+          // 恢复倍速：优先用用户记住的偏好，其次沿用本次会话内的值。
+          //
+          // 这里不再限定 isWebkit —— 原先只有 WebKit 会走到这段，
+          // 但 WebKit 恰恰是「销毁重建」路径，非 WebKit 走 switch 复用实例。
+          // 两种情况都可能因新源加载被重置为 1，需要在就绪后统一补回。
+          const preferredRateRaw = loadPlaybackRate();
+          const targetRate =
+            preferredRateRaw !== DEFAULT_PLAYBACK_RATE
+              ? preferredRateRaw
+              : lastPlaybackRateRef.current;
+
           if (
-            Math.abs(
-              artPlayerRef.current.playbackRate - lastPlaybackRateRef.current
-            ) > 0.01 &&
-            isWebkit
+            Number.isFinite(targetRate) &&
+            targetRate > 0 &&
+            Math.abs(artPlayerRef.current.playbackRate - targetRate) > 0.01
           ) {
-            artPlayerRef.current.playbackRate = lastPlaybackRateRef.current;
+            artPlayerRef.current.playbackRate = targetRate;
           }
+
+          // 倍速与音量已在上面处理完毕，解除「正在切换」标记，
+          // 之后的 ratechange 才是用户主动操作，可以写入偏好。
+          isSwitchingSourceRef.current = false;
+
           artPlayerRef.current.notice.show = '';
         }, 0);
 
