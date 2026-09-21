@@ -336,7 +336,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
         cfg.startSegment,
         cfg.endSegment,
         cfg.streamMode || 'disabled',
-        cfg.maxRetries || 3,
+        cfg.maxRetries ?? 3,
         completeStreamRef
       ).finally(finish);
     };
