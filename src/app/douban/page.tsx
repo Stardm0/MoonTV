@@ -422,7 +422,7 @@ function DoubanPageClient() {
           if (isTagPage) {
             // 标签页（短剧/纪录片）
             data = await getTagPageData(currentPage * 25);
-          } else if (type === 'anime' && primarySelection === '每日放送') {
+          } else if (type === 'anime' && primarySelection === '番剧') {
             // 每日放送模式下，不进行数据请求，返回空数据
             data = {
               code: 200,
@@ -656,8 +656,8 @@ function DoubanPageClient() {
   };
 
   const getPageDescription = () => {
-    if (type === 'anime' && primarySelection === '每日放送') {
-      return '来自 Bangumi 番组计划的精选内容';
+    if (type === 'anime' && primarySelection === '番剧') {
+      return '来自番剧的精选内容';
     }
     if (type === 'short') {
       return '来自豆瓣的精选短剧内容';
