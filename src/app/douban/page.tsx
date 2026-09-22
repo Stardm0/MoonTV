@@ -53,7 +53,7 @@ function DoubanPageClient() {
   const [primarySelection, setPrimarySelection] = useState<string>(() => {
     if (type === 'movie') return '热门';
     if (type === 'tv' || type === 'show') return '最近热门';
-    if (type === 'anime') return '每日放送';
+    if (type === 'anime') return '番剧';
     if (isTagPage) return '热门';
     return '';
   });
