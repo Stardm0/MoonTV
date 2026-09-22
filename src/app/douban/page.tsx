@@ -422,7 +422,7 @@ function DoubanPageClient() {
           if (isTagPage) {
             // 标签页（短剧/纪录片）
             data = await getTagPageData(currentPage * 25);
-          } else if (type === 'anime' && primarySelection === '番剧') {
+          } else if (type === 'anime' && primarySelection === '每日放送') {
             // 每日放送模式下，不进行数据请求，返回空数据
             data = {
               code: 200,
