@@ -503,6 +503,11 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
 
           {/* 筛选部分 - 根据一级选择器显示不同内容 */}
           {(primarySelection || animePrimaryOptions[0].value) === '番剧' ? (
+                    <MultiLevelSelector
+                    key={`anime-tv-${primarySelection}`}
+                    onChange={handleMultiLevelChange}
+                    contentType='anime-tv'
+                  />
           ) : (
             // 其他分类下显示原有的筛选功能
             <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
