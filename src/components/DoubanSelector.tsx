@@ -502,16 +502,13 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
           </div>
 
           {/* 筛选部分 - 根据一级选择器显示不同内容 */}
-          {(primarySelection || animePrimaryOptions[0].value) === '每日放送' ? (
+          {(primarySelection || animePrimaryOptions[0].value) === '番剧' ? (
             // 每日放送分类下显示星期选择器
-            <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
-              <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
-                星期
-              </span>
-              <div className='overflow-x-auto'>
-                <WeekdaySelector onWeekdayChange={onWeekdayChange} />
-              </div>
-            </div>
+                <MultiLevelSelector
+                    key={`anime-tv-${primarySelection}`}
+                    onChange={handleMultiLevelChange}
+                    contentType='anime-tv'
+                />
           ) : (
             // 其他分类下显示原有的筛选功能
             <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
