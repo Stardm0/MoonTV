@@ -96,7 +96,6 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
 
   // 动漫一级选择器选项
   const animePrimaryOptions: SelectorOption[] = [
-    { label: '每日放送', value: '每日放送' },
     { label: '番剧', value: '番剧' },
     { label: '剧场版', value: '剧场版' },
   ];
