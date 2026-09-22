@@ -649,7 +649,7 @@ function DoubanPageClient() {
   };
 
   const getPageDescription = () => {
-    if (type === 'anime' && primarySelection === '番剧') {
+    if (type === 'anime') {
       return '来自番剧的精选内容';
     }
     if (type === 'short') {

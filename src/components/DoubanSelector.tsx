@@ -485,7 +485,7 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
       )}
 
       {/* 动漫类型 - 显示一级选择器和多级选择器 */}
-      {type === 'anime' && (
+      {type === 'anime'(
         <div className='space-y-3 sm:space-y-4'>
           <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
             <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
