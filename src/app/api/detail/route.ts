@@ -4,10 +4,10 @@ import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getCacheTime } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { resolveOpenListConfig } from '@/lib/media-library.server';
 import {
   buildPlayableUrl,
   joinOpenListPath,
-  parseOpenListConfigFromCookieHeader,
   requestOpenList,
   sortOpenListItems,
 } from '@/lib/openlist';
@@ -74,10 +74,11 @@ export async function GET(request: Request) {
  * 直链有过期时间，所以不进 CDN 缓存（`no-store`），每次进播放页现取。
  */
 async function handleOpenListDetail(request: Request, path: string) {
-  const config = parseOpenListConfigFromCookieHeader(request.headers.get('cookie'));
+  // 个人 cookie 优先，没有则回退管理员配置的站点级影库
+  const config = await resolveOpenListConfig(request.headers.get('cookie'));
   if (!config || !config.baseUrl) {
     return NextResponse.json(
-      { error: '尚未配置私人影库，请先到「影库」页面填写地址与令牌' },
+      { error: '尚未配置私人影库，请到「影库」页面填写，或由管理员在后台配置' },
       { status: 400 }
     );
   }

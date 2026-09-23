@@ -3,7 +3,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { getAuthInfoFromCookie } from '@/lib/auth';
-import { isOpenListAction, requestOpenList } from '@/lib/openlist';
+import { getServerOpenListConfig } from '@/lib/media-library.server';
+import {
+  type OpenListConfig,
+  isOpenListAction,
+  requestOpenList,
+} from '@/lib/openlist';
 
 export const runtime = 'edge';
 
@@ -43,15 +48,35 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '不支持的操作' }, { status: 400 });
   }
 
-  const result = await requestOpenList(
-    {
-      baseUrl: payload?.baseUrl ?? '',
-      token: payload?.token ?? '',
-      allowPrivateNetwork: payload?.allowPrivateNetwork === true,
-    },
-    action,
-    payload?.path ?? '/'
-  );
+  // 请求体带地址 = 用户在影库页自己填的（或管理台「测试连接」）；
+  // 不带地址 = 用管理员在后台配的站点级影库（令牌只存在服务端）
+  const hasInlineBaseUrl =
+    typeof payload?.baseUrl === 'string' && payload.baseUrl.trim().length > 0;
+  const config: OpenListConfig | null = hasInlineBaseUrl
+    ? {
+        baseUrl: payload.baseUrl,
+        token: typeof payload?.token === 'string' ? payload.token : '',
+        allowPrivateNetwork: payload?.allowPrivateNetwork === true,
+      }
+    : await getServerOpenListConfig();
+
+  if (!config || !config.baseUrl) {
+    return NextResponse.json(
+      {
+        error: hasInlineBaseUrl
+          ? '缺少影库地址'
+          : '尚未配置私人影库，请到「影库」页面填写，或由管理员在后台配置',
+      },
+      { status: 400 }
+    );
+  }
+
+  const requestedPath =
+    typeof payload?.path === 'string' && payload.path.trim()
+      ? payload.path
+      : config.rootPath || '/';
+
+  const result = await requestOpenList(config, action, requestedPath);
 
   if (!result.ok) {
     if (result.status === 403) {

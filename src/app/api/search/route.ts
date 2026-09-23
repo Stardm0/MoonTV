@@ -5,11 +5,11 @@ import { NextRequest } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
+import { resolveOpenListConfig } from '@/lib/media-library.server';
 import {
   mapOpenListSearchItems,
   OPENLIST_SOURCE,
   OPENLIST_SOURCE_NAME,
-  parseOpenListConfigFromCookieHeader,
   requestOpenList,
 } from '@/lib/openlist';
 import { yellowWords } from '@/lib/yellow';
@@ -28,12 +28,14 @@ interface SearchFailure {
  * 未配置影库时静默返回空（不是错误，用户只是没接影库）；
  * 配置了但搜不出来才进 `failedSources`，提示里点出「索引」这个最常见原因——
  * OpenList 默认不做索引，没在「设置 → 索引」里建过就搜不到东西。
+ *
+ * 连接配置取「个人 cookie 优先、管理员站点级配置兜底」，与 `/api/detail` 一致。
  */
 async function searchPrivateLibrary(
   cookieHeader: string | null,
   query: string
 ): Promise<{ results: any[]; failed: SearchFailure | null }> {
-  const config = parseOpenListConfigFromCookieHeader(cookieHeader);
+  const config = await resolveOpenListConfig(cookieHeader);
   if (!config || !config.baseUrl) return { results: [], failed: null };
 
   const rootPath = config.rootPath || '/';

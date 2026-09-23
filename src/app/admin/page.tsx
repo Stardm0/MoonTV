@@ -41,6 +41,10 @@ import Swal from 'sweetalert2';
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
+  type MediaLibraryConfig,
+  createEmptyMediaLibraryConfig,
+} from '@/lib/media-library';
+import {
   getDefaultPlaybackSaveInterval,
   PLAYBACK_SAVE_DEFAULT_SECONDS,
 } from '@/lib/playback-settings';
@@ -77,6 +81,7 @@ interface SiteConfig {
   TVBoxPassword?: string;
   DanmakuApiBaseUrl?: string;
   PlaybackSaveInterval?: number;
+  MediaLibrary?: MediaLibraryConfig | null;
 }
 
 // 视频源数据类型
@@ -2228,6 +2233,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     TVBoxPassword: '',
     DanmakuApiBaseUrl: '',
     PlaybackSaveInterval: PLAYBACK_SAVE_DEFAULT_SECONDS,
+    MediaLibrary: createEmptyMediaLibraryConfig(),
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
@@ -2320,6 +2326,8 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           '',
         PlaybackSaveInterval:
           config.SiteConfig.PlaybackSaveInterval || defaultSaveInterval,
+        MediaLibrary:
+          config.SiteConfig.MediaLibrary ?? createEmptyMediaLibraryConfig(),
       });
     }
   }, [config, defaultSaveInterval]);
@@ -2399,6 +2407,61 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       showError(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 影库连接测试：用表单里当前填的地址与令牌试一次，不写库
+  const [testingLibrary, setTestingLibrary] = useState(false);
+  const [libraryTestResult, setLibraryTestResult] = useState<{
+    ok: boolean;
+    text: string;
+  } | null>(null);
+
+  const mediaLibrary =
+    siteSettings.MediaLibrary ?? createEmptyMediaLibraryConfig();
+
+  const updateMediaLibrary = (patch: Partial<MediaLibraryConfig>) => {
+    setSiteSettings((prev) => ({
+      ...prev,
+      MediaLibrary: {
+        ...(prev.MediaLibrary ?? createEmptyMediaLibraryConfig()),
+        ...patch,
+      },
+    }));
+  };
+
+  const handleTestLibrary = async () => {
+    if (!mediaLibrary.BaseUrl.trim()) {
+      setLibraryTestResult({ ok: false, text: '请先填写影库地址' });
+      return;
+    }
+    setTestingLibrary(true);
+    setLibraryTestResult(null);
+    try {
+      const resp = await fetch('/api/openlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'me',
+          baseUrl: mediaLibrary.BaseUrl,
+          token: mediaLibrary.Token,
+          allowPrivateNetwork: mediaLibrary.AllowPrivateNetwork === true,
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(
+          data?.message || data?.error || `测试失败: ${resp.status}`
+        );
+      }
+      setLibraryTestResult({ ok: true, text: '连接成功：影库可访问，令牌有效' });
+    } catch (err) {
+      setLibraryTestResult({
+        ok: false,
+        text: err instanceof Error ? err.message : '连接失败',
+      });
+    } finally {
+      setTestingLibrary(false);
     }
   };
 
@@ -2986,6 +3049,153 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             </p>
           </div>
         </div>
+      </div>
+
+      {/* 私人影库（站点级）配置 */}
+      <div className='space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700'>
+        <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+          私人影库（OpenList / AList）
+        </h3>
+        <p className='text-xs text-gray-500 dark:text-gray-400'>
+          配置后全站用户自动可用，令牌只保存在服务端、不会下发给浏览器；个人用户仍可在「影库」页填写自己的影库来覆盖这份配置。
+        </p>
+
+        {/* 启用开关 */}
+        <div>
+          <div className='flex items-center justify-between'>
+            <label
+              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
+                isLocalStorage ? 'opacity-50' : ''
+              }`}
+            >
+              启用站点级影库
+              {isLocalStorage && (
+                <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
+                  (本地存储模式不支持保存)
+                </span>
+              )}
+            </label>
+            <button
+              type='button'
+              onClick={() =>
+                !isLocalStorage &&
+                updateMediaLibrary({ Enabled: !mediaLibrary.Enabled })
+              }
+              disabled={isLocalStorage}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              } ${
+                mediaLibrary.Enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  mediaLibrary.Enabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+
+        {/* 地址 / 令牌 / 根路径 */}
+        <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              影库地址
+            </label>
+            <input
+              type='text'
+              value={mediaLibrary.BaseUrl}
+              onChange={(e) =>
+                !isLocalStorage && updateMediaLibrary({ BaseUrl: e.target.value })
+              }
+              disabled={isLocalStorage}
+              placeholder='https://openlist.example.com'
+              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              访问令牌（OpenList：设置 → 其他 → Token）
+            </label>
+            <input
+              type='password'
+              value={mediaLibrary.Token}
+              onChange={(e) =>
+                !isLocalStorage && updateMediaLibrary({ Token: e.target.value })
+              }
+              disabled={isLocalStorage}
+              placeholder='可留空（影库开启访客模式时）'
+              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            />
+          </div>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              浏览根路径
+            </label>
+            <input
+              type='text'
+              value={mediaLibrary.RootPath}
+              onChange={(e) =>
+                !isLocalStorage && updateMediaLibrary({ RootPath: e.target.value })
+              }
+              disabled={isLocalStorage}
+              placeholder='/'
+              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
+                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
+              }`}
+            />
+          </div>
+          <div className='flex items-end'>
+            <label className='flex items-center gap-2 pb-2 text-sm text-gray-700 dark:text-gray-300'>
+              <input
+                type='checkbox'
+                checked={mediaLibrary.AllowPrivateNetwork === true}
+                onChange={(e) =>
+                  !isLocalStorage &&
+                  updateMediaLibrary({ AllowPrivateNetwork: e.target.checked })
+                }
+                disabled={isLocalStorage}
+                className='w-4 h-4'
+              />
+              影库在内网（自建部署访问 192.168.x.x / NAS）
+            </label>
+          </div>
+        </div>
+
+        {/* 测试连接 */}
+        <div className='flex flex-wrap items-center gap-3'>
+          <button
+            type='button'
+            onClick={handleTestLibrary}
+            disabled={testingLibrary}
+            className={`px-4 py-2 rounded-lg text-white transition-colors ${
+              testingLibrary
+                ? 'bg-gray-400 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            {testingLibrary ? '测试中…' : '测试连接'}
+          </button>
+          {libraryTestResult && (
+            <span
+              className={`text-sm ${
+                libraryTestResult.ok
+                  ? 'text-green-600 dark:text-green-400'
+                  : 'text-red-500 dark:text-red-400'
+              }`}
+            >
+              {libraryTestResult.text}
+            </span>
+          )}
+        </div>
+        <p className='text-xs text-gray-500 dark:text-gray-400'>
+          托管环境（Cloudflare / Vercel）访问不到局域网地址，影库需要用公网 HTTPS（推荐 Cloudflare Tunnel）；自建部署才适合开内网开关。
+        </p>
       </div>
 
       {/* 操作按钮 */}

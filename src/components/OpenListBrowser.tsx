@@ -7,6 +7,10 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  type MediaLibrarySummary,
+  MEDIA_LIBRARY_TYPE_LABELS,
+} from '@/lib/media-library';
+import {
   type OpenListConfig,
   type OpenListItem,
   clearOpenListConfigCookie,
@@ -20,6 +24,22 @@ import {
 
 /** 播放页来源代号，必须与 `/api/detail` 里的分支一致 */
 const OPENLIST_SOURCE = 'openlist';
+
+/**
+ * 连的是哪份配置：
+ * - `personal` 浏览器 cookie 里自己填的影库
+ * - `server` 管理员在后台配的站点级影库（令牌不下发浏览器，请求不带地址由服务端补）
+ * - `none` 都没配
+ */
+type LibrarySource = 'none' | 'personal' | 'server';
+
+/** 服务端影库模式下交给 `/api/openlist` 的空壳配置（地址与令牌由服务端补） */
+const SERVER_LIBRARY_PLACEHOLDER: OpenListConfig = {
+  baseUrl: '',
+  token: '',
+  rootPath: '/',
+  allowPrivateNetwork: false,
+};
 
 function formatSize(size: number): string {
   if (!size || size < 0) return '-';
@@ -47,6 +67,9 @@ const OpenListBrowser = () => {
   const router = useRouter();
 
   const [config, setConfig] = useState<OpenListConfig | null>(null);
+  const [source, setSource] = useState<LibrarySource>('none');
+  const [serverSummary, setServerSummary] =
+    useState<MediaLibrarySummary | null>(null);
   const [form, setForm] = useState({
     baseUrl: '',
     token: '',
@@ -60,17 +83,49 @@ const OpenListBrowser = () => {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
+  /**
+   * 连接来源：**个人 cookie 优先，管理员站点级配置兜底**。
+   *
+   * 个人配置优先是为了不让人已有的影库被管理员新加的配置悄悄顶掉；
+   * 没配过的人才自动用后台那份（家庭/小团队场景里这是最常见的用法）。
+   */
   useEffect(() => {
+    let cancelled = false;
+
     const saved = readOpenListConfigFromCookie();
-    if (!saved) return;
-    setConfig(saved);
-    setForm({
-      baseUrl: saved.baseUrl,
-      token: saved.token,
-      rootPath: saved.rootPath || '/',
-      allowPrivateNetwork: saved.allowPrivateNetwork === true,
-    });
-    setPath(saved.rootPath || '/');
+    if (saved?.baseUrl) {
+      setConfig(saved);
+      setSource('personal');
+      setForm({
+        baseUrl: saved.baseUrl,
+        token: saved.token,
+        rootPath: saved.rootPath || '/',
+        allowPrivateNetwork: saved.allowPrivateNetwork === true,
+      });
+      setPath(saved.rootPath || '/');
+      return;
+    }
+
+    // 只取摘要：后台那份的令牌与地址不会下发到浏览器
+    fetch('/api/server-config')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (cancelled) return;
+        const summary = (data?.MediaLibrary ?? null) as MediaLibrarySummary | null;
+        setServerSummary(summary);
+        if (summary?.Enabled) {
+          setConfig(SERVER_LIBRARY_PLACEHOLDER);
+          setSource('server');
+          setPath('/');
+        }
+      })
+      .catch(() => {
+        // 拿不到就当没有站点级影库，用户仍可自己填
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const callOpenList = useCallback(
@@ -119,11 +174,12 @@ const OpenListBrowser = () => {
   );
 
   useEffect(() => {
-    if (!config || !config.baseUrl) return;
-    loadDir(config, path);
-    // path 变化由 loadDir 内部设置，这里只在配置就绪/切换时触发一次
+    // 服务端影库模式没有本地地址，靠 `source` 而不是 `config.baseUrl` 触发
+    if (source === 'none') return;
+    loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, path);
+    // path 变化由 loadDir 内部设置，这里只在连接来源就绪/切换时触发一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config?.baseUrl]);
+  }, [source]);
 
   const handleSave = async () => {
     setError('');
@@ -140,6 +196,7 @@ const OpenListBrowser = () => {
     };
     writeOpenListConfigToCookie(next);
     setConfig(next);
+    setSource('personal');
     setNotice('已保存，正在连接影库…');
     await loadDir(next, next.rootPath || '/');
   };
@@ -164,11 +221,30 @@ const OpenListBrowser = () => {
     }
   };
 
+  /** 断开个人配置：后台还有站点级影库时退回那份，否则才是真的断开 */
   const handleDisconnect = () => {
     clearOpenListConfigCookie();
-    setConfig(null);
     setItems([]);
+    if (serverSummary?.Enabled) {
+      setConfig(SERVER_LIBRARY_PLACEHOLDER);
+      setSource('server');
+      setPath('/');
+      setNotice('已改用管理员配置的影库');
+      return;
+    }
+    setConfig(null);
+    setSource('none');
     setNotice('已断开影库连接');
+  };
+
+  /** 放弃个人配置，回到管理员配置的站点级影库 */
+  const handleUseServerLibrary = () => {
+    clearOpenListConfigCookie();
+    setItems([]);
+    setConfig(SERVER_LIBRARY_PLACEHOLDER);
+    setSource('server');
+    setPath('/');
+    setNotice('已改用管理员配置的影库');
   };
 
   /** 打开文件：走 `/api/detail` 的影库分支，复用完整播放链路 */
@@ -209,11 +285,30 @@ const OpenListBrowser = () => {
         <h1 className='text-2xl font-bold text-gray-800 dark:text-gray-200'>
           私人影库
         </h1>
-        {config?.baseUrl && (
+        {source === 'server' && (
+          <span className='ml-auto rounded-full bg-green-500/10 px-2.5 py-1 text-xs text-green-600 dark:text-green-400'>
+            管理员已配置
+            {serverSummary?.Type
+              ? `（${MEDIA_LIBRARY_TYPE_LABELS[serverSummary.Type]}）`
+              : ''}
+          </span>
+        )}
+        {source === 'personal' && serverSummary?.Enabled && (
+          <button
+            type='button'
+            onClick={handleUseServerLibrary}
+            className='ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+          >
+            改用管理员配置
+          </button>
+        )}
+        {source === 'personal' && (
           <button
             type='button'
             onClick={handleDisconnect}
-            className='ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500 dark:text-gray-400 dark:hover:bg-gray-800'
+            className={`flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500 dark:text-gray-400 dark:hover:bg-gray-800 ${
+              serverSummary?.Enabled ? '' : 'ml-auto'
+            }`}
           >
             <Trash2 className='h-3.5 w-3.5' />
             断开连接
@@ -285,10 +380,10 @@ const OpenListBrowser = () => {
           >
             {testing ? '测试中…' : '测试连接'}
           </button>
-          {config?.baseUrl && (
+          {source !== 'none' && (
             <button
               type='button'
-              onClick={() => loadDir(config, path)}
+              onClick={() => loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, path)}
               className='flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
             >
               <RefreshCw className='h-3.5 w-3.5' />
@@ -302,15 +397,22 @@ const OpenListBrowser = () => {
         {error && (
           <p className='mt-2 text-xs text-red-500 dark:text-red-400'>{error}</p>
         )}
-        {!config?.baseUrl && (
+        {source === 'server' && (
+          <p className='mt-3 text-xs text-green-600 dark:text-green-400'>
+            当前用的是管理员在后台配置的影库。想在自己这个浏览器上换一个影库，
+            填上面的表单保存即可覆盖。
+          </p>
+        )}
+        {source === 'none' && (
           <p className='mt-3 text-xs text-gray-500 dark:text-gray-400'>
             还没搭影库？先在服务器或 NAS 上装 OpenList，再用 Cloudflare Tunnel
-            暴露成 HTTPS 地址（免公网 IP）。填地址和令牌后即可在这里浏览与播放。
+            暴露成 HTTPS 地址（免公网 IP）。填地址和令牌后即可在这里浏览与播放；
+            管理员也可以在后台配一份，全站用户自动可用。
           </p>
         )}
       </section>
 
-      {config?.baseUrl && (
+      {source !== 'none' && (
         <>
           <div className='mb-3 flex flex-wrap items-center gap-1 text-sm text-gray-500 dark:text-gray-400'>
             <button
@@ -383,7 +485,12 @@ const OpenListBrowser = () => {
                       <>
                         <button
                           type='button'
-                          onClick={() => loadDir(config, fullPath)}
+                          onClick={() =>
+                            loadDir(
+                              config ?? SERVER_LIBRARY_PLACEHOLDER,
+                              fullPath
+                            )
+                          }
                           className='rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
                         >
                           进入
