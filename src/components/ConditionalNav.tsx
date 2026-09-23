@@ -21,6 +21,10 @@ const ConditionalNav = () => {
   // 检查当前路径是否需要隐藏导航栏
   const shouldHideNav = hideNavPaths.some(path => pathname.startsWith(path));
 
+  // 首页桌面端改用左侧导航栏（SideNav），顶部导航会让位。
+  // 移动端不受影响：TopNav 本身是 `hidden md:block`，手机上只走 MobileHeader。
+  const isHome = pathname === '/';
+
   // 如果需要隐藏导航栏，返回 null
   if (shouldHideNav) {
     return null;
@@ -32,7 +36,7 @@ const ConditionalNav = () => {
       <MobileHeader showBackButton={false} />
 
       {/* 桌面端顶部导航栏 - 固定在根布局，避免页面切换时重新渲染 */}
-      <TopNav />
+      {!isHome && <TopNav />}
 
       {/* 移动端底部导航 - 固定在根布局，避免页面切换时重新渲染 */}
       <div className='md:hidden'>

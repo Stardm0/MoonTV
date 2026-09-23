@@ -265,3 +265,69 @@ div[data-media-provider] video {
   --art-settings-max-height: min(70vh, 460px) !important;
   --art-selector-max-height: min(60vh, 420px) !important;
 }
+
+/* ==========================================================================
+   首页左侧导航（SideNav）
+   ==========================================================================
+
+   ## 宽度与折叠由谁驱动
+
+   宽度真源在 JS（src/lib/sidenav.ts 的 SIDENAV_WIDTH_*），首屏由
+   `SIDENAV_INLINE_SCRIPT` 写进 <html>：属性 `data-sidenav-collapsed` +
+   变量 `--moontv-sidenav-w`。
+
+   **视觉一律走属性/变量，不走 React state** —— 这样刷新时首屏就是最终
+   形态（折叠就是折叠），不会出现「先按展开画一遍再收窄」的横向抖动。
+   这里的 `:root` 只是兜底默认值，防止内联脚本被 CSP 拦截时宽度塌成 0。
+   ========================================================================== */
+
+:root {
+  --moontv-sidenav-w: 224px;
+}
+
+.moontv-sidenav {
+  width: var(--moontv-sidenav-w);
+  transition: width 0.2s ease;
+}
+
+/* 首页内容区给侧边栏让位：具体内边距写在 page.tsx 的 class 里
+   （`md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]`）。
+   原因是 Next 会把 Tailwind utilities 排在**本文件的手写规则之后**，
+   同优先级下这里写 padding-left 会被 `sm:px-10` 覆盖 —— 实测停在 40px。
+   类名保留下来给验证脚本当钩子用。 */
+
+/* 折叠态：只保留图标 */
+html[data-sidenav-collapsed='true'] .sidenav-expanded-only {
+  display: none;
+}
+
+html:not([data-sidenav-collapsed='true']) .sidenav-collapsed-only {
+  display: none;
+}
+
+/* 折叠态下导航项收成居中方块，图标落正中 */
+html[data-sidenav-collapsed='true'] .moontv-sidenav-item {
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* 底部功能区：展开态横排，折叠态竖排居中 */
+.moontv-sidenav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding-left: 0.25rem;
+}
+
+html[data-sidenav-collapsed='true'] .moontv-sidenav-actions {
+  flex-direction: column;
+  align-items: center;
+  padding-left: 0;
+}
+
+/* 折叠态标题栏只放一个字母，不需要撑开 */
+html[data-sidenav-collapsed='true'] .moontv-sidenav-head {
+  justify-content: center;
+}

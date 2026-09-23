@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.2.7",
+    date: "2026-09-23",
+    added: [
+    "首页左侧导航栏: 影视库分类收进二级菜单, 搜索升级为一级菜单, 支持折叠记忆"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.2.6",
     date: "2026-09-22",
     added: [
