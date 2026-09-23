@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.3",
+    date: "2026-09-23",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "侧边栏折叠态点击「影视库」不再展开侧边栏, 就地显示子分类图标列(不带文字)"
+    ],
+    fixed: [
+    "修复折叠态下点击「影视库」可能无反应: 交互改读 DOM 折叠属性, 不再依赖可能失真的 React state"
+    ]
+  },
+  {
     version: "4.3.2",
     date: "2026-09-23",
     added: [

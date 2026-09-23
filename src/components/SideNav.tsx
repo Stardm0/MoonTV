@@ -23,7 +23,7 @@ import { memo, useCallback, useEffect, useState } from 'react';
 
 import {
   applySidenavCollapsed,
-  normalizeSidenavCollapsed,
+  SIDENAV_COLLAPSED_ATTR,
   SIDENAV_COLLAPSED_KEY,
 } from '@/lib/sidenav';
 import { useDownloadTaskCount } from '@/hooks/useDownloadTaskCount';
@@ -63,15 +63,20 @@ const ITEM_CLASS =
  *
  * 根级四项：首页 / 搜索 / 影视库 / 榜单，按当前路由高亮。
  * 影视库是**就地展开**（点击展开子分类），不跳页、也不新开一层；
- * 搜索是一级菜单、**单独打开 /search 页面**（与「电影」等平级）；
- * 首页内容区另有居中大搜索框 `HomeSearchHero`（带搜索源选择）。
+ * 展开态子项带文字，折叠态子项只显示图标列（同样就地展开，不撑开侧边栏）。
+ * 搜索是一级菜单、**单独打开 /search 页面**（与「电影」等平级）。
  *
  * ## 折叠与刷新
  *
  * 折叠态存在 localStorage。为了刷新时不出现「先展开再收窄」的抖动，
  * 视觉（宽度 / 文字显隐）完全由 `<html data-sidenav-collapsed>` 驱动，
  * 而这个属性在首屏绘制前就被 `SIDENAV_INLINE_SCRIPT` 写好了。
- * 组件内的 `collapsed` state 只用于交互判断（如折叠时点可展开项要先展开）。
+ *
+ * ⚠️ 交互（折叠开关、影视库展开）**一律读 DOM 属性**，
+ * 不读 React state：state 只是镜像，在页面级 Suspense（/search 的
+ * useSearchParams）触发重挂载等场景下可能短暂失真——state 以为是展开、
+ * 视觉还是折叠时，`setLibraryOpen(true)` 渲染出的子菜单会被 CSS 藏掉，
+ * 用户看到的就是「点了没反应」（4.3.3 修复的真实反馈）。
  *
  * ## 移动端
  *
@@ -84,7 +89,6 @@ const SideNav = () => {
   const { startLoading } = useNavigationLoading();
   const downloadTaskCount = useDownloadTaskCount();
 
-  const [collapsed, setCollapsed] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -97,17 +101,10 @@ const SideNav = () => {
   const isRankingActive = pathname.startsWith('/ranking');
   const isLibraryActive = pathname.startsWith('/douban');
 
-  // 首屏内联脚本已经写好 DOM 属性，这里只是把 state 对齐，
-  // 免得组件以为自己是展开态、点可展开项时行为与视觉不一致。
+  // 首屏内联脚本已经写好 DOM 属性，这里把 localStorage 的其余偏好对齐。
   useEffect(() => {
     setIsClient(true);
     if (typeof window === 'undefined') return;
-
-    setCollapsed(
-      normalizeSidenavCollapsed(
-        window.localStorage.getItem(SIDENAV_COLLAPSED_KEY)
-      )
-    );
 
     const savedSimpleMode = window.localStorage.getItem('simpleMode');
     if (savedSimpleMode !== null) {
@@ -119,8 +116,15 @@ const SideNav = () => {
     }
   }, []);
 
+  /**
+   * 读当前**视觉上**是否折叠 —— 直接问 `<html>` 的属性，
+   * 不问 React state（镜像可能失真，理由见组件注释）。
+   */
+  const isVisuallyCollapsed = () =>
+    typeof document !== 'undefined' &&
+    document.documentElement.getAttribute(SIDENAV_COLLAPSED_ATTR) === 'true';
+
   const persistCollapsed = useCallback((next: boolean) => {
-    setCollapsed(next);
     try {
       window.localStorage.setItem(SIDENAV_COLLAPSED_KEY, String(next));
     } catch {
@@ -130,28 +134,20 @@ const SideNav = () => {
   }, []);
 
   const toggleCollapsed = useCallback(() => {
-    const next = !collapsed;
+    const next = !isVisuallyCollapsed();
     persistCollapsed(next);
-    // 折叠后展开内容都看不见了，顺手收起来，避免展开时状态与视觉错位
-    if (next) {
-      setLibraryOpen(false);
-    }
-  }, [collapsed, persistCollapsed]);
+  }, [persistCollapsed]);
 
   /**
-   * 「影视库」就地展开。
+   * 「影视库」就地展开子菜单。
    *
-   * 折叠态下没有文字、也放不下子分类，所以点它先展开侧边栏 ——
-   * 否则用户点一下「什么也没发生」，只能看到图标变了个样式。
+   * 展开态：显示「图标 + 文字」的子分类列表；
+   * 折叠态：**不展开侧边栏**，就地只显示子分类的图标列（4.3.3 用户要求）。
+   * 判断依据是 DOM 属性而非 state，保证看到的和点到的一致。
    */
   const toggleLibrary = useCallback(() => {
-    if (collapsed) {
-      persistCollapsed(false);
-      setLibraryOpen(true);
-    } else {
-      setLibraryOpen((open) => !open);
-    }
-  }, [collapsed, persistCollapsed]);
+    setLibraryOpen((open) => !open);
+  }, []);
 
   const openDownloadManager = () => {
     if (typeof window !== 'undefined') {
@@ -254,7 +250,7 @@ const SideNav = () => {
             </button>
 
             {libraryOpen && (
-              <div className='sidenav-expanded-only mt-1 space-y-0.5 border-l border-gray-200 pl-2 dark:border-gray-700'>
+              <div className='moontv-sidenav-sub mt-1 space-y-0.5 border-l border-gray-200 pl-2 dark:border-gray-700'>
                 {LIBRARY_ITEMS.map((item) => {
                   const Icon = item.icon;
                   const itemType = item.href.split('type=')[1];
@@ -265,14 +261,17 @@ const SideNav = () => {
                       key={item.href}
                       href={item.href}
                       onClick={startLoading}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-gray-100/70 hover:text-green-600 dark:hover:bg-gray-800/70 dark:hover:text-green-400 ${
+                      title={item.label}
+                      className={`moontv-sidenav-item flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-gray-100/70 hover:text-green-600 dark:hover:bg-gray-800/70 dark:hover:text-green-400 ${
                         isItemActive
                           ? 'bg-green-500/10 font-medium text-green-600 dark:text-green-400'
                           : 'text-gray-600 dark:text-gray-400'
                       }`}
                     >
                       <Icon className='h-4 w-4 flex-shrink-0' />
-                      <span>{item.label}</span>
+                      <span className='sidenav-expanded-only'>
+                        {item.label}
+                      </span>
                     </Link>
                   );
                 })}

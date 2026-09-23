@@ -313,6 +313,12 @@ html[data-sidenav-collapsed='true'] .moontv-sidenav-item {
   padding-right: 0;
 }
 
+/* 折叠态下「影视库」子菜单容器去掉缩进竖线，图标列与主导航对齐 */
+html[data-sidenav-collapsed='true'] .moontv-sidenav-sub {
+  border-left: none;
+  padding-left: 0;
+}
+
 /* 底部功能区：展开态横排，折叠态竖排居中 */
 .moontv-sidenav-actions {
   display: flex;
