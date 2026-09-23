@@ -3,8 +3,8 @@
 import { RefreshCw, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { aesDecrypt, downloadTsSegment, M3U8Task, StreamSaverMode } from '@/lib/m3u8-downloader';
 import { formatTime } from '@/lib/formatTime';
+import { aesDecrypt, downloadTsSegment, M3U8Task, StreamSaverMode } from '@/lib/m3u8-downloader';
 
 interface SegmentViewerProps {
   task: M3U8Task;
@@ -16,7 +16,7 @@ interface SegmentViewerProps {
   streamMode?: StreamSaverMode; // 边下边存模式
 }
 
-const SegmentViewer = ({ task, isOpen, onClose, onSegmentRetry, taskExists, concurrency = 6, streamMode = 'disabled' }: SegmentViewerProps) => {
+const SegmentViewer = ({ task, isOpen, onClose, onSegmentRetry, taskExists, concurrency = 16, streamMode = 'disabled' }: SegmentViewerProps) => {
   const [retryingSegments, setRetryingSegments] = useState<Set<number>>(new Set());
   const [, forceUpdate] = useState({});
 

@@ -6,6 +6,7 @@
 
 import CryptoJS from 'crypto-js';
 
+import { inferHeightFromBitrate } from './hls-quality';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
 
 export type StreamSaverMode = 'disabled' | 'service-worker' | 'file-system';
@@ -85,22 +86,17 @@ export interface M3U8Task {
 
 /**
  * 应用URL - 处理相对路径和绝对路径
+ *
+ * 必须使用标准 URL 解析：手写字符串拼接不会归一化 `../`，也不会剥离 base 的
+ * query，导致解析结果与 hls.js（内部用 `new URL(target, base)`）不一致。
+ * 一旦不一致，播放器请求的片段 URL 与预取写入缓存的 key 就对不上，缓存永远 0 命中。
  */
 export function applyURL(targetURL: string, baseURL: string): string {
-  if (/^http/.test(targetURL)) {
+  try {
+    return new URL(targetURL, baseURL).href;
+  } catch {
     return targetURL;
   }
-  const urlObj = new URL(baseURL);
-  const protocol = urlObj.protocol;
-  const host = urlObj.host;
-  
-  if (targetURL.startsWith('/')) {
-    return `${protocol}//${host}${targetURL}`;
-  }
-  
-  const pathArr = baseURL.split('/');
-  pathArr.pop();
-  return `${pathArr.join('/')}/${targetURL}`;
 }
 
 /**
@@ -112,22 +108,51 @@ function isMasterPlaylist(m3u8Content: string): boolean {
 }
 
 /**
- * 从主播放列表中提取子播放列表URL
+ * 主播放列表的选档偏好。
+ *
+ * 不传时沿用历史行为（取最高带宽）；传入 `height` 后优先匹配该画面高度，
+ * 使预取器缓存的分片与用户当前选择的画质一致——否则用户手动切到 480p 后，
+ * 预取器仍在缓存 1080p 的分片，命中率会直接掉到 0。
  */
-function extractSubPlaylistUrl(m3u8Content: string, baseUrl: string): string | null {
+export interface PreferredVariant {
+  /** 期望的画面高度（如 1080）。null / undefined 表示"最高带宽" */
+  height?: number | null;
+}
+
+/** 从 `RESOLUTION=1920x1080` 中取出高度 */
+function parseResolutionHeight(resolution?: string): number {
+  if (!resolution) return 0;
+  const matched = resolution.match(/^\d+x(\d+)$/);
+  if (!matched) return 0;
+  const height = Number.parseInt(matched[1], 10);
+  return Number.isFinite(height) && height > 0 ? height : 0;
+}
+
+/**
+ * 从主播放列表中提取子播放列表URL。
+ *
+ * `preferred.height` 存在且列表里带得出分辨率时：同高度优先，其次取更高的
+ * 最低档，再其次取更低的最高档——保证不会因为"没有完全一致的高度"而回退到
+ * 最高带宽（那等于忽略用户选择）。
+ */
+function extractSubPlaylistUrl(
+  m3u8Content: string,
+  baseUrl: string,
+  preferred?: PreferredVariant
+): string | null {
   const lines = m3u8Content.split('\n');
-  
+
   // 查找所有子播放列表
   const playlists: Array<{ url: string; bandwidth?: number; resolution?: string }> = [];
-  
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    
+
     if (line.startsWith('#EXT-X-STREAM-INF')) {
       // 提取带宽信息
       const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/);
       const resolutionMatch = line.match(/RESOLUTION=([\dx]+)/);
-      
+
       // 下一行应该是播放列表URL
       if (i + 1 < lines.length) {
         const nextLine = lines[i + 1].trim();
@@ -141,21 +166,63 @@ function extractSubPlaylistUrl(m3u8Content: string, baseUrl: string): string | n
       }
     }
   }
-  
+
   if (playlists.length === 0) {
     return null;
   }
-  
-  // 优先选择最高带宽的播放列表
+
+  const targetHeight = preferred?.height ?? null;
+  if (targetHeight && targetHeight > 0) {
+    // 没有 `RESOLUTION` 的源站只能按带宽推断高度。这里与播放侧
+    // （`hls-quality.resolveLevelHeight`）共用同一套推断规则：两边不一致
+    // 会让预取到的档位和用户选中的档位错开，缓存命中率直接归零。
+    const withHeight = playlists
+      .map((item) => ({
+        ...item,
+        height:
+          parseResolutionHeight(item.resolution) ||
+          inferHeightFromBitrate(item.bandwidth),
+      }))
+      .filter((item) => item.height > 0);
+
+    if (withHeight.length > 0) {
+      const exact = withHeight.filter((item) => item.height === targetHeight);
+      let pool = exact;
+      if (pool.length === 0) {
+        const higher = withHeight
+          .filter((item) => item.height > targetHeight)
+          .sort((a, b) => a.height - b.height);
+        pool =
+          higher.length > 0
+            ? higher.filter((item) => item.height === higher[0].height)
+            : withHeight
+                .filter((item) => item.height < targetHeight)
+                .sort((a, b) => b.height - a.height)
+                .slice(0, 1);
+      }
+      if (pool.length > 0) {
+        pool.sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0));
+        return pool[0].url;
+      }
+    }
+  }
+
+  // 未指定偏好，或列表里没有任何分辨率信息：取最高带宽
   playlists.sort((a, b) => (b.bandwidth || 0) - (a.bandwidth || 0));
-  
+
   return playlists[0].url;
 }
 
 /**
  * 解析M3U8文件（支持主播放列表自动解析）
+ *
+ * @param preferred 主播放列表的选档偏好，透传到递归的子播放列表解析
  */
-export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
+export async function parseM3U8(
+  url: string,
+  depth = 0,
+  preferred?: PreferredVariant
+): Promise<M3U8Task> {
   // 防止无限递归
   if (depth > 5) {
     throw new Error('M3U8 解析层级过深，可能存在循环引用');
@@ -170,14 +237,14 @@ export async function parseM3U8(url: string, depth = 0): Promise<M3U8Task> {
 
   // 检查是否为主播放列表
   if (isMasterPlaylist(m3u8Str)) {
-    const subPlaylistUrl = extractSubPlaylistUrl(m3u8Str, url);
-    
+    const subPlaylistUrl = extractSubPlaylistUrl(m3u8Str, url, preferred);
+
     if (!subPlaylistUrl) {
       throw new Error('无法从主播放列表中提取子播放列表');
     }
-    
+
     // 递归解析子播放列表
-    return parseM3U8(subPlaylistUrl, depth + 1);
+    return parseM3U8(subPlaylistUrl, depth + 1, preferred);
   }
 
   const task: M3U8Task = {
@@ -319,6 +386,94 @@ export async function downloadTsSegment(url: string, signal?: AbortSignal): Prom
   return response.arrayBuffer();
 }
 
+/** 大于此大小的片段才启用 Range 分块下载（字节） */
+const RANGE_CHUNK_THRESHOLD = 512 * 1024;
+/** 单个片段分块数 */
+const RANGE_CHUNK_COUNT = 4;
+
+/** 按 Range 并发分块下载一个片段，合并后返回 */
+async function downloadByRanges(
+  url: string,
+  totalSize: number,
+  signal?: AbortSignal
+): Promise<ArrayBuffer> {
+  const chunkSize = Math.ceil(totalSize / RANGE_CHUNK_COUNT);
+  const tasks: Promise<{ index: number; data: ArrayBuffer }>[] = [];
+  for (let i = 0; i < RANGE_CHUNK_COUNT; i++) {
+    const start = i * chunkSize;
+    if (start >= totalSize) break;
+    const end = Math.min(start + chunkSize - 1, totalSize - 1);
+    tasks.push(
+      (async () => {
+        const resp = await fetch(url, {
+          signal,
+          headers: { Range: `bytes=${start}-${end}` },
+        });
+        // 必须是 206，否则说明源站忽略了 Range（会返回完整文件，导致拼接错误）
+        if (resp.status !== 206) throw new Error('Range not supported');
+        return { index: i, data: await resp.arrayBuffer() };
+      })()
+    );
+  }
+  const results = await Promise.all(tasks);
+  const merged = new Uint8Array(totalSize);
+  let offset = 0;
+  results.sort((a, b) => a.index - b.index);
+  for (const r of results) {
+    merged.set(new Uint8Array(r.data), offset);
+    offset += r.data.byteLength;
+  }
+  return merged.buffer;
+}
+
+/**
+ * 带 Range 分块的片段下载（下载核心用）。
+ *
+ * 对较大片段先用 `Range: bytes=0-0` 探测大小，再分 4 块并发下载，突破
+ * 单连接限速。小片段 / 不支持 Range 的源自动回退整段下载。
+ */
+export async function downloadTsSegmentConcurrent(
+  url: string,
+  signal?: AbortSignal
+): Promise<ArrayBuffer> {
+  // 1) 探测文件大小。注意：不支持 Range 的源会忽略请求头、返回 200 + 完整文件，
+  //    此时 probe 本身就是完整片段，必须直接返回——否则会白白下载一遍再整段重下，
+  //    等于每个片段下载两遍（曾导致下载速度直接减半）。
+  let totalSize = 0;
+  try {
+    const probe = await fetch(url, { signal, headers: { Range: 'bytes=0-0' } });
+    if (probe.status === 206) {
+      const cr = probe.headers.get('Content-Range');
+      const m = cr?.match(/\/(\d+)$/);
+      if (m) totalSize = parseInt(m[1], 10);
+      // 消费探测响应 body（1 字节），避免连接泄漏
+      await probe.arrayBuffer().catch(() => undefined);
+    } else if (probe.ok) {
+      // 源站不支持 Range：这个响应就是完整片段，直接用，不再重复下载
+      return await probe.arrayBuffer();
+    }
+  } catch {
+    // 探测失败（含 abort），走整段下载兜底
+  }
+
+  // 2) 大片段分块下载；失败回退整段
+  if (totalSize > RANGE_CHUNK_THRESHOLD) {
+    try {
+      return await downloadByRanges(url, totalSize, signal);
+    } catch (err) {
+      if (signal?.aborted) throw err;
+      // 分块失败（如 Range 未生效），回退整段下载
+    }
+  }
+
+  // 3) 整段下载
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    throw new Error(`下载失败: ${response.status}`);
+  }
+  return response.arrayBuffer();
+}
+
 /**
  * 合并所有片段为 Blob
  */
@@ -367,10 +522,11 @@ export async function downloadM3U8Video(
   onProgress?: (progress: DownloadProgress) => void,
   signal?: AbortSignal,
   pauseResumeController?: PauseResumeController, // 暂停/恢复控制器
-  concurrency = 6, // 默认6个并发
+  concurrency = 16, // 默认16个并发（下载提速）
   streamMode: StreamSaverMode = 'disabled', // 边下边存模式
   maxRetries = 3, // 最大重试次数
-  completeStreamRef?: { current: (() => Promise<void>) | null } // 完成流函数引用（用于边下边存模式立即保存）
+  completeStreamRef?: { current: (() => Promise<void>) | null }, // 完成流函数引用（用于边下边存模式立即保存）
+  persistTaskId?: string // 任务ID：传入时启用断点续传持久化
 ): Promise<void> {
   const { startSegment, endSegment } = task.rangeDownload;
   const totalSegments = endSegment - startSegment + 1;
@@ -442,7 +598,26 @@ export async function downloadM3U8Video(
   
   let completedCount = 0;
 
-  // 串行化写入函数：确保写入操作按顺序执行，避免多线程并发写入
+  // 断点续传：初始化时统计范围内已成功的片段，确保进度条显示正确的恢复进度
+  for (let i = startSegment - 1; i < endSegment; i++) {
+    if (task.finishList[i]?.status === 'success') {
+      completedCount++;
+    }
+  }
+  // 同步更新 task.finishNum，确保内部统计一致
+  if (completedCount > 0) {
+    task.finishNum = completedCount;
+    // 立即触发一次进度回调，确保UI立刻显示正确的恢复进度
+    onProgress?.({
+      current: completedCount,
+      total: totalSegments,
+      percentage: Math.floor((completedCount / totalSegments) * 100),
+      status: 'downloading',
+      message: `正在恢复下载 ${completedCount}/${totalSegments} 个片段已完成`,
+    });
+  }
+
+  // 串行化写入函数：确保写入操作按顺序执行，避免多线程并发写入导致数据丢失
   const flushPendingWrites = async (): Promise<void> => {
     // 等待之前的写入操作完成
     await writeLock;
@@ -546,7 +721,12 @@ export async function downloadM3U8Video(
   // 并发下载函数（带重试机制）
   const downloadSegment = async (index: number, retryCount = 0): Promise<void> => {
     const retryDelay = 1000; // 重试延迟（毫秒）
-    
+
+    // 断点续传：已成功的片段直接跳过（finishList 可能从持久化状态恢复）
+    if (task.finishList[index]?.status === 'success') {
+      return;
+    }
+
     if (signal?.aborted) {
       throw new Error('下载已取消');
     }
@@ -569,7 +749,7 @@ export async function downloadM3U8Video(
         throw new Error('下载已取消');
       }
 
-      let segmentData = await downloadTsSegment(task.tsUrlList[index], signal);
+      let segmentData = await downloadTsSegmentConcurrent(task.tsUrlList[index], signal);
 
       // 下载完成后检查暂停状态，如果暂停则等待恢复
       if (pauseResumeController) {
@@ -621,6 +801,18 @@ export async function downloadM3U8Video(
       completedCount++;
       task.finishNum++;
 
+      // 断点续传：普通模式下把已下片段写入 Cache Storage，并持久化完成状态
+      if (persistTaskId) {
+        if (!writer) {
+          void import('./download-persistence').then(({ saveDownloadSegment }) =>
+            saveDownloadSegment(persistTaskId, index, segmentData)
+          );
+        }
+        void import('./download-persistence').then(({ persistDownloadState }) =>
+          persistDownloadState(persistTaskId, task)
+        );
+      }
+
       // 更新进度
       onProgress?.({
         current: completedCount,
@@ -662,6 +854,13 @@ export async function downloadM3U8Video(
       // 标记片段为失败状态
       task.finishList[index].status = 'error';
       task.finishList[index].retryCount = retryCount;
+
+      // 断点续传：失败状态也要持久化，供刷新后跳过
+      if (persistTaskId) {
+        void import('./download-persistence').then(({ persistDownloadState }) =>
+          persistDownloadState(persistTaskId, task)
+        );
+      }
       
       // eslint-disable-next-line no-console
       console.error(`片段 ${index + 1} 下载失败（已重试 ${maxRetries} 次）:`, error);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface ErrorInfo {
   id: string;
@@ -8,45 +8,65 @@ interface ErrorInfo {
   timestamp: number;
 }
 
+/** 提示自动消失时间(ms)：避免一次非致命错误长期挂在页面上 */
+const AUTO_DISMISS_MS = 4000;
+
+/** 同一条错误的去重窗口(ms)：窗口内重复触发只提示一次 */
+const DEDUPE_WINDOW_MS = 5000;
+
+/** 替换动画时长(ms) */
+const REPLACE_PULSE_MS = 200;
+
 export function GlobalErrorIndicator() {
   const [currentError, setCurrentError] = useState<ErrorInfo | null>(null);
   const [isVisible, setIsVisible] = useState(false);
   const [isReplacing, setIsReplacing] = useState(false);
+  /** 上一次提示过的文案与时间，用于同文案去重 */
+  const lastShownRef = useRef<{ message: string; at: number } | null>(null);
 
   useEffect(() => {
+    // 定时器放在 effect 作用域内，卸载时一并清理
+    const timers: {
+      hide: ReturnType<typeof setTimeout> | null;
+      pulse: ReturnType<typeof setTimeout> | null;
+    } = { hide: null, pulse: null };
+
     // 监听自定义错误事件
     const handleError = (event: CustomEvent) => {
-      const { message } = event.detail;
-      const newError: ErrorInfo = {
-        id: Date.now().toString(),
-        message,
-        timestamp: Date.now(),
-      };
+      const { message } = event.detail ?? {};
+      if (typeof message !== 'string' || !message) return;
 
-      // 如果已有错误，开始替换动画
-      if (currentError) {
-        setCurrentError(newError);
-        setIsReplacing(true);
-
-        // 动画完成后恢复正常
-        setTimeout(() => {
-          setIsReplacing(false);
-        }, 200);
-      } else {
-        // 第一次显示错误
-        setCurrentError(newError);
+      // 同一条文案在短时间内重复触发（如多个请求同时失败）只提示一次
+      const now = Date.now();
+      const last = lastShownRef.current;
+      if (last && last.message === message && now - last.at < DEDUPE_WINDOW_MS) {
+        return;
       }
+      lastShownRef.current = { message, at: now };
 
+      setCurrentError({ id: String(now), message, timestamp: now });
       setIsVisible(true);
+      setIsReplacing(true);
+      if (timers.pulse) clearTimeout(timers.pulse);
+      timers.pulse = setTimeout(() => setIsReplacing(false), REPLACE_PULSE_MS);
+
+      // 关键：提示必须自己消失。此前要用户手动关闭，配合后台同步失败这种
+      // 反复触发的场景，就会一直有一条红字挂在播放页上。
+      if (timers.hide) clearTimeout(timers.hide);
+      timers.hide = setTimeout(() => {
+        setIsVisible(false);
+        setIsReplacing(false);
+      }, AUTO_DISMISS_MS);
     };
 
-    // 监听错误事件
     window.addEventListener('globalError', handleError as EventListener);
 
     return () => {
       window.removeEventListener('globalError', handleError as EventListener);
+      if (timers.hide) clearTimeout(timers.hide);
+      if (timers.pulse) clearTimeout(timers.pulse);
     };
-  }, [currentError]);
+  }, []);
 
   const handleClose = () => {
     setIsVisible(false);

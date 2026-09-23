@@ -4,11 +4,11 @@ import { Download, List, Pause, Play, Trash2, X } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Swal from 'sweetalert2';
 
+import { formatTime } from '@/lib/formatTime';
 import { downloadM3U8Video, DownloadProgress, M3U8Task, parseM3U8, PauseResumeController, StreamSaverMode } from '@/lib/m3u8-downloader';
 
 import AddDownloadModal from './AddDownloadModal';
 import SegmentViewer from './SegmentViewer';
-import { formatTime } from '@/lib/formatTime';
 
 
 interface DownloadTask {
@@ -44,6 +44,9 @@ interface DownloadManagerProps {
   onClose: () => void;
 }
 
+/** 同时下载的任务数上限：每个任务已多线程，再多会互相抢带宽、耗尽连接 */
+const MAX_CONCURRENT_DOWNLOADS = 3;
+
 const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
   // 任务列表状态
   const [tasks, setTasks] = useState<DownloadTask[]>([]);
@@ -53,6 +56,12 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
   const [viewingSegmentsTaskId, setViewingSegmentsTaskId] = useState<string | null>(null);
   // 使用 ref 保存最新的 tasks，用于事件处理器
   const tasksRef = useRef<DownloadTask[]>([]);
+  // 正在下载的任务数（批量下载的并发限流）
+  const activeDownloadsRef = useRef(0);
+  // 已启动过下载的任务 id（防止重复启动）
+  const launchedTaskIdsRef = useRef(new Set<string>());
+  // 排队待下载的任务对象（独立队列，避免依赖异步更新的 tasksRef）
+  const pendingQueueRef = useRef<DownloadTask[]>([]);
   // 追踪是否已经处理过自动恢复
   const hasAutoResumed = useRef(false);
   // 标记页面是否正在卸载
@@ -239,7 +248,8 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
         concurrency,
         streamMode,
         maxRetries,
-        completeStreamRef
+        completeStreamRef,
+        taskId // 断点续传：持久化各片段完成状态
       );
 
       // 下载函数执行完成后，检查是否有失败片段
@@ -297,8 +307,75 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
     }
   }, []);
 
-  // 从配置创建并开始下载任务
-  const addTaskFromConfig = useCallback((config: {
+  // 启动单个任务：解析（如需）+ 下载，完成后调度下一个
+  const startOne = (task: DownloadTask) => {
+    if (launchedTaskIdsRef.current.has(task.id)) return;
+
+    const { abortController, pauseResumeController, completeStreamRef } = task;
+    if (!abortController || !pauseResumeController || !task.config) return;
+
+    launchedTaskIdsRef.current.add(task.id);
+    activeDownloadsRef.current += 1;
+    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'downloading' as const } : t));
+
+    const cfg = task.config;
+    const finish = () => {
+      activeDownloadsRef.current = Math.max(0, activeDownloadsRef.current - 1);
+      scheduleNext();
+    };
+
+    const go = (parsed: M3U8Task) => {
+      void executeDownload(
+        task.id,
+        parsed,
+        abortController,
+        pauseResumeController,
+        cfg.downloadType,
+        cfg.concurrency,
+        cfg.rangeMode,
+        cfg.startSegment,
+        cfg.endSegment,
+        cfg.streamMode || 'disabled',
+        cfg.maxRetries ?? 3,
+        completeStreamRef
+      ).finally(finish);
+    };
+
+    if (task.parsedTask) {
+      go(task.parsedTask);
+      return;
+    }
+
+    // 批量下载：该集没有预解析数据，先解析再下载
+    parseM3U8(task.url)
+      .then(parsed => {
+        parsed.title = task.title;
+        parsed.type = cfg.downloadType;
+        // 回写解析结果，供暂停恢复 / 重试 / 片段查看使用
+        setTasks(prev => prev.map(t => t.id === task.id
+          ? { ...t, parsedTask: parsed, total: parsed.tsUrlList.length, config: t.config ? { ...t.config, parsedTask: parsed } : undefined }
+          : t));
+        go(parsed);
+      })
+      .catch(err => {
+        // eslint-disable-next-line no-console
+        console.error(`任务「${task.title}」解析失败:`, err);
+        setTasks(prev => prev.map(t => t.id === task.id ? { ...t, status: 'error' as const, abortController: undefined } : t));
+        finish();
+      });
+  };
+
+  // 调度：从排队队列中启动任务，直到达到并发上限
+  const scheduleNext = () => {
+    while (pendingQueueRef.current.length > 0) {
+      if (activeDownloadsRef.current >= MAX_CONCURRENT_DOWNLOADS) break;
+      const task = pendingQueueRef.current.shift();
+      if (task) startOne(task);
+    }
+  };
+
+  // 从配置创建下载任务（排队，由 scheduleNext 启动）
+  const addTaskFromConfig = (config: {
     url: string;
     title: string;
     downloadType: 'TS' | 'MP4';
@@ -308,22 +385,23 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
     endSegment: number;
     streamMode: StreamSaverMode;
     maxRetries: number;
-    parsedTask: M3U8Task;
+    parsedTask?: M3U8Task; // 批量下载时其他集没有预解析数据，由 startOne 异步解析
   }) => {
-    const taskId = Date.now().toString();
+    // 批量添加时多任务同毫秒创建，追加随机后缀防止 id 撞车
+    const taskId = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const controller = new AbortController();
     const pauseResumeController = new PauseResumeController();
     const completeStreamRef = { current: null as (() => Promise<void>) | null };
 
-    // 创建新任务并直接开始下载
+    // 创建任务并排队（由 scheduleNext 决定何时真正开始下载）
     const newTask: DownloadTask = {
       id: taskId,
       url: config.url,
       title: config.title,
-      status: 'downloading',
+      status: 'waiting',
       progress: 0,
       current: 0,
-      total: config.parsedTask.tsUrlList.length,
+      total: config.parsedTask?.tsUrlList.length ?? 0,
       config: {
         downloadType: config.downloadType,
         concurrency: config.concurrency,
@@ -331,7 +409,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
         startSegment: config.startSegment,
         endSegment: config.endSegment,
         streamMode: config.streamMode,
-          maxRetries: config.maxRetries ?? 3,
+        maxRetries: config.maxRetries ?? 3,
         parsedTask: config.parsedTask,
       },
       parsedTask: config.parsedTask, // 保存片段信息
@@ -342,80 +420,17 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
 
     // 添加到任务列表
     setTasks(prev => [...prev, newTask]);
-
-    // 使用 setTimeout 确保 state 更新后再开始下载
-    setTimeout(() => {
-      executeDownload(
-        taskId,
-        config.parsedTask,
-        controller,
-        pauseResumeController,
-        config.downloadType,
-        config.concurrency,
-        config.rangeMode,
-        config.startSegment,
-        config.endSegment,
-        config.streamMode,
-        config.maxRetries || 3,
-        completeStreamRef
-      );
-    }, 0);
-  }, [executeDownload]);
+    // 入队并触发调度
+    pendingQueueRef.current.push(newTask);
+    scheduleNext();
+  };
 
   // 监听来自播放页面的添加下载任务事件
   useEffect(() => {
     const handleAddTaskEvent = (event: CustomEvent) => {
-      const config = event.detail;
-      const taskId = Date.now().toString();
-      const controller = new AbortController();
-      const pauseResumeController = new PauseResumeController();
-      const completeStreamRef = { current: null as (() => Promise<void>) | null };
-
-      // 创建新任务并直接开始下载
-      const newTask: DownloadTask = {
-        id: taskId,
-        url: config.url,
-        title: config.title,
-        status: 'downloading',
-        progress: 0,
-        current: 0,
-        total: config.parsedTask.tsUrlList.length,
-        config: {
-          downloadType: config.downloadType,
-          concurrency: config.concurrency,
-          rangeMode: config.rangeMode,
-          startSegment: config.startSegment,
-          endSegment: config.endSegment,
-          streamMode: config.streamMode,
-          maxRetries: config.maxRetries ?? 3,
-          parsedTask: config.parsedTask,
-        },
-        parsedTask: config.parsedTask, // 保存片段信息
-        abortController: controller,
-        pauseResumeController: pauseResumeController,
-        completeStreamRef: completeStreamRef,
-      };
-
-      // 添加到任务列表
-      setTasks(prev => [...prev, newTask]);
-
-      // 使用 setTimeout 确保 state 更新后再开始下载
-      setTimeout(() => {
-        executeDownload(
-          taskId,
-          config.parsedTask,
-          controller,
-          pauseResumeController,
-          config.downloadType,
-          config.concurrency,
-          config.rangeMode,
-          config.startSegment,
-          config.endSegment,
-          config.streamMode,
-          config.maxRetries ?? 3,
-          completeStreamRef
-        );
-      }, 0);
+      // 复用 addTaskFromConfig：它已支持 parsedTask 可选（批量时其他集异步解析）
+      // 与随机 taskId（防止批量同毫秒撞车）
+      addTaskFromConfig(event.detail);
     };
 
     if (typeof window !== 'undefined') {
@@ -427,7 +442,9 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
         window.removeEventListener('addDownloadTask', handleAddTaskEvent as EventListener);
       }
     };
-  }, [executeDownload]); // 直接依赖 executeDownload
+    // addTaskFromConfig 通过 ref 访问可变状态，实际只依赖稳定的 executeDownload
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [executeDownload]);
 
   // 执行下载任务（从任务配置启动）
   const startTaskDownload = useCallback(async (taskId: string, parsedTask: M3U8Task) => {
@@ -435,23 +452,76 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
     const taskToDownload = tasksRef.current.find(t => t.id === taskId);
     if (!taskToDownload?.config) return;
 
+    // 断点续传：若存在持久化的完成状态，用它覆盖 parsedTask 的 finishList，
+    // 并从 Cache Storage 找回普通模式下已下载的片段，避免刷新后从头再来。
+    let restoredSuccessCount = 0;
+    let rangeTotalSegments = 0;
+    try {
+      const { loadDownloadState, loadDownloadSegment } = await import('@/lib/download-persistence');
+      const savedState = loadDownloadState(taskId);
+      if (savedState && savedState.totalSegments === parsedTask.finishList.length) {
+        const restoredSegments = new Map<number, ArrayBuffer>();
+        for (let i = 0; i < savedState.finishList.length; i += 1) {
+          const status = savedState.finishList[i].status;
+          if (status === 'success') {
+            parsedTask.finishList[i].status = 'success';
+            // 普通模式下找回已下片段（边下边存模式数据已写文件，无法从文件续传）
+            const data = await loadDownloadSegment(taskId, i);
+            if (data) restoredSegments.set(i, data);
+          } else if (status === 'error') {
+            parsedTask.finishList[i].status = 'error';
+          }
+        }
+        if (restoredSegments.size > 0) parsedTask.downloadedSegments = restoredSegments;
+
+        // 计算下载范围内的已完成片段数，用于立即更新进度条显示
+        const { startSegment: rs, endSegment: re } = parsedTask.rangeDownload;
+        rangeTotalSegments = re - rs + 1;
+        for (let i = rs - 1; i < re; i++) {
+          if (parsedTask.finishList[i]?.status === 'success') {
+            restoredSuccessCount++;
+          }
+        }
+        // eslint-disable-next-line no-console
+        console.log(`🔄 断点续传：从持久化状态恢复 ${savedState.finishList.filter(s => s.status === 'success').length} 个已完成片段（范围内${restoredSuccessCount}/${rangeTotalSegments}），找回 ${restoredSegments.size} 个片段数据`);
+      }
+    } catch {
+      // 恢复失败不阻断下载，退化为重新下载
+    }
+
     const controller = new AbortController();
     const pauseResumeController = new PauseResumeController();
     const completeStreamRef = { current: null as (() => Promise<void>) | null };
     const { downloadType, concurrency, rangeMode, startSegment, endSegment, streamMode, maxRetries } = taskToDownload.config;
 
-    // 更新任务状态
-    setTasks(prev => prev.map(t =>
-      t.id === taskId
-        ? { ...t, status: 'downloading' as const, abortController: controller, pauseResumeController: pauseResumeController, completeStreamRef: completeStreamRef }
-        : t
-    ));
+    // 更新任务状态：如果恢复了已完成片段，立即更新 progress/current，确保UI立刻显示正确的恢复进度
+    setTasks(prev => prev.map(t => {
+      if (t.id !== taskId) return t;
+      const totalSegs = rangeTotalSegments > 0 ? rangeTotalSegments : (endSegment - startSegment + 1);
+      const currentProgress = restoredSuccessCount > 0 && totalSegs > 0
+        ? Math.floor((restoredSuccessCount / totalSegs) * 100)
+        : t.progress;
+      return {
+        ...t,
+        status: 'downloading' as const,
+        abortController: controller,
+        pauseResumeController: pauseResumeController,
+        completeStreamRef: completeStreamRef,
+        progress: currentProgress,
+        current: restoredSuccessCount > 0 ? restoredSuccessCount : t.current,
+        total: totalSegs > 0 ? totalSegs : t.total,
+      };
+    }));
 
     executeDownload(taskId, parsedTask, controller, pauseResumeController, downloadType, concurrency, rangeMode, startSegment, endSegment, streamMode || 'disabled', maxRetries ?? 3, completeStreamRef);
   }, [executeDownload]);
 
   // 删除任务
   const deleteTask = useCallback((taskId: string) => {
+    // 清理断点续传的持久化状态与已下片段缓存
+    void import('@/lib/download-persistence').then(({ clearDownloadState }) =>
+      clearDownloadState(taskId)
+    );
     setTasks(prev => {
       const task = prev.find(t => t.id === taskId);
       if (task?.abortController) {
@@ -658,7 +728,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
             ...t,
             config: {
               downloadType: t.config?.downloadType || 'TS',
-              concurrency: t.config?.concurrency || 6,
+              concurrency: t.config?.concurrency || 16,
               rangeMode: t.config?.rangeMode || false,
               startSegment: t.config?.startSegment || 1,
               endSegment: t.config?.endSegment || parsedTask.tsUrlList.length,
@@ -1066,7 +1136,7 @@ const DownloadManager = ({ isOpen, onClose }: DownloadManagerProps) => {
             isOpen={true}
             onClose={() => setViewingSegmentsTaskId(null)}
             taskExists={() => tasks.some(t => t.id === viewingSegmentsTaskId)}
-            concurrency={task.config?.concurrency || 6}
+            concurrency={task.config?.concurrency || 16}
             streamMode={task.config?.streamMode || 'disabled'}
             onSegmentRetry={(_index) => {
               // 重试成功后更新任务进度

@@ -45,6 +45,7 @@ import {
   PLAYBACK_SAVE_DEFAULT_SECONDS,
 } from '@/lib/playback-settings';
 
+import { BackButton } from '@/components/BackButton';
 import DataMigration from '@/components/DataMigration';
 import PageLayout from '@/components/PageLayout';
 
@@ -2321,7 +2322,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           config.SiteConfig.PlaybackSaveInterval || defaultSaveInterval,
       });
     }
-  }, [config]);
+  }, [config, defaultSaveInterval]);
 
   // 点击外部区域关闭下拉框
   useEffect(() => {
@@ -3087,10 +3088,13 @@ function AdminPageClient() {
     return (
       <PageLayout activePath='/admin'>
         <div className='px-2 sm:px-10 py-4 sm:py-8'>
-          <div className='max-w-[95%] mx-auto'>
-            <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100 mb-8'>
-              管理员设置
-            </h1>
+        <div className='max-w-[95%] mx-auto'>
+          <div className='mb-6'>
+            <BackButton showLabel />
+          </div>
+          <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100 mb-8'>
+            管理员设置
+          </h1>
             <div className='space-y-4'>
               {Array.from({ length: 3 }).map((_, index) => (
                 <div
@@ -3114,8 +3118,9 @@ function AdminPageClient() {
     <PageLayout activePath='/admin'>
       <div className='px-2 sm:px-10 py-4 sm:py-8'>
         <div className='max-w-[95%] mx-auto'>
-          {/* 标题 + 重置配置按钮 */}
+          {/* 返回 + 标题 + 重置配置按钮 */}
           <div className='flex items-center gap-2 mb-8'>
+            <BackButton showLabel />
             <h1 className='text-2xl font-bold text-gray-900 dark:text-gray-100'>
               管理员设置
             </h1>

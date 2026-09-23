@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm gen:manifest && pnpm gen:runtime && next dev -H 0.0.0.0",
-    "build": "pnpm gen:manifest && pnpm gen:runtime && next build",
+    "build": "pnpm gen:manifest && pnpm gen:runtime && next build && pnpm restore:sw",
     "start": "next start",
     "lint": "next lint",
     "lint:fix": "eslint src --fix && pnpm format",
@@ -16,7 +16,7 @@
     "format:check": "prettier -c .",
     "gen:manifest": "node scripts/generate-manifest.js",
     "gen:runtime": "node scripts/generate-runtime.js",
-    "postbuild": "echo 'Build completed - sitemap generation disabled'",
+    "restore:sw": "node scripts/restore-sw.js",
     "prepare": "husky install",
     "pages:build": "npx @cloudflare/next-on-pages"
   },

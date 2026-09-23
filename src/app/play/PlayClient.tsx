@@ -6,6 +6,8 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import AddDownloadModal from '@/components/AddDownloadModal';
+import { BackButton } from '@/components/BackButton';
+import CacheManager from '@/components/CacheManager';
 import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
@@ -62,6 +64,9 @@ export default function PlayClient() {
     isDanmakuLoading,
     handleDanmakuSelect,
     handleDanmakuClose,
+    // 缓存管理
+    showCacheManager,
+    setShowCacheManager,
     // 收藏 / 追更
     favorited,
     following,
@@ -72,7 +77,14 @@ export default function PlayClient() {
   if (loading) {
     return (
       <PageLayout activePath='/play'>
-        <LoadingView stage={loadingStage} message={loadingMessage} />
+        {/* 加载态也留一个返回入口：搜错片/等太久不想等时能直接退出去。
+            用绝对定位覆盖，避免给整屏的加载视图额外撑出滚动条。 */}
+        <div className='relative'>
+          <div className='absolute left-3 top-3 z-10 lg:left-[5rem] lg:top-4 2xl:left-32'>
+            <BackButton showLabel />
+          </div>
+          <LoadingView stage={loadingStage} message={loadingMessage} />
+        </div>
       </PageLayout>
     );
   }
@@ -97,6 +109,17 @@ export default function PlayClient() {
   return (
     <PageLayout activePath='/play'>
       <div className='flex flex-col px-0 lg:px-[5rem] 2xl:px-32'>
+        {/* 顶部操作栏：返回上一级（不想看了直接退出，不用回主页重新找） */}
+        <div className='flex items-center gap-3 px-3 pt-3 pb-2 lg:px-0 lg:pt-4'>
+          <BackButton showLabel />
+          {videoTitle && (
+            <span className='truncate text-sm text-gray-500 dark:text-gray-400'>
+              {videoTitle}
+              {totalEpisodes > 1 && ` · 第 ${currentEpisodeIndex + 1} 集`}
+            </span>
+          )}
+        </div>
+
         {/* 播放器和选集 */}
         <div>
           <div className='grid lg:h-[500px] xl:h-[650px] 2xl:h-[750px] grid-cols-1 md:grid-cols-4 md:gap-0'>
@@ -182,6 +205,12 @@ export default function PlayClient() {
         />
       </div>
 
+      {/* 视频缓存管理面板 */}
+      <CacheManager
+        isOpen={showCacheManager}
+        onClose={() => setShowCacheManager(false)}
+      />
+
       {/* 添加下载弹窗 */}
       <AddDownloadModal
         isOpen={showAddDownload}
@@ -196,6 +225,12 @@ export default function PlayClient() {
           setShowAddDownload(false);
         }}
         initialUrl={videoUrl || ''}
+        episodes={(detail?.episodes || []).map((url, i) => ({
+          url,
+          title: `${videoTitle}_${detail?.episodes_titles?.[i] || `第${i + 1}集`}`,
+          label: detail?.episodes_titles?.[i] || `第${i + 1}集`,
+        }))}
+        currentEpisodeIndex={currentEpisodeIndex}
         initialTitle={`${videoTitle}${
           totalEpisodes > 1
             ? `_${detail?.episodes_titles?.[currentEpisodeIndex] || `第${currentEpisodeIndex + 1}集`}`

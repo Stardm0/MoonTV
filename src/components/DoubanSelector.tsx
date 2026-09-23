@@ -13,7 +13,7 @@ interface SelectorOption {
 }
 
 interface DoubanSelectorProps {
-  type: 'movie' | 'tv' | 'show' | 'anime';
+  type: 'movie' | 'tv' | 'show' | 'anime' | 'short' | 'doc';
   primarySelection?: string;
   secondarySelection?: string;
   onPrimaryChange: (value: string) => void;
@@ -101,6 +101,14 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
     { label: '剧场版', value: '剧场版' },
   ];
 
+  // 标签页（短剧/纪录片）一级选择器：value 统一为 热门/高分/最新（映射排序 T/S/R），
+  // 标签随类型变化；筛选行由 MultiLevelSelector 的 contentType='short'|'doc' 提供
+  const tagPagePrimaryOptions: SelectorOption[] = [
+    { label: type === 'doc' ? '热门纪录片' : '热门短剧', value: '热门' },
+    { label: type === 'doc' ? '高分纪录片' : '高分短剧', value: '高分' },
+    { label: type === 'doc' ? '最新纪录片' : '最新短剧', value: '最新' },
+  ];
+
   // 处理多级选择器变化
   const handleMultiLevelChange = (values: Record<string, string>) => {
     onMultiLevelChange?.(values);
@@ -184,6 +192,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
         primaryButtonRefs,
         setPrimaryIndicatorStyle
       );
+    } else if (type === 'short' || type === 'doc') {
+      const activeIndex = tagPagePrimaryOptions.findIndex(
+        (opt) =>
+          opt.value === (primarySelection || tagPagePrimaryOptions[0].value)
+      );
+      updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
     }
 
     // 副选择器初始位置
@@ -252,6 +271,17 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
       return cleanup;
     } else if (type === 'show') {
       const activeIndex = showPrimaryOptions.findIndex(
+        (opt) => opt.value === primarySelection
+      );
+      const cleanup = updateIndicatorPosition(
+        activeIndex,
+        primaryContainerRef,
+        primaryButtonRefs,
+        setPrimaryIndicatorStyle
+      );
+      return cleanup;
+    } else if (type === 'short' || type === 'doc') {
+      const activeIndex = tagPagePrimaryOptions.findIndex(
         (opt) => opt.value === primarySelection
       );
       const cleanup = updateIndicatorPosition(
@@ -558,6 +588,38 @@ const DoubanSelector: React.FC<DoubanSelectorProps> = ({
               </div>
             </div>
           ) : null}
+        </div>
+      )}
+
+      {/* 标签页类型（短剧/纪录片）- 分类(排序) + 筛选(地区/年代/平台) */}
+      {(type === 'short' || type === 'doc') && (
+        <div className='space-y-3 sm:space-y-4'>
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              分类
+            </span>
+            <div className='overflow-x-auto'>
+              {renderCapsuleSelector(
+                tagPagePrimaryOptions,
+                primarySelection || tagPagePrimaryOptions[0].value,
+                onPrimaryChange,
+                true
+              )}
+            </div>
+          </div>
+
+          <div className='flex flex-col sm:flex-row sm:items-center gap-2'>
+            <span className='text-xs sm:text-sm font-medium text-gray-600 dark:text-gray-400 min-w-[48px]'>
+              筛选
+            </span>
+            <div className='overflow-x-auto'>
+              <MultiLevelSelector
+                key={`${type}-${primarySelection}`}
+                onChange={handleMultiLevelChange}
+                contentType={type as 'short' | 'doc'}
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
