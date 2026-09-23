@@ -1283,12 +1283,16 @@ export function usePlayEngine() {
       });
 
       // 流式搜索结束：如果目标源没找到，就 fallback
-      // （影库条目的 id 是文件系统路径，搜索按标题命中时 id 往往对不上，
-      //  所以要先给影库一次直接取详情的机会，再谈 fallback / 报错）
-      if (!detailData && currentSource === 'openlist' && currentId) {
+      // （影库条目在搜索聚合里往往对不上 id：OpenList 的 id 是文件路径，
+      //  Emby 的 id 是内部条目 ID。所以先给影库一次直接取详情的机会）
+      if (
+        !detailData &&
+        (currentSource === 'openlist' || currentSource === 'emby') &&
+        currentId
+      ) {
         try {
           const directRes = await fetch(
-            `/api/detail?source=openlist&id=${encodeURIComponent(currentId)}`
+            `/api/detail?source=${currentSource}&id=${encodeURIComponent(currentId)}`
           );
           if (directRes.ok) {
             const directData = (await directRes.json()) as SearchResult;

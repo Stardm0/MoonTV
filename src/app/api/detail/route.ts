@@ -4,8 +4,10 @@ import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getCacheTime } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { getEmbyDetail } from '@/lib/emby.server';
 import { buildLibraryImageUrl, pickCoverFromItems } from '@/lib/library-image';
 import { findLibraryCoverPath } from '@/lib/library-image.server';
+import { getServerEmbyConfig } from '@/lib/media-library.server';
 import { resolveOpenListConfig } from '@/lib/media-library.server';
 import {
   buildPlayableUrl,
@@ -20,6 +22,9 @@ export const runtime = 'edge';
 /** 影库在播放页里的来源代号；播放页 `?source=openlist&id=<路径>` */
 const OPENLIST_SOURCE = 'openlist';
 
+/** Emby 影库的来源代号；播放页 `?source=emby&id=<条目ID>` */
+const EMBY_SOURCE = 'emby';
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
@@ -33,6 +38,10 @@ export async function GET(request: Request) {
   // 必须在通用校验之前单独分支处理。
   if (sourceCode === OPENLIST_SOURCE) {
     return handleOpenListDetail(request, id);
+  }
+
+  if (sourceCode === EMBY_SOURCE) {
+    return handleEmbyDetail(id);
   }
 
   if (!/^[\w-]+$/.test(id)) {
@@ -175,6 +184,31 @@ async function handleOpenListDetail(request: Request, path: string) {
     desc: isDir ? `影库目录：${path}` : `影库文件：${path}`,
     type_name: isDir ? '剧集' : '影片',
   };
+
+  return NextResponse.json(result, {
+    headers: { 'Cache-Control': 'no-store' },
+  });
+}
+
+/**
+ * Emby 影库详情：电影 → 单集直链；剧集 → 展开全部 Episode。
+ *
+ * 映射逻辑在 `emby.server.ts`，这里只负责取参数与错误码。
+ * 直链含 `api_key`（Emby 生态通行做法），不缓存、每次现取。
+ */
+async function handleEmbyDetail(itemId: string) {
+  const config = await getServerEmbyConfig();
+  if (!config?.baseUrl) {
+    return NextResponse.json(
+      { error: '尚未配置 Emby 影库，请由管理员在后台配置' },
+      { status: 400 }
+    );
+  }
+
+  const { result, error, status } = await getEmbyDetail(config, itemId);
+  if (!result) {
+    return NextResponse.json({ error: error ?? '读取影库失败' }, { status: status ?? 502 });
+  }
 
   return NextResponse.json(result, {
     headers: { 'Cache-Control': 'no-store' },

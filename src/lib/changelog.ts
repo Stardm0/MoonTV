@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.8",
+    date: "2026-09-24",
+    added: [
+    "Emby / Jellyfin 适配器: 管理台可选影库类型, 填地址与 API Key 后全站可用(搜索混排/详情/播放)",
+    "Emby 剧集自动展开成选集, 集数带 S/E 编号; 电影单集直链播放",
+    "Emby 海报走服务端代理补 api_key, 令牌不进浏览器(视频直链除外, 需 Emby 生态通行的 api_key 参数)",
+    "管理台测试连接按影库类型分流, Emby 支持可选「用户 ID」"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.3.7",
     date: "2026-09-24",
     added: [

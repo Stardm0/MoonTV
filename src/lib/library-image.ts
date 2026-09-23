@@ -158,17 +158,34 @@ export function buildLibraryImageUrl(path: string): string {
 /**
  * 解析代理端点的请求参数。
  *
- * 只接受影库内的相对路径 `p`。刻意**不支持任意 URL**（`url=`）——
- * 那等于再开一个开放代理，而本站已经有 `/api/image-proxy` 承担那类用途；
- * 这里只要相对路径，权限完全由服务端影库配置决定。
+ * 只接受两种：
+ *   - `p`：OpenList 影库内的绝对路径
+ *   - `e`：Emby 条目 ID（服务端补 api_key 取海报）
+ *
+ * 刻意**不支持任意 URL**（`url=`）——那等于再开一个开放代理，而本站已有
+ * `/api/image-proxy` 承担那类用途；这里只服务自己的影库。
  */
 export function parseLibraryImageParams(searchParams: {
   get(key: string): string | null;
-}): { path: string } | { error: string } {
-  const raw = searchParams.get('p');
-  if (!raw || !raw.trim()) return { error: '缺少图片路径' };
-  const path = raw.trim();
-  if (path.length > 2048) return { error: '图片路径过长' };
-  if (!path.startsWith('/')) return { error: '图片路径必须是绝对路径' };
-  return { path };
+}): { path: string } | { embyItemId: string } | { error: string } {
+  const openlistPath = searchParams.get('p');
+  const embyItemId = searchParams.get('e');
+
+  if (openlistPath && embyItemId) {
+    return { error: 'p 与 e 只能二选一' };
+  }
+  if (embyItemId) {
+    const id = embyItemId.trim();
+    if (!id) return { error: '缺少图片条目 ID' };
+    if (id.length > 128) return { error: '图片条目 ID 过长' };
+    return { embyItemId: id };
+  }
+  if (openlistPath) {
+    const path = openlistPath.trim();
+    if (!path) return { error: '缺少图片路径' };
+    if (path.length > 2048) return { error: '图片路径过长' };
+    if (!path.startsWith('/')) return { error: '图片路径必须是绝对路径' };
+    return { path };
+  }
+  return { error: '缺少图片路径' };
 }

@@ -8,10 +8,12 @@
  */
 
 import { getConfig } from './config';
+import type { EmbyConfig } from './emby';
 import {
   type MediaLibraryConfig,
   isMediaLibraryUsable,
   normalizeMediaLibraryConfig,
+  toEmbyConfig,
   toOpenListConfig,
 } from './media-library';
 import type { OpenListConfig } from './openlist';
@@ -58,4 +60,14 @@ export async function resolveOpenListConfig(
  */
 export async function getServerOpenListConfig(): Promise<OpenListConfig | null> {
   return toOpenListConfig(await getServerMediaLibraryConfig());
+}
+
+/**
+ * 解析本次请求该用哪份 Emby 连接配置。
+ *
+ * Emby 目前只有站点级配置（个人 cookie 只存 OpenList 结构），
+ * 将来若开放个人 Emby 配置，再在这里按「个人优先」补一层。
+ */
+export async function getServerEmbyConfig(): Promise<EmbyConfig | null> {
+  return toEmbyConfig(await getServerMediaLibraryConfig());
 }

@@ -27,8 +27,11 @@
  * 因此客户端组件可以直接引用。服务端读取在 `media-library.server.ts`。
  */
 
+import type { EmbyConfig } from './emby';
 import type { OpenListConfig } from './openlist';
 import { normalizeBaseUrl } from './openlist';
+
+export type { EmbyConfig };
 
 /** 支持的影库类型 */
 export const MEDIA_LIBRARY_TYPES = ['openlist', 'emby'] as const;
@@ -142,6 +145,25 @@ export function toOpenListConfig(
     baseUrl: config.BaseUrl,
     token: config.Token,
     rootPath: config.RootPath || '/',
+    allowPrivateNetwork: config.AllowPrivateNetwork === true,
+  };
+}
+
+/**
+ * 转成 Emby / Jellyfin 适配器要的配置；类型不是 emby 时返回 null。
+ *
+ * Emby 配置目前只来自管理台（站点级）：个人 cookie 只存 OpenList 结构，
+ * 没有必要为个人场景再开一份含用户 ID 的 cookie。
+ */
+export function toEmbyConfig(
+  config: MediaLibraryConfig | null | undefined
+): EmbyConfig | null {
+  if (!config || !config.BaseUrl) return null;
+  if (config.Type !== 'emby') return null;
+  return {
+    baseUrl: config.BaseUrl,
+    token: config.Token,
+    userId: config.UserId || '',
     allowPrivateNetwork: config.AllowPrivateNetwork === true,
   };
 }

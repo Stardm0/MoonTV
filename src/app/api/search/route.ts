@@ -5,11 +5,18 @@ import { NextRequest } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
-import { resolveOpenListConfig } from '@/lib/media-library.server';
+import { EMBY_SOURCE, EMBY_SOURCE_NAME } from '@/lib/emby';
+import { searchEmbyItems } from '@/lib/emby.server';
+import { toEmbyConfig, toOpenListConfig } from '@/lib/media-library';
 import {
+  getServerMediaLibraryConfig,
+} from '@/lib/media-library.server';
+import {
+  type OpenListConfig,
   mapOpenListSearchItems,
   OPENLIST_SOURCE,
   OPENLIST_SOURCE_NAME,
+  parseOpenListConfigFromCookieHeader,
   requestOpenList,
 } from '@/lib/openlist';
 import { yellowWords } from '@/lib/yellow';
@@ -29,13 +36,31 @@ interface SearchFailure {
  * 配置了但搜不出来才进 `failedSources`，提示里点出「索引」这个最常见原因——
  * OpenList 默认不做索引，没在「设置 → 索引」里建过就搜不到东西。
  *
- * 连接配置取「个人 cookie 优先、管理员站点级配置兜底」，与 `/api/detail` 一致。
+ * 连接配置取「个人 cookie 优先、管理员站点级配置兜底」，与 `/api/detail` 一致；
+ * 站点级配置的类型（OpenList / Emby）决定走哪个适配器。
  */
 async function searchPrivateLibrary(
   cookieHeader: string | null,
   query: string
 ): Promise<{ results: any[]; failed: SearchFailure | null }> {
-  const config = await resolveOpenListConfig(cookieHeader);
+  // 个人 cookie 只可能是 OpenList
+  const personal = parseOpenListConfigFromCookieHeader(cookieHeader);
+  if (personal?.baseUrl) return searchOpenListLibrary(personal, query);
+
+  const serverConfig = await getServerMediaLibraryConfig();
+  if (!serverConfig) return { results: [], failed: null };
+
+  if (serverConfig.Type === 'emby') {
+    return searchEmbyLibrary(serverConfig, query);
+  }
+  return searchOpenListLibrary(toOpenListConfig(serverConfig), query);
+}
+
+/** OpenList 影库搜索（需要影库已建立索引） */
+async function searchOpenListLibrary(
+  config: OpenListConfig | null,
+  query: string
+): Promise<{ results: any[]; failed: SearchFailure | null }> {
   if (!config || !config.baseUrl) return { results: [], failed: null };
 
   const rootPath = config.rootPath || '/';
@@ -69,6 +94,28 @@ async function searchPrivateLibrary(
     results: mapOpenListSearchItems(payload?.data?.content, rootPath),
     failed: null,
   };
+}
+
+/** Emby / Jellyfin 影库搜索（有元数据，直接按标题搜） */
+async function searchEmbyLibrary(
+  config: unknown,
+  query: string
+): Promise<{ results: any[]; failed: SearchFailure | null }> {
+  const embyConfig = toEmbyConfig(config as Parameters<typeof toEmbyConfig>[0]);
+  if (!embyConfig?.baseUrl) return { results: [], failed: null };
+
+  const { results, error } = await searchEmbyItems(embyConfig, query);
+  if (error) {
+    return {
+      results: [],
+      failed: {
+        name: EMBY_SOURCE_NAME,
+        key: EMBY_SOURCE,
+        error: `${error}（请检查管理台里的地址与 API Key）`,
+      },
+    };
+  }
+  return { results, failed: null };
 }
 
 export async function GET(request: NextRequest) {

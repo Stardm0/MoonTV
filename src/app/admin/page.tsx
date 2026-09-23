@@ -43,6 +43,8 @@ import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import {
   type MediaLibraryConfig,
   createEmptyMediaLibraryConfig,
+  MEDIA_LIBRARY_TYPE_LABELS,
+  MEDIA_LIBRARY_TYPES as MEDIA_LIBRARY_TYPE_LIST,
 } from '@/lib/media-library';
 import {
   getDefaultPlaybackSaveInterval,
@@ -2438,6 +2440,30 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     setTestingLibrary(true);
     setLibraryTestResult(null);
     try {
+      // Emby 与 OpenList 的鉴权方式不同，按类型转发到各自的测试端点
+      if (mediaLibrary.Type === 'emby') {
+        const resp = await fetch('/api/emby', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'ping',
+            baseUrl: mediaLibrary.BaseUrl,
+            token: mediaLibrary.Token,
+            userId: mediaLibrary.UserId || '',
+            allowPrivateNetwork:
+              mediaLibrary.AllowPrivateNetwork === true,
+          }),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          throw new Error(
+            data?.message || data?.error || `测试失败: ${resp.status}`
+          );
+        }
+        setLibraryTestResult({ ok: true, text: data?.message ?? '连接成功' });
+        return;
+      }
+
       const resp = await fetch('/api/openlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3097,8 +3123,30 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           </div>
         </div>
 
-        {/* 地址 / 令牌 / 根路径 */}
+        {/* 影库类型 / 地址 / 令牌 / 根路径 */}
         <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
+          <div>
+            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+              影库类型
+            </label>
+            <select
+              value={mediaLibrary.Type}
+              onChange={(e) =>
+                !isLocalStorage &&
+                updateMediaLibrary({
+                  Type: e.target.value as MediaLibraryConfig['Type'],
+                })
+              }
+              disabled={isLocalStorage}
+              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+            >
+              {MEDIA_LIBRARY_TYPE_LIST.map((type) => (
+                <option key={type} value={type}>
+                  {MEDIA_LIBRARY_TYPE_LABELS[type]}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
               影库地址
@@ -3150,6 +3198,24 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
               }`}
             />
           </div>
+          {mediaLibrary.Type === 'emby' && (
+            <div>
+              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
+                Emby 用户 ID（留空自动取第一个用户）
+              </label>
+              <input
+                type='text'
+                value={mediaLibrary.UserId || ''}
+                onChange={(e) =>
+                  !isLocalStorage &&
+                  updateMediaLibrary({ UserId: e.target.value })
+                }
+                disabled={isLocalStorage}
+                placeholder='自动获取'
+                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
+              />
+            </div>
+          )}
           <div className='flex items-end'>
             <label className='flex items-center gap-2 pb-2 text-sm text-gray-700 dark:text-gray-300'>
               <input

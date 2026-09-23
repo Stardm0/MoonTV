@@ -5,11 +5,13 @@
  * `import { getConfig }` / 发起真实网络请求，浏览器组件引用会在打包/运行时炸。
  */
 
+import type { EmbyConfig } from './emby';
 import { pickCoverFromItems } from './library-image';
 import {
   type OpenListConfig,
   buildPlayableUrl,
   joinOpenListPath,
+  normalizeBaseUrl,
   requestOpenList,
 } from './openlist';
 import { validateMediaUrl } from './url-guard';
@@ -103,6 +105,73 @@ export async function fetchLibraryImage(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** 抓 Emby 海报的回源逻辑与 OpenList 相同，抽出来复用 */
+async function fetchImageBytes(
+  target: string,
+  maxBytes: number,
+  allowPrivateNetwork: boolean
+): Promise<LibraryImageResult> {
+  const guard = validateMediaUrl(target, undefined, { allowPrivateNetwork });
+  if (!guard.ok) {
+    return { ok: false, status: 403, error: guard.reason };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), IMAGE_FETCH_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(target, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, status: 502, error: '取回封面失败' };
+    }
+
+    const contentType = response.headers.get('content-type') ?? '';
+    // 只放行图片：影库里同名 exe / zip 不该被当成封面吐给浏览器
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      return { ok: false, status: 415, error: '不是图片内容' };
+    }
+
+    const declared = Number(response.headers.get('content-length') ?? '0');
+    if (declared > maxBytes) {
+      return { ok: false, status: 413, error: '封面过大' };
+    }
+
+    const buffer = await response.arrayBuffer();
+    if (buffer.byteLength > maxBytes) {
+      return { ok: false, status: 413, error: '封面过大' };
+    }
+
+    return { ok: true, status: 200, body: buffer, contentType };
+  } catch (error) {
+    const aborted = (error as Error)?.name === 'AbortError';
+    return {
+      ok: false,
+      status: aborted ? 504 : 502,
+      error: aborted ? '取回封面超时' : '取回封面失败',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * 读取 Emby 条目的海报（`/Items/{id}/Images/Primary`）。
+ *
+ * api_key 由服务端补，浏览器永远接触不到。
+ */
+export async function fetchEmbyImage(
+  config: EmbyConfig,
+  itemId: string,
+  maxBytes: number
+): Promise<LibraryImageResult> {
+  const base = normalizeBaseUrl(config?.baseUrl ?? '');
+  if (!base) return { ok: false, status: 400, error: '缺少影库地址' };
+  if (!itemId) return { ok: false, status: 400, error: '缺少图片条目 ID' };
+
+  const target = `${base}/Items/${encodeURIComponent(itemId)}/Images/Primary?api_key=${encodeURIComponent(config.token ?? '')}`;
+  return fetchImageBytes(target, maxBytes, config.allowPrivateNetwork === true);
 }
 
 /**
