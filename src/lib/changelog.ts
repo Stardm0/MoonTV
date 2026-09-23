@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.2",
+    date: "2026-09-23",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "播放页去除顶部导航, 侧边栏全局常驻(仅管理台保留顶部导航)"
+    ],
+    fixed: [
+    "修复旧版 D1 表缺新列导致追更/收藏/播放记录写入静默失败: 写路径自动补列",
+    "追更增加浏览器持久备份, 远端读写失败时不再丢失"
+    ]
+  },
+  {
     version: "4.3.1",
     date: "2026-09-23",
     added: [
