@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.2.8",
+    date: "2026-09-23",
+    added: [
+    "首页内容区顶部新增居中大搜索框, 下方展示热门推荐影片横滑条"
+    ],
+    changed: [
+    "搜索移出侧边栏, 侧边栏根级收敛为首页/影视库/榜单"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.2.7",
     date: "2026-09-23",
     added: [

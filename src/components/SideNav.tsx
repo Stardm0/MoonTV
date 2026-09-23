@@ -13,16 +13,12 @@ import {
   Home,
   PanelLeftClose,
   PanelLeftOpen,
-  Search,
   Trophy,
   Tv,
-  X,
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 
-import { addSearchHistory } from '@/lib/db.client';
 import {
   applySidenavCollapsed,
   normalizeSidenavCollapsed,
@@ -64,9 +60,9 @@ const ITEM_CLASS =
  *
  * ## 导航结构
  *
- * 根级只有四项：首页 / 搜索 / 影视库 / 榜单。搜索与影视库都是
- * **就地展开**（点击展开输入框 / 子分类），不跳页、也不新开一层；
- * 两者互斥展开，免得侧边栏被撑得过长。
+ * 根级三项：首页 / 影视库 / 榜单。影视库是**就地展开**（点击展开子分类），
+ * 不跳页、也不新开一层。（搜索 4.2.8 起移到内容区顶部的居中搜索框，
+ * 见 `HomeSearchHero`；移动端走底部导航，互不重复。）
  *
  * ## 折叠与刷新
  *
@@ -80,18 +76,14 @@ const ITEM_CLASS =
  * 整块 `hidden md:flex`，手机上仍用 MobileHeader + MobileBottomNav。
  */
 const SideNav = () => {
-  const router = useRouter();
   const { siteName } = useSite();
   const { startLoading } = useNavigationLoading();
   const downloadTaskCount = useDownloadTaskCount();
 
   const [collapsed, setCollapsed] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [query, setQuery] = useState('');
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
-  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 首屏内联脚本已经写好 DOM 属性，这里只是把 state 对齐，
   // 免得组件以为自己是展开态、点可展开项时行为与视觉不一致。
@@ -131,48 +123,23 @@ const SideNav = () => {
     // 折叠后展开内容都看不见了，顺手收起来，避免展开时状态与视觉错位
     if (next) {
       setLibraryOpen(false);
-      setSearchOpen(false);
     }
   }, [collapsed, persistCollapsed]);
 
   /**
-   * 就地展开类入口的统一处理。
+   * 「影视库」就地展开。
    *
-   * 折叠态下没有文字、也放不下输入框，所以点它先展开侧边栏 ——
+   * 折叠态下没有文字、也放不下子分类，所以点它先展开侧边栏 ——
    * 否则用户点一下「什么也没发生」，只能看到图标变了个样式。
    */
-  const toggleExpandable = useCallback(
-    (which: 'search' | 'library') => {
-      if (collapsed) {
-        persistCollapsed(false);
-        setSearchOpen(which === 'search');
-        setLibraryOpen(which === 'library');
-      } else {
-        const isOpenNow = which === 'search' ? searchOpen : libraryOpen;
-        const next = !isOpenNow;
-        // 两个可展开项互斥，避免侧边栏同时长出两块内容
-        setSearchOpen(which === 'search' ? next : false);
-        setLibraryOpen(which === 'library' ? next : false);
-        if (which === 'search' && next) {
-          // 展开后直接聚焦，省掉一次点击
-          setTimeout(() => searchInputRef.current?.focus(), 0);
-        }
-      }
-    },
-    [collapsed, libraryOpen, searchOpen, persistCollapsed]
-  );
-
-  const submitSearch = (event: React.FormEvent) => {
-    event.preventDefault();
-    const keyword = query.trim();
-    if (keyword) {
-      addSearchHistory(keyword);
+  const toggleLibrary = useCallback(() => {
+    if (collapsed) {
+      persistCollapsed(false);
+      setLibraryOpen(true);
+    } else {
+      setLibraryOpen((open) => !open);
     }
-    startLoading();
-    router.push(
-      keyword ? `/search?q=${encodeURIComponent(keyword)}` : '/search'
-    );
-  };
+  }, [collapsed, persistCollapsed]);
 
   const openDownloadManager = () => {
     if (typeof window !== 'undefined') {
@@ -230,57 +197,14 @@ const SideNav = () => {
           <span className='sidenav-expanded-only'>首页</span>
         </Link>
 
-        {/* 搜索：就地展开输入框，不跳页 */}
-        <button
-          type='button'
-          onClick={() => toggleExpandable('search')}
-          className={`${ITEM_CLASS} w-full`}
-          title='搜索'
-          aria-expanded={searchOpen}
-        >
-          <Search className='h-5 w-5 flex-shrink-0' />
-          <span className='sidenav-expanded-only flex-1 text-left'>搜索</span>
-          <ChevronDown
-            className={`sidenav-expanded-only h-4 w-4 flex-shrink-0 transition-transform duration-200 ${
-              searchOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        {searchOpen && (
-          <div className='sidenav-expanded-only mt-1 border-l border-gray-200 pl-2 dark:border-gray-700'>
-            <form onSubmit={submitSearch} className='py-1 pr-1'>
-              <div className='relative'>
-                <Search className='pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400 dark:text-gray-500' />
-                <input
-                  ref={searchInputRef}
-                  type='text'
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder='搜索影视…'
-                  className='w-full rounded-lg border border-gray-200/70 bg-gray-100/70 py-2 pl-8 pr-7 text-sm text-gray-700 placeholder-gray-400 transition-colors focus:border-green-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-green-400/40 dark:border-gray-700 dark:bg-gray-800/70 dark:text-gray-200 dark:placeholder-gray-500 dark:focus:bg-gray-800'
-                />
-                {query && (
-                  <button
-                    type='button'
-                    onClick={() => setQuery('')}
-                    className='absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-300'
-                    title='清空'
-                  >
-                    <X className='h-3.5 w-3.5' />
-                  </button>
-                )}
-              </div>
-            </form>
-          </div>
-        )}
+        {/* 搜索（4.2.8 起）在内容区顶部的居中搜索框：HomeSearchHero */}
 
         {isClient && !simpleMode && (
           <>
             {/* 「影视库」二级菜单：点击展开，不占用根级行数 */}
             <button
               type='button'
-              onClick={() => toggleExpandable('library')}
+              onClick={toggleLibrary}
               className={`${ITEM_CLASS} w-full`}
               title='影视库'
               aria-expanded={libraryOpen}
