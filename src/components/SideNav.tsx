@@ -10,6 +10,7 @@ import {
   Compass,
   Download,
   Film,
+  HardDrive,
   Home,
   PanelLeftClose,
   PanelLeftOpen,
@@ -100,6 +101,7 @@ const SideNav = () => {
   const isSearchActive = pathname.startsWith('/search');
   const isRankingActive = pathname.startsWith('/ranking');
   const isLibraryActive = pathname.startsWith('/douban');
+  const isPrivateLibraryActive = pathname.startsWith('/library');
 
   // 首屏内联脚本已经写好 DOM 属性，这里把 localStorage 的其余偏好对齐。
   useEffect(() => {
@@ -207,6 +209,21 @@ const SideNav = () => {
         >
           <Home className='h-5 w-5 flex-shrink-0' />
           <span className='sidenav-expanded-only'>首页</span>
+        </Link>
+
+        {/* 私人影库：一级菜单，单独打开 /library 页面（OpenList / AList 影库浏览） */}
+        <Link
+          href='/library'
+          onClick={startLoading}
+          className={`${ITEM_CLASS} ${
+            isPrivateLibraryActive
+              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+              : ''
+          }`}
+          title='私人影库'
+        >
+          <HardDrive className='h-5 w-5 flex-shrink-0' />
+          <span className='sidenav-expanded-only'>影库</span>
         </Link>
 
         {/* 搜索：一级菜单，单独打开 /search 页面（与「电影」等平级，不是就地展开） */}

@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.4",
+    date: "2026-09-23",
+    added: [
+    "私人影库: 接入 OpenList / AList, 侧边栏新增「影库」入口, 支持目录浏览与直接播放",
+    "影库支持「目录按剧集播放」, 集数按自然序排列(S1E2 在 S1E10 之前)",
+    "影库连接支持测试连通性, 配置存 cookie 以便播放页服务端读取"
+    ],
+    changed: [
+    "内网地址访问改为显式开关: 默认拒绝, 自建部署勾选后可访问局域网影库(云元数据地址仍拦截)"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.3.3",
     date: "2026-09-23",
     added: [
