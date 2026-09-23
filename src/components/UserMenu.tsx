@@ -34,9 +34,11 @@ export const UserMenu: React.FC = () => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
-    null
-  );
+  const [menuPos, setMenuPos] = useState<{
+    top?: number;
+    left?: number;
+    bottom?: number;
+  } | null>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
@@ -304,29 +306,31 @@ export const UserMenu: React.FC = () => {
 
   const handleMenuClick = () => {
     if (!isOpen) {
-      // 打开前按按钮当前位置计算面板落点（4.2.9）：
+      // 打开前按按钮当前位置计算面板落点（4.2.9，4.2.10 收紧间距）：
       // 面板经 Portal 挂到 body，写死 top-14 right-4 的话，
-      // 从侧边栏左下角的按钮打开会飘到右上角。按钮在屏幕左半边
-      // （侧边栏场景）时面板从按钮右侧弹出，否则右对齐按钮（原 TopNav 行为）。
+      // 从侧边栏左下角的按钮打开会飘到右上角。
+      // 按钮在屏幕左半边（侧边栏场景）：面板贴按钮右侧弹出，
+      // 且**底边与按钮底边对齐**（用 bottom 定位、向上生长）——
+      // 不再估算面板高度，之前按 360px 估算会让面板上飘出一大截。
       const rect = menuButtonRef.current?.getBoundingClientRect();
       if (rect && typeof window !== 'undefined') {
         const PANEL_W = 224; // w-56
-        const PANEL_H = 360; // 估算高度，防底部溢出
         const GAP = 8;
-        let left: number;
         if (rect.left < window.innerWidth / 2) {
-          left = rect.right + GAP;
+          let left = rect.right + GAP;
           if (left + PANEL_W + GAP > window.innerWidth) {
             left = Math.max(GAP, rect.left - PANEL_W - GAP);
           }
+          const bottom = Math.max(GAP, window.innerHeight - rect.bottom);
+          setMenuPos({ left, bottom });
         } else {
-          left = rect.right - PANEL_W;
+          const PANEL_H = 360; // 估算高度，防底部溢出
+          let top = rect.bottom + GAP;
+          if (top + PANEL_H > window.innerHeight - GAP) {
+            top = Math.max(GAP, window.innerHeight - PANEL_H - GAP);
+          }
+          setMenuPos({ top, left: rect.right - PANEL_W });
         }
-        let top = rect.bottom + GAP;
-        if (top + PANEL_H > window.innerHeight - GAP) {
-          top = Math.max(GAP, window.innerHeight - PANEL_H - GAP);
-        }
-        setMenuPos({ top, left });
       }
     }
     setIsOpen(!isOpen);
@@ -602,7 +606,9 @@ export const UserMenu: React.FC = () => {
         className='fixed w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'
         style={
           menuPos
-            ? { top: menuPos.top, left: menuPos.left }
+            ? menuPos.bottom !== undefined
+              ? { left: menuPos.left, bottom: menuPos.bottom }
+              : { top: menuPos.top, left: menuPos.left }
             : { top: 56, right: 16 }
         }
       >

@@ -32,7 +32,6 @@ import { DoubanItem } from '@/lib/types';
 
 import CapsuleSwitch from '@/components/CapsuleSwitch';
 import ContinueWatching from '@/components/ContinueWatching';
-import HomeSearchHero from '@/components/HomeSearchHero';
 import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
 import PageLayout from '@/components/PageLayout';
 import ScrollableRow from '@/components/ScrollableRow';
@@ -956,27 +955,8 @@ function HomeClient() {
           ) : (
             // 首页视图
             <>
-              {/* 搜索 Hero：居中大搜索框 + 热门推荐横滑条（桌面端限定，组件内部 hidden md:block）。
-                  推荐从热门电影/剧集/综艺轮询混排取 10 部，避免和正下方单一板块海报完全重复；
-                  全部复用已拉取数据，不另发请求。 */}
-              <HomeSearchHero
-                recommendations={(() => {
-                  const mixed: DoubanItem[] = [];
-                  for (let i = 0; mixed.length < 10; i++) {
-                    const pools = [hotMovies, hotTvShows, hotVarietyShows];
-                    const added = pools.reduce(
-                      (n, pool) =>
-                        pool[i] && mixed.length < 10
-                          ? (mixed.push(pool[i]), n + 1)
-                          : n,
-                      0
-                    );
-                    if (added === 0) break;
-                  }
-                  return mixed;
-                })()}
-                loading={loading}
-              />
+              {/* 4.2.10 起首页不再放搜索框与推荐：搜索收进侧边栏一级菜单，
+                  热门推荐搬到搜索页搜索框下方（SearchRecommendations） */}
 
               {/* 继续观看 - 组件内部已处理简洁模式 */}
               <ContinueWatching />

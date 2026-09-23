@@ -11,6 +11,21 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.0",
+    date: "2026-09-23",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "首页移除搜索框与热门推荐, 推荐条迁至搜索页搜索框下方",
+    "搜索页搜索框右侧补回「搜索」按钮",
+    "用户菜单面板贴按钮右侧弹出且底边对齐, 消除高度估算导致的上飘"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.2.9",
     date: "2026-09-23",
     added: [

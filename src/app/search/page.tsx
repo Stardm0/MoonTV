@@ -18,6 +18,7 @@ import { getRequestTimeout } from '@/lib/utils';
 import FailedSourcesDisplay from '@/components/FailedSourcesDisplay';
 import FilterOptions from '@/components/FilterOptions';
 import PageLayout from '@/components/PageLayout';
+import SearchRecommendations from '@/components/SearchRecommendations';
 import SearchSuggestions from '@/components/SearchSuggestions';
 import SourceSelector from '@/components/SourceSelector';
 import VideoCard from '@/components/VideoCard';
@@ -606,7 +607,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
               />
             </div>
             
-            {/* 搜索框 */}
+            {/* 搜索框：右侧带「搜索」按钮（4.2.10 补回，原来只有回车触发） */}
             <form onSubmit={handleSearch} className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
@@ -616,13 +617,24 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
                 placeholder="搜索电影、电视剧..."
-                className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-4 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
+                className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-28 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
               />
+
+              <button
+                type="submit"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-green-500 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-600 dark:hover:bg-green-600"
+              >
+                搜索
+              </button>
 
               <SearchSuggestions query={searchQuery} isVisible={showSuggestions} onSelect={handleSuggestionSelect} onClose={() => setShowSuggestions(false)} />
             </form>
           </div>
         </div>
+
+        {/* 热门推荐：搜索框下方横滑条（4.2.10 从首页 Hero 迁入）。
+            有搜索结果或正在加载时不显示，把空间让给结果。 */}
+        {!isLoading && !showResults && <SearchRecommendations />}
 
 
 
