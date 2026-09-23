@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.1",
+    date: "2026-09-23",
+    added: [
+      // 无新增内容
+    ],
+    changed: [
+    "搜索页调整布局: 搜索历史紧跟搜索框, 热门推荐移到历史下方并增至 20 部"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.3.0",
     date: "2026-09-23",
     added: [

@@ -32,10 +32,10 @@ const SearchRecommendations = () => {
         if (cancelled) return;
         const pools = [movies.list, tv.list, shows.list];
         const mixed: DoubanItem[] = [];
-        for (let i = 0; mixed.length < 10; i++) {
+        for (let i = 0; mixed.length < 20; i++) {
           const added = pools.reduce(
             (n, pool) =>
-              pool[i] && mixed.length < 10 ? (mixed.push(pool[i]), n + 1) : n,
+              pool[i] && mixed.length < 20 ? (mixed.push(pool[i]), n + 1) : n,
             0
           );
           if (added === 0) break;
