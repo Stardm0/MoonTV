@@ -4,6 +4,8 @@ import { NextResponse } from 'next/server';
 
 import { getAvailableApiSites, getCacheTime } from '@/lib/config';
 import { getDetailFromApi } from '@/lib/downstream';
+import { buildLibraryImageUrl, pickCoverFromItems } from '@/lib/library-image';
+import { findLibraryCoverPath } from '@/lib/library-image.server';
 import { resolveOpenListConfig } from '@/lib/media-library.server';
 import {
   buildPlayableUrl,
@@ -93,7 +95,10 @@ async function handleOpenListDetail(request: Request, path: string) {
 
   const entry = (info.data?.data ?? {}) as any;
   const title = String(entry?.name ?? path.split('/').filter(Boolean).pop() ?? '影库资源');
-  const poster = typeof entry?.thumb === 'string' ? entry.thumb : '';
+  // 影库自带的 thumb（部分网盘会给缩略图直链）优先；没有再去找封面文件
+  const directThumb = typeof entry?.thumb === 'string' ? entry.thumb : '';
+  // 封面顺序：自带缩略图 > 目录里的封面文件（`poster.jpg` / 同名图）
+  let poster = directThumb;
   const isDir = entry?.is_dir === true;
 
   let episodes: string[] = [];
@@ -132,9 +137,22 @@ async function handleOpenListDetail(request: Request, path: string) {
       )
     );
     episodeTitles = videos.map((item) => item.name);
+
+    // 目录已经列过了，直接在这批条目里挑封面，不必再请求一次
+    const dirCover = pickCoverFromItems(content, title);
+    if (dirCover && !poster) {
+      poster = buildLibraryImageUrl(joinOpenListPath(path, dirCover));
+    }
   } else {
     episodes = [buildPlayableUrl(config.baseUrl, path, entry?.sign, entry?.raw_url)];
     episodeTitles = [title];
+
+    // 单集视频：封面在它所在目录里，多列一次目录换一张海报是划算的
+    if (!poster) {
+      const parentPath = path.replace(/\/[^/]*$/, '') || '/';
+      const coverPath = await findLibraryCoverPath(config, parentPath, title);
+      if (coverPath) poster = buildLibraryImageUrl(coverPath);
+    }
   }
 
   if (episodes.length === 0 || !episodes[0]) {

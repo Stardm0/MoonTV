@@ -1283,6 +1283,25 @@ export function usePlayEngine() {
       });
 
       // 流式搜索结束：如果目标源没找到，就 fallback
+      // （影库条目的 id 是文件系统路径，搜索按标题命中时 id 往往对不上，
+      //  所以要先给影库一次直接取详情的机会，再谈 fallback / 报错）
+      if (!detailData && currentSource === 'openlist' && currentId) {
+        try {
+          const directRes = await fetch(
+            `/api/detail?source=openlist&id=${encodeURIComponent(currentId)}`
+          );
+          if (directRes.ok) {
+            const directData = (await directRes.json()) as SearchResult;
+            if (directData?.episodes?.length) {
+              allResults.push(directData);
+              detailData = directData;
+            }
+          }
+        } catch {
+          // 直取失败就继续走原有的 fallback 逻辑
+        }
+      }
+
       if (!detailData && allResults.length > 0) {
         detailData = allResults[0];
       }

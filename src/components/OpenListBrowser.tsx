@@ -7,6 +7,11 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import {
+  buildLibraryImageUrl,
+  isImageFile,
+  pickCoverFromItems,
+} from '@/lib/library-image';
+import {
   type MediaLibrarySummary,
   MEDIA_LIBRARY_TYPE_LABELS,
 } from '@/lib/media-library';
@@ -52,6 +57,39 @@ function formatSize(size: number): string {
   }
   return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
+
+/**
+ * 列表行的小海报。
+ *
+ * 图片走 `/api/library-image` 代理而不是直连：站点级影库配置下浏览器根本拿不到
+ * 影库地址与令牌。加载失败（影库没这图 / 不是图片）就退回文件夹图标，
+ * 不让列表里出现破图。
+ */
+const RowThumb = ({ src, isDir }: { src: string; isDir: boolean }) => {
+  const [failed, setFailed] = useState(false);
+
+  if (!src || failed) {
+    return (
+      <Folder
+        className={`h-4 w-4 flex-shrink-0 ${
+          isDir ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'
+        }`}
+      />
+    );
+  }
+
+  return (
+    // 影库图片是同源代理地址且尺寸不可控，用原生 img 而不是 next/image
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={src}
+      alt=''
+      loading='lazy'
+      onError={() => setFailed(true)}
+      className='h-10 w-7 flex-shrink-0 rounded object-cover'
+    />
+  );
+};
 
 /**
  * 私人影库浏览器（OpenList）。
@@ -263,6 +301,25 @@ const OpenListBrowser = () => {
     );
   };
 
+  /**
+   * 条目缩略图（已在该目录列表里返回的内容中挑选，**不额外请求影库**）。
+   * - 图片文件：自己就是预览图
+   * - 视频文件：按命名约定找同名 / `poster.jpg` 之类的封面
+   * - 目录：不推断（那要进子目录才知道，成本不划算）
+   */
+  const thumbFor = useCallback(
+    (item: OpenListItem): string => {
+      if (item.is_dir) return '';
+      if (isImageFile(item.name)) {
+        return buildLibraryImageUrl(joinOpenListPath(path, item.name));
+      }
+      if (!isVideoFile(item.name)) return '';
+      const cover = pickCoverFromItems(items, item.name, false);
+      return cover ? buildLibraryImageUrl(joinOpenListPath(path, cover)) : '';
+    },
+    [items, path]
+  );
+
   const segments = useMemo(
     () => path.split('/').filter(Boolean),
     [path]
@@ -463,13 +520,7 @@ const OpenListBrowser = () => {
                     key={fullPath}
                     className='flex items-center gap-3 px-4 py-2.5 text-sm'
                   >
-                    <Folder
-                      className={`h-4 w-4 flex-shrink-0 ${
-                        item.is_dir
-                          ? 'text-amber-500'
-                          : 'text-gray-300 dark:text-gray-600'
-                      }`}
-                    />
+                    <RowThumb src={thumbFor(item)} isDir={item.is_dir} />
                     <span className='min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200'>
                       {item.name}
                       {!item.is_dir && (
