@@ -13,10 +13,12 @@ import {
   Home,
   PanelLeftClose,
   PanelLeftOpen,
+  Search,
   Trophy,
   Tv,
 } from 'lucide-react';
 import Link from 'next/link';
+import { usePathname, useSearchParams } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 
 import {
@@ -49,20 +51,20 @@ const ITEM_CLASS =
   'moontv-sidenav-item group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-gray-700 transition-colors duration-200 hover:bg-gray-100/70 hover:text-green-600 dark:text-gray-300 dark:hover:bg-gray-800/70 dark:hover:text-green-400';
 
 /**
- * 首页左侧导航栏（桌面端）。
+ * 全站左侧导航栏（桌面端常驻，4.2.9 起不再限于首页）。
  *
- * ## 为什么只在首页用
+ * ## 为什么全局
  *
- * 首页是「浏览」场景，需要常年可见的分类入口 + 后续要往底部加功能按钮；
- * 而详情/播放页是「专注」场景，横向的顶部导航更省纵向空间。所以这里把
- * 导航从顶部搬到左侧**只针对首页**，其他页面继续用 TopNav（见
- * `ConditionalNav` 里的路径判断）。
+ * 用户明确要求：点影视库子项跳到 /douban 后侧边栏必须还在，
+ * 不能「跳回」顶部导航的旧界面。所以 `ConditionalNav` 里除播放页
+ * （横向空间优先）与管理台（自有布局）外，桌面端一律渲染本组件。
  *
  * ## 导航结构
  *
- * 根级三项：首页 / 影视库 / 榜单。影视库是**就地展开**（点击展开子分类），
- * 不跳页、也不新开一层。（搜索 4.2.8 起移到内容区顶部的居中搜索框，
- * 见 `HomeSearchHero`；移动端走底部导航，互不重复。）
+ * 根级四项：首页 / 搜索 / 影视库 / 榜单，按当前路由高亮。
+ * 影视库是**就地展开**（点击展开子分类），不跳页、也不新开一层；
+ * 搜索是一级菜单、**单独打开 /search 页面**（与「电影」等平级）；
+ * 首页内容区另有居中大搜索框 `HomeSearchHero`（带搜索源选择）。
  *
  * ## 折叠与刷新
  *
@@ -76,6 +78,8 @@ const ITEM_CLASS =
  * 整块 `hidden md:flex`，手机上仍用 MobileHeader + MobileBottomNav。
  */
 const SideNav = () => {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { siteName } = useSite();
   const { startLoading } = useNavigationLoading();
   const downloadTaskCount = useDownloadTaskCount();
@@ -84,6 +88,14 @@ const SideNav = () => {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
+
+  // 当前路径高亮：侧边栏 4.2.9 起全局常驻，需要跟随路由变化标出所在位置。
+  // 影视库子项按 /douban?type=xxx 的 type 参数逐项匹配。
+  const activeType = searchParams.get('type');
+  const isHomeActive = pathname === '/';
+  const isSearchActive = pathname.startsWith('/search');
+  const isRankingActive = pathname.startsWith('/ranking');
+  const isLibraryActive = pathname.startsWith('/douban');
 
   // 首屏内联脚本已经写好 DOM 属性，这里只是把 state 对齐，
   // 免得组件以为自己是展开态、点可展开项时行为与视觉不一致。
@@ -190,14 +202,31 @@ const SideNav = () => {
         <Link
           href='/'
           onClick={startLoading}
-          className={`${ITEM_CLASS} bg-green-500/10 text-green-600 dark:text-green-400`}
+          className={`${ITEM_CLASS} ${
+            isHomeActive
+              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+              : ''
+          }`}
           title='首页'
         >
           <Home className='h-5 w-5 flex-shrink-0' />
           <span className='sidenav-expanded-only'>首页</span>
         </Link>
 
-        {/* 搜索（4.2.8 起）在内容区顶部的居中搜索框：HomeSearchHero */}
+        {/* 搜索：一级菜单，单独打开 /search 页面（与「电影」等平级，不是就地展开） */}
+        <Link
+          href='/search'
+          onClick={startLoading}
+          className={`${ITEM_CLASS} ${
+            isSearchActive
+              ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+              : ''
+          }`}
+          title='搜索'
+        >
+          <Search className='h-5 w-5 flex-shrink-0' />
+          <span className='sidenav-expanded-only'>搜索</span>
+        </Link>
 
         {isClient && !simpleMode && (
           <>
@@ -205,7 +234,11 @@ const SideNav = () => {
             <button
               type='button'
               onClick={toggleLibrary}
-              className={`${ITEM_CLASS} w-full`}
+              className={`${ITEM_CLASS} w-full ${
+                isLibraryActive
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : ''
+              }`}
               title='影视库'
               aria-expanded={libraryOpen}
             >
@@ -224,12 +257,19 @@ const SideNav = () => {
               <div className='sidenav-expanded-only mt-1 space-y-0.5 border-l border-gray-200 pl-2 dark:border-gray-700'>
                 {LIBRARY_ITEMS.map((item) => {
                   const Icon = item.icon;
+                  const itemType = item.href.split('type=')[1];
+                  const isItemActive =
+                    isLibraryActive && activeType === itemType;
                   return (
                     <Link
                       key={item.href}
                       href={item.href}
                       onClick={startLoading}
-                      className='flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-100/70 hover:text-green-600 dark:text-gray-400 dark:hover:bg-gray-800/70 dark:hover:text-green-400'
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-gray-100/70 hover:text-green-600 dark:hover:bg-gray-800/70 dark:hover:text-green-400 ${
+                        isItemActive
+                          ? 'bg-green-500/10 font-medium text-green-600 dark:text-green-400'
+                          : 'text-gray-600 dark:text-gray-400'
+                      }`}
                     >
                       <Icon className='h-4 w-4 flex-shrink-0' />
                       <span>{item.label}</span>
@@ -242,7 +282,11 @@ const SideNav = () => {
             <Link
               href='/ranking'
               onClick={startLoading}
-              className={ITEM_CLASS}
+              className={`${ITEM_CLASS} ${
+                isRankingActive
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : ''
+              }`}
               title='榜单'
             >
               <Trophy className='h-5 w-5 flex-shrink-0' />

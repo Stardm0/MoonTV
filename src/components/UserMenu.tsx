@@ -14,7 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
@@ -34,6 +34,10 @@ export const UserMenu: React.FC = () => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
   const [isOpen, setIsOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(
+    null
+  );
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
@@ -299,6 +303,32 @@ export const UserMenu: React.FC = () => {
   }, [isDoubanImageProxyDropdownOpen]);
 
   const handleMenuClick = () => {
+    if (!isOpen) {
+      // 打开前按按钮当前位置计算面板落点（4.2.9）：
+      // 面板经 Portal 挂到 body，写死 top-14 right-4 的话，
+      // 从侧边栏左下角的按钮打开会飘到右上角。按钮在屏幕左半边
+      // （侧边栏场景）时面板从按钮右侧弹出，否则右对齐按钮（原 TopNav 行为）。
+      const rect = menuButtonRef.current?.getBoundingClientRect();
+      if (rect && typeof window !== 'undefined') {
+        const PANEL_W = 224; // w-56
+        const PANEL_H = 360; // 估算高度，防底部溢出
+        const GAP = 8;
+        let left: number;
+        if (rect.left < window.innerWidth / 2) {
+          left = rect.right + GAP;
+          if (left + PANEL_W + GAP > window.innerWidth) {
+            left = Math.max(GAP, rect.left - PANEL_W - GAP);
+          }
+        } else {
+          left = rect.right - PANEL_W;
+        }
+        let top = rect.bottom + GAP;
+        if (top + PANEL_H > window.innerHeight - GAP) {
+          top = Math.max(GAP, window.innerHeight - PANEL_H - GAP);
+        }
+        setMenuPos({ top, left });
+      }
+    }
     setIsOpen(!isOpen);
   };
 
@@ -567,8 +597,15 @@ export const UserMenu: React.FC = () => {
         onClick={handleCloseMenu}
       />
 
-      {/* 菜单面板 */}
-      <div className='fixed top-14 right-4 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'>
+      {/* 菜单面板：位置由按钮实际位置决定（见 handleMenuClick），不再写死右上角 */}
+      <div
+        className='fixed w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'
+        style={
+          menuPos
+            ? { top: menuPos.top, left: menuPos.left }
+            : { top: 56, right: 16 }
+        }
+      >
         {/* 用户信息区域 */}
         <div className='px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800 dark:to-gray-800/50'>
           <div className='space-y-1'>
@@ -1333,6 +1370,7 @@ export const UserMenu: React.FC = () => {
     <>
       <div className='relative'>
         <button
+          ref={menuButtonRef}
           onClick={handleMenuClick}
           className='w-10 h-10 p-2 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
           aria-label='User Menu'

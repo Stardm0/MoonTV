@@ -2,7 +2,7 @@
 'use client';
 
 import { ChevronUp, Search, X } from 'lucide-react';
-import { useSearchParams } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -24,6 +24,7 @@ import VideoCard from '@/components/VideoCard';
 
 
 function SearchPageClient() {
+  const router = useRouter();
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -579,9 +580,21 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   return (
     <PageLayout activePath="/search">
-      <div className="px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10">
-        {/* 移动端搜索框和搜索源选择器 */}
-        <div className="mb-7 max-w-2xl mx-auto md:hidden">
+      <div className="moontv-sidenav-content px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10 transition-[padding-left] duration-200 md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]">
+        {/* 返回按钮：侧边栏时代顶栏 Logo 不在搜索页顶部了，留一个明确的回退入口 */}
+        <div className="mb-4">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/70 dark:hover:text-gray-200"
+          >
+            <ChevronUp className="h-4 w-4 -rotate-90" />
+            返回
+          </button>
+        </div>
+
+        {/* 搜索框和搜索源选择器（4.2.9 起桌面端也显示：侧边栏常驻后顶部导航不再提供搜索框） */}
+        <div className="mb-7 max-w-2xl mx-auto">
           <div className="flex items-center">
             {/* 搜索源选择器 - 在搜索框左侧，作为一个整体 */}
             <div className="flex-shrink-0">

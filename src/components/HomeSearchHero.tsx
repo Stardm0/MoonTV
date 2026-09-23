@@ -8,6 +8,7 @@ import { addSearchHistory } from '@/lib/db.client';
 import { DoubanItem } from '@/lib/types';
 
 import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
+import SourceSelector from '@/components/SourceSelector';
 import VideoCard from '@/components/VideoCard';
 
 interface HomeSearchHeroProps {
@@ -40,6 +41,9 @@ const HomeSearchHero = ({ recommendations, loading }: HomeSearchHeroProps) => {
   const router = useRouter();
   const { startLoading } = useNavigationLoading();
   const [query, setQuery] = useState('');
+  // 搜索源选择：与原 TopNav 搜索框一致，选中的源会随查询带到 /search
+  const [searchSources, setSearchSources] = useState<string[]>([]);
+  const [openFilter, setOpenFilter] = useState<string | null>(null);
 
   const submitSearch = (event: React.FormEvent) => {
     event.preventDefault();
@@ -48,18 +52,38 @@ const HomeSearchHero = ({ recommendations, loading }: HomeSearchHeroProps) => {
       addSearchHistory(keyword);
     }
     startLoading();
-    router.push(
-      keyword ? `/search?q=${encodeURIComponent(keyword)}` : '/search'
-    );
+    if (!keyword) {
+      router.push('/search');
+      return;
+    }
+    const params = new URLSearchParams();
+    params.set('q', keyword);
+    if (searchSources.length > 0) {
+      params.set('sources', searchSources.join(','));
+    }
+    router.push(`/search?${params.toString()}`);
   };
 
   const clearQuery = useCallback(() => setQuery(''), []);
 
   return (
     <section className='moontv-home-search-hero mb-10 hidden md:block'>
-      {/* 搜索框：居中、大尺寸，回车或点按钮都提交 */}
-      <form onSubmit={submitSearch} className='mx-auto max-w-2xl' role='search'>
-        <div className='relative'>
+      {/* 搜索框：居中、大尺寸，回车或点按钮都提交；左侧是搜索源选择器（原 TopNav 位置） */}
+      <form
+        onSubmit={submitSearch}
+        className='mx-auto flex max-w-3xl items-center gap-3'
+        role='search'
+      >
+        <div className='flex-shrink-0'>
+          <SourceSelector
+            selectedSources={searchSources}
+            onChange={setSearchSources}
+            openFilter={openFilter}
+            setOpenFilter={setOpenFilter}
+            size='compact'
+          />
+        </div>
+        <div className='relative flex-1'>
           <Search className='pointer-events-none absolute left-5 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500' />
           <input
             type='text'
@@ -87,7 +111,6 @@ const HomeSearchHero = ({ recommendations, loading }: HomeSearchHeroProps) => {
           </button>
         </div>
       </form>
-
       {/* 搜索框下方的推荐影片：复用首页已拉取的热门电影，空态/加载态都静默收敛 */}
       {(loading || recommendations.length > 0) && (
         <div className='mt-8'>
