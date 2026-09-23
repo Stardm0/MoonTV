@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.9",
+    date: "2026-09-24",
+    added: [
+    "小雅(xiaoya)支持: 小雅就是 OpenList/AList 协议, 类型选 OpenList、地址填小雅即可(管理台与影库页均加说明)"
+    ],
+    changed: [
+    "影库条目续播确认: 播放进度按「来源+条目ID」记录, OpenList 路径与 Emby 条目 ID 都是稳定键, 直链过期只影响单次播放、不影响续播恢复"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.3.8",
     date: "2026-09-24",
     added: [

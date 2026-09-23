@@ -465,6 +465,7 @@ const OpenListBrowser = () => {
             还没搭影库？先在服务器或 NAS 上装 OpenList，再用 Cloudflare Tunnel
             暴露成 HTTPS 地址（免公网 IP）。填地址和令牌后即可在这里浏览与播放；
             管理员也可以在后台配一份，全站用户自动可用。
+            小雅（xiaoya）就是 OpenList / AList 协议，地址直接填小雅即可。
           </p>
         )}
       </section>

@@ -3158,7 +3158,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
                 !isLocalStorage && updateMediaLibrary({ BaseUrl: e.target.value })
               }
               disabled={isLocalStorage}
-              placeholder='https://openlist.example.com'
+              placeholder='https://openlist.example.com（小雅直接填小雅地址）'
               className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
                 isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
               }`}
@@ -3261,6 +3261,7 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         </div>
         <p className='text-xs text-gray-500 dark:text-gray-400'>
           托管环境（Cloudflare / Vercel）访问不到局域网地址，影库需要用公网 HTTPS（推荐 Cloudflare Tunnel）；自建部署才适合开内网开关。
+          小雅（xiaoya）就是 OpenList / AList 协议，类型选 OpenList、地址填小雅即可。
         </p>
       </div>
 
