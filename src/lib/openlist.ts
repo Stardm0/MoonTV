@@ -22,7 +22,14 @@
  * 只有 cookie 读写会碰 `document`，调用方需自行保证在浏览器环境。
  */
 
+import type { SearchResult } from './types';
 import { validateMediaUrl } from './url-guard';
+
+/** 影库结果在搜索/播放链路里的来源代号，必须与 `/api/detail`、`/api/search` 一致 */
+export const OPENLIST_SOURCE = 'openlist';
+
+/** 影库结果对外展示的来源名 */
+export const OPENLIST_SOURCE_NAME = '私人影库';
 
 /** 影库连接配置（存浏览器 cookie，token 不入 localStorage 以免被脚本扫到） */
 export interface OpenListConfig {
@@ -67,8 +74,8 @@ export interface OpenListGetResult extends OpenListItem {
 /** 影库连接配置在 cookie 中的键 */
 export const OPENLIST_COOKIE_KEY = 'moontv_openlist';
 
-/** 支持的 OpenList 只读动作 */
-export const OPENLIST_ACTIONS = ['me', 'list', 'get'] as const;
+/** 支持的 OpenList 只读动作（search 需要影库已建立索引） */
+export const OPENLIST_ACTIONS = ['me', 'list', 'get', 'search'] as const;
 
 /** 只读动作类型（校验用，防止路由把任意字符串传进来） */
 export type OpenListAction = (typeof OPENLIST_ACTIONS)[number];
@@ -88,16 +95,45 @@ const ACTION_ENDPOINTS: Record<
   me: { path: '/api/me', method: 'GET' },
   list: { path: '/api/fs/list', method: 'POST' },
   get: { path: '/api/fs/get', method: 'POST' },
+  search: { path: '/api/fs/search', method: 'POST' },
 };
 
 /** 单次影库请求超时（网盘冷启动可能很慢，但再长就会拖住页面） */
 const REQUEST_TIMEOUT_MS = 10_000;
+
+/** 影库搜索一次最多取多少条（再多对搜索页也没意义，只会拖慢响应） */
+const SEARCH_PAGE_SIZE = 40;
 
 export interface OpenListRequestResult<T = any> {
   ok: boolean;
   status?: number;
   error?: string;
   data?: T;
+}
+
+/**
+ * 构造 OpenList 请求体。
+ *
+ * 搜索与列目录的参数不同：搜索需要 `keyword` 与分页，其余只要 `path`。
+ * 空 path 一律归一到 `/`——OpenList 收到空串会报「路径不存在」。
+ */
+export function buildOpenListBody(
+  action: OpenListAction,
+  path: string,
+  keyword?: string
+): Record<string, unknown> {
+  const target = path || '/';
+  if (action === 'search') {
+    return {
+      path: target,
+      keyword: keyword ?? '',
+      /** OpenList 的 scope 用字符串枚举，`0` = 不限范围 */
+      scope: '0',
+      page: 1,
+      per_page: SEARCH_PAGE_SIZE,
+    };
+  }
+  return { path: target, password: '' };
 }
 
 /**
@@ -110,7 +146,8 @@ export interface OpenListRequestResult<T = any> {
 export async function requestOpenList<T = any>(
   config: OpenListConfig,
   action: OpenListAction,
-  path = '/'
+  path = '/',
+  keyword?: string
 ): Promise<OpenListRequestResult<T>> {
   const endpoint = ACTION_ENDPOINTS[action];
   if (!endpoint) {
@@ -144,7 +181,7 @@ export async function requestOpenList<T = any>(
       headers,
       body:
         endpoint.method === 'POST'
-          ? JSON.stringify({ path: path || '/', password: '' })
+          ? JSON.stringify(buildOpenListBody(action, path, keyword))
           : undefined,
       signal: controller.signal,
     });
@@ -326,6 +363,111 @@ export function buildPlayableUrl(
   if (!base) return '';
   const encoded = encodeOpenListPath(path);
   return sign ? `${base}/d${encoded}?sign=${sign}` : `${base}/d${encoded}`;
+}
+
+/**
+ * 去掉文件名尾部的扩展名。
+ *
+ * 影库里搜出来的条目是文件名（`xxx.2024.mkv`），直接当标题会带后缀。
+ * 不改动没有扩展名的名字（目录名、无后缀文件）。
+ */
+export function stripFileExtension(name: string): string {
+  const value = String(name ?? '');
+  const ext = getFileExtension(value);
+  if (!ext) return value;
+  return value.slice(0, -(ext.length + 1));
+}
+
+/** 分辨率片段（`1920x1080` / `4K`）：先去掉再找年份，否则 `1920` 会被当成年份 */
+const RESOLUTION_PATTERN = /\d{3,4}\s*[x×*]\s*\d{3,4}/gi;
+
+/** 年份片段：19xx / 20xx，且两侧不能再接数字（`20241` 不算） */
+const YEAR_PATTERN = /(?:^|[^0-9])((?:19|20)\d{2})(?![0-9])/g;
+
+/**
+ * 从文件/目录名里猜年份，猜不到返回空串。
+ *
+ * 影库文件名常带年份（`xxx.2024.1080p.mkv`），用它填 `SearchResult.year`，
+ * 搜索页的聚合与筛选才能和 Apple CMS 的结果对齐。
+ * 注意用 `exec` 循环而不是 `matchAll`——后者在 TS 下会触发 TS2802。
+ */
+export function extractYearFromName(name: string): string {
+  const cleaned = String(name ?? '').replace(RESOLUTION_PATTERN, ' ');
+  const re = new RegExp(YEAR_PATTERN.source, 'g');
+  let match = re.exec(cleaned);
+  while (match) {
+    const year = match[1];
+    if (year) return year;
+    match = re.exec(cleaned);
+  }
+  return '';
+}
+
+/**
+ * 还原搜索结果条目的完整路径。
+ *
+ * OpenList 的搜索结果里条目只带文件名，所在目录放在 `parent` 字段；
+ * 老版本 / AList 可能不给 `parent`，那就退回搜索时指定的根路径。
+ */
+export function resolveOpenListEntryPath(
+  item: { name?: unknown; parent?: unknown },
+  fallbackParent = '/'
+): string {
+  const parent =
+    typeof item?.parent === 'string' && item.parent.trim()
+      ? item.parent
+      : fallbackParent;
+  return joinOpenListPath(parent, typeof item?.name === 'string' ? item.name : '');
+}
+
+/** 单文件在搜索结果里的占位集数：长度为 1 → 搜索页按「电影」聚合 */
+const SINGLE_EPISODE_PLACEHOLDER = [''];
+
+/**
+ * 把影库搜索结果映射成 `SearchResult`，与 Apple CMS 的结果混排。
+ *
+ * - 目录 → 视为剧集（集数留给播放页按目录展开，这里给空数组 → 按「剧」聚合）
+ * - 视频文件 → 视为单集影片（占位 `['']`，长度 1 → 按「影」聚合）
+ * - 非视频文件（字幕/nfo/图片）直接丢弃
+ *
+ * ⚠️ 这里的 `episodes` 只用于列表聚合，不含真实播放地址：播放页会自己
+ * 调 `/api/detail?source=openlist&id=<路径>` 现取（直链有过期时间）。
+ */
+export function mapOpenListSearchItems(
+  items: unknown,
+  fallbackParent = '/'
+): SearchResult[] {
+  if (!Array.isArray(items)) return [];
+
+  const results: SearchResult[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const name = typeof item.name === 'string' ? item.name : '';
+    if (!name) continue;
+
+    const isDir = item.is_dir === true;
+    if (!isDir && !isVideoFile(name)) continue;
+
+    const fullPath = resolveOpenListEntryPath(item, fallbackParent);
+    const title = isDir ? name : stripFileExtension(name);
+    const year = extractYearFromName(name);
+
+    results.push({
+      id: fullPath,
+      title,
+      poster: typeof item.thumb === 'string' ? item.thumb : '',
+      episodes: isDir ? [] : [...SINGLE_EPISODE_PLACEHOLDER],
+      episodes_titles: [],
+      source: OPENLIST_SOURCE,
+      source_name: OPENLIST_SOURCE_NAME,
+      class: isDir ? '剧集' : '影片',
+      year,
+      desc: isDir ? `影库目录：${fullPath}` : `影库文件：${fullPath}`,
+      type_name: isDir ? '剧集' : '影片',
+    });
+  }
+  return results;
 }
 
 /**

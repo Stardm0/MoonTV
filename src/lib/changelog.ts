@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.3.5",
+    date: "2026-09-23",
+    added: [
+    "搜索混排私人影库: 已配置影库时, 搜索结果自动并入影库条目(来源标记「私人影库」), 流式/非流式均支持",
+    "影库条目没有海报时按标题生成稳定的渐变色块封面(首字 + 同色系), 不再显示空白卡片"
+    ],
+    changed: [
+    "搜索结果/收藏/历史里带路径的 id 拼进播放页 URL 时统一编码, 影库中文路径不再被截断"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.3.4",
     date: "2026-09-23",
     added: [

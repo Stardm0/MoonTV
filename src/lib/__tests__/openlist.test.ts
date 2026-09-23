@@ -1,17 +1,24 @@
 import {
+  buildOpenListBody,
   buildPlayableUrl,
   clearOpenListConfigCookie,
   encodeOpenListPath,
+  extractYearFromName,
   getFileExtension,
   isMediaItem,
   isSubtitleFile,
   isVideoFile,
   joinOpenListPath,
+  mapOpenListSearchItems,
   naturalCompare,
   normalizeBaseUrl,
   OPENLIST_COOKIE_KEY,
+  OPENLIST_SOURCE,
+  OPENLIST_SOURCE_NAME,
   readOpenListConfigFromCookie,
+  resolveOpenListEntryPath,
   sortOpenListItems,
+  stripFileExtension,
   writeOpenListConfigToCookie,
 } from '@/lib/openlist';
 
@@ -148,6 +155,126 @@ describe('buildPlayableUrl', () => {
 
   it('地址为空时返回空串', () => {
     expect(buildPlayableUrl('', '/a.mkv')).toBe('');
+  });
+});
+
+describe('buildOpenListBody', () => {
+  it('列目录/取详情只要 path（空 path 归一到 /）', () => {
+    expect(buildOpenListBody('list', '/电影')).toEqual({
+      path: '/电影',
+      password: '',
+    });
+    expect(buildOpenListBody('get', '')).toEqual({ path: '/', password: '' });
+  });
+
+  it('搜索带 keyword 与分页', () => {
+    expect(buildOpenListBody('search', '/115', '沙丘')).toEqual({
+      path: '/115',
+      keyword: '沙丘',
+      scope: '0',
+      page: 1,
+      per_page: 40,
+    });
+  });
+});
+
+describe('stripFileExtension', () => {
+  it('去掉尾部扩展名', () => {
+    expect(stripFileExtension('沙丘.2024.mkv')).toBe('沙丘.2024');
+    expect(stripFileExtension('a.mp4')).toBe('a');
+  });
+
+  it('没有扩展名时原样返回（目录名不受影响）', () => {
+    expect(stripFileExtension('剧集目录')).toBe('剧集目录');
+    expect(stripFileExtension('')).toBe('');
+  });
+});
+
+describe('extractYearFromName', () => {
+  it('从常见文件名里取到年份', () => {
+    expect(extractYearFromName('沙丘.2024.1080p.mkv')).toBe('2024');
+    expect(extractYearFromName('The.Matrix.1999.mkv')).toBe('1999');
+  });
+
+  it('分辨率不会被误当成年份', () => {
+    expect(extractYearFromName('Demo.1920x1080.mkv')).toBe('');
+  });
+
+  it('多组数字时取第一组合法年份', () => {
+    expect(extractYearFromName('2024.某片.2020.mkv')).toBe('2024');
+  });
+
+  it('没有年份时返回空串', () => {
+    expect(extractYearFromName('某部片.mkv')).toBe('');
+    expect(extractYearFromName('')).toBe('');
+  });
+});
+
+describe('resolveOpenListEntryPath', () => {
+  it('有 parent 时用 parent（搜索结果带所在目录）', () => {
+    expect(
+      resolveOpenListEntryPath({ name: '沙丘.mkv', parent: '/115/电影' }, '/')
+    ).toBe('/115/电影/沙丘.mkv');
+  });
+
+  it('没有 parent 时退回搜索根路径', () => {
+    expect(resolveOpenListEntryPath({ name: '沙丘.mkv' }, '/115')).toBe(
+      '/115/沙丘.mkv'
+    );
+    expect(resolveOpenListEntryPath({ name: '沙丘.mkv', parent: '  ' }, '/')).toBe(
+      '/沙丘.mkv'
+    );
+  });
+});
+
+describe('mapOpenListSearchItems', () => {
+  it('视频文件映射成单集影片，目录映射成剧集', () => {
+    const results = mapOpenListSearchItems(
+      [
+        { name: '沙丘.2024.mkv', size: 1, is_dir: false, thumb: 'https://t/1.jpg' },
+        { name: '三体', size: 0, is_dir: true },
+      ],
+      '/115'
+    );
+
+    expect(results).toHaveLength(2);
+    expect(results[0]).toMatchObject({
+      id: '/115/沙丘.2024.mkv',
+      title: '沙丘.2024',
+      poster: 'https://t/1.jpg',
+      episodes: [''],
+      source: OPENLIST_SOURCE,
+      source_name: OPENLIST_SOURCE_NAME,
+      year: '2024',
+      class: '影片',
+    });
+    expect(results[1]).toMatchObject({
+      id: '/115/三体',
+      title: '三体',
+      episodes: [],
+      class: '剧集',
+      year: '',
+    });
+  });
+
+  it('非视频文件被丢弃，非法输入返回空数组', () => {
+    expect(
+      mapOpenListSearchItems(
+        [{ name: '说明.txt', is_dir: false }, { name: 'cover.jpg', is_dir: false }],
+        '/'
+      )
+    ).toEqual([]);
+    expect(mapOpenListSearchItems(null, '/')).toEqual([]);
+    expect(mapOpenListSearchItems('not-an-array', '/')).toEqual([]);
+    expect(mapOpenListSearchItems([null, 1, { name: '' }], '/')).toEqual([]);
+  });
+
+  it('缺 parent 时用根路径兜底', () => {
+    const results = mapOpenListSearchItems(
+      [{ name: 'a.mp4', is_dir: false, parent: '/剧集/S1' }],
+      '/'
+    );
+    expect(results[0].id).toBe('/剧集/S1/a.mp4');
   });
 });
 
