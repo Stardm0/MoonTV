@@ -8,11 +8,6 @@
  */
 
 import {
-  buildDanmakuFilter,
-  DanmakuFilterRule,
-  loadDanmakuFilterConfig,
-} from '@/lib/danmaku-filter';
-import {
   buildSegmentCacheKey,
   readCachedSegment,
   recordSegmentProbe,
@@ -173,7 +168,7 @@ export function createDanmakuDefaultConfig(): any {
     heatmap: false,
     width: 512,
     points: [],
-    filter: buildDanmakuFilter(loadDanmakuFilterConfig().rules),
+    filter: (danmu: any) => danmu.text.length <= 100,
     beforeVisible: () => true,
     visible: true,
     emitter: false,
@@ -193,34 +188,6 @@ export function createDanmakuDefaultConfig(): any {
       });
     },
   };
-}
-
-/**
- * 把屏蔽规则下发给正在运行的弹幕插件。
- *
- * ⚠️ 两个来自插件源码（`artplayer-plugin-danmuku@5.2.0`）的事实决定了这里的写法：
- *
- * 1. `filter` 是**在每条弹幕 emit 时**读取的（`emit()` 里 `this.option.filter(t)`），
- *    所以覆盖之后**新进入队列**的弹幕立刻遵守新规则。
- * 2. `config()` 内部有 `JSON.stringify` 比对，值没变就整个跳过；且它**不会重新
- *    emit 已经进入队列的弹幕**。所以已经画在屏幕上的旧弹幕不会被追溯隐藏。
- *
- * 结论：改规则后要看到完整效果，需要重新 `load()` 一次弹幕。
- * 这里只负责把规则装上，是否重载由调用方决定（避免每条规则增删都触发一次网络请求）。
- *
- * 返回 true 表示已成功下发。
- */
-export function applyDanmakuFilter(
-  plugin: { config?: (option: Record<string, unknown>) => void } | null,
-  rules: DanmakuFilterRule[]
-): boolean {
-  if (!plugin || typeof plugin.config !== 'function') return false;
-  try {
-    plugin.config({ filter: buildDanmakuFilter(rules) });
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /** 弹幕设置本地存储键 */

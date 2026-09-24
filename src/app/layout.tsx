@@ -8,8 +8,6 @@ import 'sweetalert2/dist/sweetalert2.min.css';
 
 import { getConfig } from '@/lib/config';
 import { getDefaultPlaybackSaveInterval } from '@/lib/playback-settings';
-import { SIDENAV_INLINE_SCRIPT } from '@/lib/sidenav';
-import { THEME_PALETTE_INLINE_SCRIPT } from '@/lib/theme-palette';
 
 import ConditionalNav from '../components/ConditionalNav';
 import GlobalDownloadManager from '../components/GlobalDownloadManager';
@@ -119,18 +117,6 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `window.RUNTIME_CONFIG = ${JSON.stringify(runtimeConfig)};`,
           }}
-        />
-        {/* 第二层主题：必须在首次绘制前把用户选的主色写进 :root，
-            否则会先闪一下默认天蓝再跳到目标色。脚本刻意内联、不引打包产物。 */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script
-          dangerouslySetInnerHTML={{ __html: THEME_PALETTE_INLINE_SCRIPT }}
-        />
-        {/* 首页侧边栏的折叠态：同理必须在首次绘制前落好。
-            否则刷新会先按展开宽度画一遍再收窄 —— 一次肉眼可见的横向抖动。 */}
-        {/* eslint-disable-next-line @next/next/no-sync-scripts */}
-        <script
-          dangerouslySetInnerHTML={{ __html: SIDENAV_INLINE_SCRIPT }}
         />
       </head>
       <body

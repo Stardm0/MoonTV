@@ -2,12 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 第二层主题：22 套色阶（skills/colors.css）必须加载在 base 之后，
-   它提供的 `.theme-<name>` 类同时承担两个职责：
-   ① `--theme-preview-*` 给 JS 读色值，避免在 JS 里再抄一份真源；
-   ② `--tw-color-primary-*` 被 `:root` 继承后即成为全站主色。 */
-@import '../styles/colors.css';
-
 @layer utilities {
   .scrollbar-hide {
     -ms-overflow-style: none; /* IE and Edge */
@@ -21,12 +15,6 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-
-  /* 主题色三元组，供下面的渐变背景使用。默认值与 `globals.css` 中的
-     sky 色阶一致；`applyThemePalette()` 换主色时会同步改写这两条。 */
-  --theme-surface-from: 230 243 251;
-  --theme-surface-via: 247 247 243;
-  --theme-surface-to: 211 221 230;
 }
 
 html,
@@ -44,12 +32,12 @@ body {
 html:not(.dark) body {
   background: linear-gradient(
     180deg,
-    rgb(var(--theme-surface-from)) 0%,
+    #e6f3fb 0%,
     #eaf3f7 18%,
-    rgb(var(--theme-surface-via)) 38%,
+    #f7f7f3 38%,
     #e9ecef 60%,
     #dbe3ea 80%,
-    rgb(var(--theme-surface-to)) 100%
+    #d3dde6 100%
   );
   background-attachment: fixed;
 }
@@ -168,172 +156,4 @@ div[data-media-provider] video {
   .art-control-volume {
     display: none !important;
   }
-}
-
-/* ==========================================================================
-   ArtPlayer 样式覆盖（下拉提示遮挡 / 设置面板拥挤）
-   --------------------------------------------------------------------------
-   ⚠️ ArtPlayer 的样式表是**运行时注入**的（运行时把 <style> 追加进 <head>），
-   排在本文件之后；同特异性下后写的赢。所以下面凡是要盖掉上游默认值的声明
-   都带 !important，否则调不动。只改确有问题的地方，其余沿用上游默认值。
-   ========================================================================== */
-
-/*
-   1) 控制栏「下拉项」的 hover 提示会盖住刚展开的列表。
-
-   上游行为：下拉列表是 **hover 就展开**
-   （`.art-control-selector:hover .art-selector-list{opacity:1}`），
-   而挂在同一元素上的 hint 提示是 `z-index:1000000` 的 `::after` 伪元素，
-   列表自身没有任何 z-index → 提示必然压在列表上（用户报的「文字一直遮挡」，
-   表现为「用外部播放器打开」盖住 PotPlayer / VLC / MPV 列表）。
-
-   列表已经把全部选项列出来了，这个提示纯属冗余，直接让位。
-*/
-.art-control-selector:hover::before,
-.art-control-selector:hover::after {
-  visibility: hidden !important;
-  opacity: 0 !important;
-  transition-delay: 0s !important;
-}
-
-/*
-   2) 设置面板太挤。
-
-   上游三个原因叠加：
-   - `.art-setting-item-left` 是 `flex-shrink:0` → 左边标签永不收缩；
-   - `.art-setting-item-right-tooltip` 是 `white-space:nowrap` **且没有 max-width**
-     → 状态文本（如「当前：电影下载」）无处可去，只能贴到标签上。
-
-   「面板宽度」与「行高」不在这里改 —— 它们由 `Artplayer.SETTING_WIDTH` /
-   `SETTING_ITEM_HEIGHT` 决定，已在 usePlayEngine 里调到 320×44
-   （`setting.resize()` 会用 SETTING_WIDTH 反算面板 left，从 CSS 改宽度会让它对不上）。
-   这里只负责**文本不再互相压住**：两侧都能收缩，各自省略号收尾。
-*/
-.art-video-player .art-settings .art-setting-panel .art-setting-item {
-  padding: 0 12px !important;
-  gap: 12px !important;
-}
-
-/* 左侧（图标 + 标签）：允许收缩，长标题用省略号收尾 */
-.art-video-player
-  .art-settings
-  .art-setting-panel
-  .art-setting-item
-  .art-setting-item-left {
-  flex-shrink: 1 !important;
-  min-width: 0 !important;
-}
-
-.art-video-player
-  .art-settings
-  .art-setting-panel
-  .art-setting-item
-  .art-setting-item-left
-  .art-setting-item-left-text {
-  min-width: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-/* 右侧（状态文本 + 箭头/开关）：最多占一半宽，状态文本省略号收尾 */
-.art-video-player
-  .art-settings
-  .art-setting-panel
-  .art-setting-item
-  .art-setting-item-right {
-  flex-shrink: 0 !important;
-  min-width: 0 !important;
-  max-width: 52% !important;
-}
-
-.art-video-player
-  .art-settings
-  .art-setting-panel
-  .art-setting-item
-  .art-setting-item-right
-  .art-setting-item-right-tooltip {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-/* 行变高了，面板限高相应放宽，避免多出一截滚动条 */
-.art-video-player {
-  --art-settings-max-height: min(70vh, 460px) !important;
-  --art-selector-max-height: min(60vh, 420px) !important;
-}
-
-/* ==========================================================================
-   首页左侧导航（SideNav）
-   ==========================================================================
-
-   ## 宽度与折叠由谁驱动
-
-   宽度真源在 JS（src/lib/sidenav.ts 的 SIDENAV_WIDTH_*），首屏由
-   `SIDENAV_INLINE_SCRIPT` 写进 <html>：属性 `data-sidenav-collapsed` +
-   变量 `--moontv-sidenav-w`。
-
-   **视觉一律走属性/变量，不走 React state** —— 这样刷新时首屏就是最终
-   形态（折叠就是折叠），不会出现「先按展开画一遍再收窄」的横向抖动。
-   这里的 `:root` 只是兜底默认值，防止内联脚本被 CSP 拦截时宽度塌成 0。
-   ========================================================================== */
-
-:root {
-  --moontv-sidenav-w: 224px;
-}
-
-.moontv-sidenav {
-  width: var(--moontv-sidenav-w);
-  transition: width 0.2s ease;
-}
-
-/* 首页内容区给侧边栏让位：具体内边距写在 page.tsx 的 class 里
-   （`md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]`）。
-   原因是 Next 会把 Tailwind utilities 排在**本文件的手写规则之后**，
-   同优先级下这里写 padding-left 会被 `sm:px-10` 覆盖 —— 实测停在 40px。
-   类名保留下来给验证脚本当钩子用。 */
-
-/* 折叠态：只保留图标 */
-html[data-sidenav-collapsed='true'] .sidenav-expanded-only {
-  display: none;
-}
-
-html:not([data-sidenav-collapsed='true']) .sidenav-collapsed-only {
-  display: none;
-}
-
-/* 折叠态下导航项收成居中方块，图标落正中 */
-html[data-sidenav-collapsed='true'] .moontv-sidenav-item {
-  justify-content: center;
-  gap: 0;
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* 折叠态下「影视库」子菜单容器去掉缩进竖线，图标列与主导航对齐 */
-html[data-sidenav-collapsed='true'] .moontv-sidenav-sub {
-  border-left: none;
-  padding-left: 0;
-}
-
-/* 底部功能区：展开态横排，折叠态竖排居中 */
-.moontv-sidenav-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.25rem;
-  padding-left: 0.25rem;
-}
-
-html[data-sidenav-collapsed='true'] .moontv-sidenav-actions {
-  flex-direction: column;
-  align-items: center;
-  padding-left: 0;
-}
-
-/* 折叠态标题栏只放一个字母，不需要撑开 */
-html[data-sidenav-collapsed='true'] .moontv-sidenav-head {
-  justify-content: center;
 }

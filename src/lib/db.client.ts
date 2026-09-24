@@ -1050,7 +1050,6 @@ export async function getAllFollowings(
           .then((freshData) => {
             if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
               cacheManager.cacheFollowings(freshData);
-              persistFollowingsBackup(freshData);
               window.dispatchEvent(
                 new CustomEvent('followingsUpdated', {
                   detail: freshData,
@@ -1068,11 +1067,10 @@ export async function getAllFollowings(
           `/api/followings`
         );
         cacheManager.cacheFollowings(freshData);
-        persistFollowingsBackup(freshData);
         return freshData;
       } catch (err) {
         console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
-        return readFollowingsBackup();
+        return {};
       }
     }
 
@@ -1081,7 +1079,6 @@ export async function getAllFollowings(
         .then((freshData) => {
           if (JSON.stringify(cachedData) !== JSON.stringify(freshData)) {
             cacheManager.cacheFollowings(freshData);
-            persistFollowingsBackup(freshData);
             window.dispatchEvent(
               new CustomEvent('followingsUpdated', {
                 detail: freshData,
@@ -1101,11 +1098,10 @@ export async function getAllFollowings(
         `/api/followings`
       );
       cacheManager.cacheFollowings(freshData);
-      persistFollowingsBackup(freshData);
       return freshData;
     } catch (err) {
       console.warn('获取追更失败(使用缓存/空数据继续, 不弹全局提示):', err);
-      return readFollowingsBackup();
+      return {};
     }
   }
 
@@ -1115,35 +1111,6 @@ export async function getAllFollowings(
     return JSON.parse(raw) as Record<string, Following>;
   } catch (err) {
     console.warn('读取追更列表失败(使用缓存/空数据继续, 不弹全局提示):', err);
-    return {};
-  }
-}
-
-/**
- * 追更的浏览器持久备份（4.3.2）。
- *
- * 远端存储（d1/redis）写入若静默失败，或重新部署期间远端读取失败，
- * cacheManager 的缓存带 TTL 会被过期清理，追更就「丢」了。
- * 这里把最近一次已知的追更全量同步落一份到 localStorage（无 TTL）：
- * 写入/删除时随乐观更新同步写，远端成功拉取时覆盖，远端失败时回退读。
- * 搜索历史一直有远端表兜着，追更自此也有一份浏览器侧保险。
- */
-function persistFollowingsBackup(data: Record<string, Following>): void {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(FOLLOWINGS_KEY, JSON.stringify(data));
-  } catch (err) {
-    console.warn('追更本地备份写入失败:', err);
-  }
-}
-
-function readFollowingsBackup(): Record<string, Following> {
-  if (typeof window === 'undefined') return {};
-  try {
-    const raw = localStorage.getItem(FOLLOWINGS_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as Record<string, Following>;
-  } catch {
     return {};
   }
 }
@@ -1162,7 +1129,6 @@ export async function saveFollowing(
     const cached = cacheManager.getCachedFollowings() || {};
     cached[key] = following;
     cacheManager.cacheFollowings(cached);
-    persistFollowingsBackup(cached);
     window.dispatchEvent(
       new CustomEvent('followingsUpdated', {
         detail: cached,
@@ -1216,7 +1182,6 @@ export async function deleteFollowing(
     const cached = cacheManager.getCachedFollowings() || {};
     delete cached[key];
     cacheManager.cacheFollowings(cached);
-    persistFollowingsBackup(cached);
     window.dispatchEvent(
       new CustomEvent('followingsUpdated', {
         detail: cached,

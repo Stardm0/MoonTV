@@ -9,17 +9,6 @@ import React, {
   useState,
 } from 'react';
 
-import {
-  buildEpisodePageRanges,
-  clearEpisodeFilterConfig,
-  countEpisodePages,
-  createEpisodeFilterRule,
-  EpisodeFilterConfig,
-  filterEpisodeIndexes,
-  loadEpisodeFilterConfig,
-  saveEpisodeFilterConfig,
-  sliceEpisodePage,
-} from '@/lib/episode-filter';
 import { SearchResult } from '@/lib/types';
 import { getVideoResolutionFromM3u8, processImageUrl } from '@/lib/utils';
 
@@ -85,6 +74,7 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   setVideoLoadingStage
 }) => {
   const router = useRouter();
+  const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
 
   // 存储每个源的视频信息
   const [videoInfoMap, setVideoInfoMap] = useState<Map<string, VideoInfo>>(
@@ -124,72 +114,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   // 取消优选标志
   const cancelOptimizationRef = useRef<boolean>(false);
 
-  // 剧集标题过滤配置（预告/花絮/番外等）
-  const [filterConfig, setFilterConfig] = useState<EpisodeFilterConfig>(() =>
-    loadEpisodeFilterConfig()
-  );
-  // 过滤面板是否展开
-  const [showFilterPanel, setShowFilterPanel] = useState<boolean>(false);
-  // 添加屏蔽词输入框
-  const [filterKeywordInput, setFilterKeywordInput] = useState<string>('');
-
-  // 需要排除的集数下标（1 起算的集号）
-  const hiddenEpisodeNumbers = useMemo(() => {
-    const hidden = new Set<number>();
-    const titles = episodes_titles || [];
-    if (!filterConfig.rules.some((rule) => rule.enabled)) return hidden;
-
-    const visibleIndexes = new Set(filterEpisodeIndexes(titles, filterConfig));
-    for (let i = 0; i < totalEpisodes; i += 1) {
-      // 不是"被隐藏"，就是"因为规则被筛掉"
-      if (!visibleIndexes.has(i)) hidden.add(i + 1);
-    }
-    return hidden;
-  }, [episodes_titles, filterConfig, totalEpisodes]);
-
-  const activeFilterCount = useMemo(
-    () => filterConfig.rules.filter((rule) => rule.enabled).length,
-    [filterConfig]
-  );
-
-  // 保留下来的集号（1 起算），已按升序排列。无过滤时等价于 [1..totalEpisodes]
-  const visibleEpisodeNumbers = useMemo(() => {
-    if (hiddenEpisodeNumbers.size === 0) {
-      return Array.from({ length: totalEpisodes }, (_, i) => i + 1);
-    }
-    const result: number[] = [];
-    for (let n = 1; n <= totalEpisodes; n += 1) {
-      if (!hiddenEpisodeNumbers.has(n)) result.push(n);
-    }
-    return result;
-  }, [hiddenEpisodeNumbers, totalEpisodes]);
-
-  // 分页必须按「过滤后」的集数来算，否则隐藏掉一半集数后会多出一堆空页
-  const pageCount = useMemo(
-    () => countEpisodePages(visibleEpisodeNumbers.length, episodesPerPage),
-    [visibleEpisodeNumbers.length, episodesPerPage]
-  );
-
-  // 过滤条件变化时立刻落盘；内部已处理"空配置则清空存储项"
-  useEffect(() => {
-    saveEpisodeFilterConfig(filterConfig);
-  }, [filterConfig]);
-
-  const handleAddFilterRule = useCallback(() => {
-    const raw = filterKeywordInput.trim();
-    if (!raw) return;
-    // 以 re: 前缀标记正则，和弹幕屏蔽保持同一套书写习惯
-    const isRegex = raw.startsWith('re:');
-    const rule = createEpisodeFilterRule(
-      isRegex ? raw.slice(3) : raw,
-      isRegex ? 'regex' : 'normal'
-    );
-    if (!rule) return;
-
-    setFilterConfig((prev) => ({ ...prev, rules: [...prev.rules, rule] }));
-    setFilterKeywordInput('');
-  }, [filterKeywordInput]);
-
   // 根据 descending 状态计算实际显示的分页索引
   const displayPage = useMemo(() => {
     if (descending) {
@@ -197,11 +121,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     }
     return currentPage;
   }, [currentPage, descending, pageCount]);
-
-  // 过滤后总页数可能变少，当前页要收敛回有效范围，否则会停在空页上
-  useEffect(() => {
-    setCurrentPage((prev) => Math.min(prev, pageCount - 1));
-  }, [pageCount]);
 
   // 获取视频信息的函数 - 移除 attemptedSources 依赖避免不必要的重新创建
   const getVideoInfo = useCallback(async (source: SearchResult) => {
@@ -314,14 +233,14 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     // 依赖项保持与之前一致
   }, [activeTab, availableSources, getVideoInfo, optimizationEnabled]);
 
-  // 升序分页标签。
-  // 标签显示的是「过滤后第 N 集到第 M 集」在原始列表里的**真实集号**，
-  // 而不是 1-50 / 51-100 这种理想区间 —— 过滤掉中间的集数后，
-  // 直接用算式算出来的区间会和网格里实际显示的集号对不上。
-  const categoriesAsc = useMemo(
-    () => buildEpisodePageRanges(visibleEpisodeNumbers, episodesPerPage),
-    [visibleEpisodeNumbers, episodesPerPage]
-  );
+  // 升序分页标签
+  const categoriesAsc = useMemo(() => {
+    return Array.from({ length: pageCount }, (_, i) => {
+      const start = i * episodesPerPage + 1;
+      const end = Math.min(start + episodesPerPage - 1, totalEpisodes);
+      return { start, end };
+    });
+  }, [pageCount, episodesPerPage, totalEpisodes]);
 
   // 根据 descending 状态决定分页标签的排序和内容
   const categories = useMemo(() => {
@@ -400,10 +319,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     [onSourceChange]
   );
 
-  // 当前页实际要渲染的集号（升序）。descending 时在渲染处翻转，不在这里反向。
-  const currentPageEpisodes = useMemo(
-    () => sliceEpisodePage(visibleEpisodeNumbers, currentPage, episodesPerPage),
-    [visibleEpisodeNumbers, currentPage, episodesPerPage]
+  const currentStart = currentPage * episodesPerPage + 1;
+  const currentEnd = Math.min(
+    currentStart + episodesPerPage - 1,
+    totalEpisodes
   );
 
   return (
@@ -544,164 +463,18 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 />
               </svg>
             </button>
-            {/* 剧集过滤按钮：有生效规则时高亮，并显示条数 */}
-            <button
-              className={`flex-shrink-0 h-8 rounded-md flex items-center justify-center gap-1 px-1.5 text-xs transition-colors transform translate-y-[-4px] ${
-                activeFilterCount > 0
-                  ? 'text-green-600 hover:bg-gray-100 dark:text-green-400 dark:hover:bg-white/20'
-                  : 'text-gray-700 hover:text-green-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:text-green-400 dark:hover:bg-white/20'
-              }`}
-              onClick={() => setShowFilterPanel((prev) => !prev)}
-              title='按标题过滤剧集'
-            >
-              <svg
-                className='w-4 h-4'
-                fill='none'
-                stroke='currentColor'
-                viewBox='0 0 24 24'
-              >
-                <path
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  strokeWidth='2'
-                  d='M3 5h18M6 12h12M10 19h4'
-                />
-              </svg>
-              {activeFilterCount > 0 && <span>{activeFilterCount}</span>}
-            </button>
           </div>
-
-          {/* 过滤设置面板 */}
-          {showFilterPanel && (
-            <div className='mb-3 -mx-6 px-6 py-3 bg-black/5 dark:bg-white/5 flex flex-col gap-3 flex-shrink-0'>
-              <div className='flex items-center justify-between'>
-                <span className='text-xs font-medium text-gray-700 dark:text-gray-300'>
-                  按标题过滤剧集
-                </span>
-                {/* 相反模式：隐藏命中的 → 只看命中的 */}
-                <button
-                  onClick={() =>
-                    setFilterConfig((prev) => ({
-                      ...prev,
-                      reverseMode: !prev.reverseMode,
-                    }))
-                  }
-                  className={`text-xs px-2 py-1 rounded border transition-colors ${
-                    filterConfig.reverseMode
-                      ? 'border-green-500 text-green-600 dark:text-green-400'
-                      : 'border-gray-400 text-gray-600 dark:border-gray-600 dark:text-gray-400'
-                  }`}
-                  title={
-                    filterConfig.reverseMode
-                      ? '当前：只显示命中规则的剧集'
-                      : '当前：隐藏命中规则的剧集'
-                  }
-                >
-                  {filterConfig.reverseMode ? '相反模式 开' : '相反模式 关'}
-                </button>
-              </div>
-
-              {/* 新增屏蔽词。以 re: 前缀切正则 */}
-              <div className='flex items-center gap-2'>
-                <input
-                  value={filterKeywordInput}
-                  onChange={(e) => setFilterKeywordInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddFilterRule();
-                  }}
-                  placeholder='屏蔽词，如 预告；加 re: 前缀用正则'
-                  className='flex-1 min-w-0 h-7 px-2 text-xs rounded border border-gray-300 bg-white text-gray-800 placeholder-gray-400 focus:border-green-500 focus:outline-none dark:border-gray-600 dark:bg-gray-800 dark:text-gray-200 dark:placeholder-gray-500'
-                />
-                <button
-                  onClick={handleAddFilterRule}
-                  disabled={!filterKeywordInput.trim()}
-                  className='flex-shrink-0 h-7 px-2 text-xs rounded border border-gray-300 text-gray-700 hover:border-green-500 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-600 dark:text-gray-300 dark:hover:border-green-500 dark:hover:text-green-400'
-                >
-                  添加
-                </button>
-              </div>
-
-              {/* 规则列表 */}
-              {filterConfig.rules.length > 0 ? (
-                <div className='flex flex-col gap-1.5 max-h-40 overflow-y-auto scrollbar-hide'>
-                  {filterConfig.rules.map((rule) => (
-                    <div
-                      key={rule.id}
-                      className='flex items-center gap-2 text-xs'
-                    >
-                      <button
-                        onClick={() =>
-                          setFilterConfig((prev) => ({
-                            ...prev,
-                            rules: prev.rules.map((r) =>
-                              r.id === rule.id ? { ...r, enabled: !r.enabled } : r
-                            ),
-                          }))
-                        }
-                        className={`flex-1 min-w-0 text-left truncate px-2 py-1 rounded transition-colors ${
-                          rule.enabled
-                            ? 'text-gray-800 bg-white/60 dark:text-gray-200 dark:bg-white/10'
-                            : 'text-gray-400 line-through dark:text-gray-500'
-                        }`}
-                        title={rule.enabled ? '点击停用' : '点击启用'}
-                      >
-                        {rule.type === 'regex' ? `re: ${rule.keyword}` : rule.keyword}
-                      </button>
-                      <button
-                        onClick={() =>
-                          setFilterConfig((prev) => ({
-                            ...prev,
-                            rules: prev.rules.filter((r) => r.id !== rule.id),
-                          }))
-                        }
-                        className='flex-shrink-0 w-6 h-6 rounded flex items-center justify-center text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400'
-                        title='删除该规则'
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className='text-xs text-gray-500 dark:text-gray-400'>
-                  暂无规则。添加后会立即从下面的集数列表里隐藏。
-                </p>
-              )}
-
-              {hiddenEpisodeNumbers.size > 0 && (
-                <p className='text-xs text-gray-500 dark:text-gray-400'>
-                  已隐藏 {hiddenEpisodeNumbers.size} 集
-                </p>
-              )}
-
-              {filterConfig.rules.length > 0 && (
-                <button
-                  onClick={() => {
-                    clearEpisodeFilterConfig();
-                    setFilterConfig({ rules: [], reverseMode: false });
-                  }}
-                  className='self-start text-xs text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors'
-                >
-                  清空全部规则
-                </button>
-              )}
-            </div>
-          )}
 
           {/* 集数网格 */}
           <div className='overflow-y-auto flex-1 pb-4 scrollbar-hide'>
-            {currentPageEpisodes.length === 0 ? (
-              <div className='flex items-center justify-center py-8'>
-                <p className='text-sm text-gray-600 dark:text-gray-300'>
-                  全部剧集都被过滤规则隐藏了
-                </p>
-              </div>
-            ) : (
             <div className='grid grid-cols-3 sm:grid-cols-4 gap-3'>
-              {(descending
-                ? [...currentPageEpisodes].reverse()
-                : currentPageEpisodes
-              ).map((episodeNumber) => {
+              {(() => {
+                const len = currentEnd - currentStart + 1;
+                const episodes = Array.from({ length: len }, (_, i) =>
+                  descending ? currentEnd - i : currentStart + i
+                );
+                return episodes;
+              })().map((episodeNumber) => {
                 const isActive = episodeNumber === value;
                 return (
                   <button
@@ -730,7 +503,6 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 );
               })}
             </div>
-            )}
           </div>
         </>
       )}

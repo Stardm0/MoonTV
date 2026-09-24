@@ -38,7 +38,6 @@ export default function PlayClient() {
     videoTitle,
     videoYear,
     videoDoubanId,
-    videoCover,
     currentSource,
     currentId,
     searchTitle,
@@ -81,7 +80,7 @@ export default function PlayClient() {
         {/* 加载态也留一个返回入口：搜错片/等太久不想等时能直接退出去。
             用绝对定位覆盖，避免给整屏的加载视图额外撑出滚动条。 */}
         <div className='relative'>
-          <div className='absolute left-3 top-3 z-10 md:left-[calc(var(--moontv-sidenav-w)+1.5rem)] md:top-4'>
+          <div className='absolute left-3 top-3 z-10 lg:left-[5rem] lg:top-4 2xl:left-32'>
             <BackButton showLabel />
           </div>
           <LoadingView stage={loadingStage} message={loadingMessage} />
@@ -109,8 +108,7 @@ export default function PlayClient() {
 
   return (
     <PageLayout activePath='/play'>
-      {/* 4.3.2 起播放页也有侧边栏：左侧 padding 跟随侧边栏宽度（折叠/展开同其他页面一致） */}
-      <div className='moontv-sidenav-content flex flex-col px-0 md:pl-[calc(var(--moontv-sidenav-w)+1.5rem)] md:pr-6'>
+      <div className='flex flex-col px-0 lg:px-[5rem] 2xl:px-32'>
         {/* 顶部操作栏：返回上一级（不想看了直接退出，不用回主页重新找） */}
         <div className='flex items-center gap-3 px-3 pt-3 pb-2 lg:px-0 lg:pt-4'>
           <BackButton showLabel />
@@ -195,7 +193,6 @@ export default function PlayClient() {
           totalEpisodes={totalEpisodes}
           currentEpisodeIndex={currentEpisodeIndex}
           detail={detail}
-          videoCover={videoCover}
           favorited={favorited}
           following={following}
           onToggleFavorite={handleToggleFavorite}

@@ -1,17 +1,6 @@
 /* //!STARTERCONF Remove this file after copying your desired color, this is a large file you should remove it. */
 
 .slate {
-  --theme-preview-50: 248 250 252;
-  --theme-preview-100: 241 245 249;
-  --theme-preview-200: 226 232 240;
-  --theme-preview-300: 203 213 225;
-  --theme-preview-400: 148 163 184;
-  --theme-preview-500: 100 116 139;
-  --theme-preview-600: 71 85 105;
-  --theme-preview-700: 51 65 85;
-  --theme-preview-800: 30 41 59;
-  --theme-preview-900: 15 23 42;
-  --theme-preview-950: 2 6 23;
   --tw-color-primary-50: 248 250 252;
   --tw-color-primary-100: 241 245 249;
   --tw-color-primary-200: 226 232 240;
@@ -37,17 +26,6 @@
 }
 
 .gray {
-  --theme-preview-50: 249 250 251;
-  --theme-preview-100: 243 244 246;
-  --theme-preview-200: 229 231 235;
-  --theme-preview-300: 209 213 219;
-  --theme-preview-400: 156 163 175;
-  --theme-preview-500: 107 114 128;
-  --theme-preview-600: 75 85 99;
-  --theme-preview-700: 55 65 81;
-  --theme-preview-800: 31 41 55;
-  --theme-preview-900: 17 24 39;
-  --theme-preview-950: 3 7 18;
   --tw-color-primary-50: 249 250 251;
   --tw-color-primary-100: 243 244 246;
   --tw-color-primary-200: 229 231 235;
@@ -73,17 +51,6 @@
 }
 
 .zinc {
-  --theme-preview-50: 250 250 250;
-  --theme-preview-100: 244 244 245;
-  --theme-preview-200: 228 228 231;
-  --theme-preview-300: 212 212 216;
-  --theme-preview-400: 161 161 170;
-  --theme-preview-500: 113 113 122;
-  --theme-preview-600: 82 82 91;
-  --theme-preview-700: 63 63 70;
-  --theme-preview-800: 39 39 42;
-  --theme-preview-900: 24 24 27;
-  --theme-preview-950: 9 9 11;
   --tw-color-primary-50: 250 250 250;
   --tw-color-primary-100: 244 244 245;
   --tw-color-primary-200: 228 228 231;
@@ -109,17 +76,6 @@
 }
 
 .neutral {
-  --theme-preview-50: 250 250 250;
-  --theme-preview-100: 245 245 245;
-  --theme-preview-200: 229 229 229;
-  --theme-preview-300: 212 212 212;
-  --theme-preview-400: 163 163 163;
-  --theme-preview-500: 115 115 115;
-  --theme-preview-600: 82 82 82;
-  --theme-preview-700: 64 64 64;
-  --theme-preview-800: 38 38 38;
-  --theme-preview-900: 23 23 23;
-  --theme-preview-950: 10 10 10;
   --tw-color-primary-50: 250 250 250;
   --tw-color-primary-100: 245 245 245;
   --tw-color-primary-200: 229 229 229;
@@ -145,17 +101,6 @@
 }
 
 .stone {
-  --theme-preview-50: 250 250 249;
-  --theme-preview-100: 245 245 244;
-  --theme-preview-200: 231 229 228;
-  --theme-preview-300: 214 211 209;
-  --theme-preview-400: 168 162 158;
-  --theme-preview-500: 120 113 108;
-  --theme-preview-600: 87 83 78;
-  --theme-preview-700: 68 64 60;
-  --theme-preview-800: 41 37 36;
-  --theme-preview-900: 28 25 23;
-  --theme-preview-950: 12 10 9;
   --tw-color-primary-50: 250 250 249;
   --tw-color-primary-100: 245 245 244;
   --tw-color-primary-200: 231 229 228;
@@ -181,17 +126,6 @@
 }
 
 .red {
-  --theme-preview-50: 254 242 242;
-  --theme-preview-100: 254 226 226;
-  --theme-preview-200: 254 202 202;
-  --theme-preview-300: 252 165 165;
-  --theme-preview-400: 248 113 113;
-  --theme-preview-500: 239 68 68;
-  --theme-preview-600: 220 38 38;
-  --theme-preview-700: 185 28 28;
-  --theme-preview-800: 153 27 27;
-  --theme-preview-900: 127 29 29;
-  --theme-preview-950: 69 10 10;
   --tw-color-primary-50: 254 242 242;
   --tw-color-primary-100: 254 226 226;
   --tw-color-primary-200: 254 202 202;
@@ -217,17 +151,6 @@
 }
 
 .orange {
-  --theme-preview-50: 255 247 237;
-  --theme-preview-100: 255 237 213;
-  --theme-preview-200: 254 215 170;
-  --theme-preview-300: 253 186 116;
-  --theme-preview-400: 251 146 60;
-  --theme-preview-500: 249 115 22;
-  --theme-preview-600: 234 88 12;
-  --theme-preview-700: 194 65 12;
-  --theme-preview-800: 154 52 18;
-  --theme-preview-900: 124 45 18;
-  --theme-preview-950: 67 20 7;
   --tw-color-primary-50: 255 247 237;
   --tw-color-primary-100: 255 237 213;
   --tw-color-primary-200: 254 215 170;
@@ -253,17 +176,6 @@
 }
 
 .amber {
-  --theme-preview-50: 255 251 235;
-  --theme-preview-100: 254 243 199;
-  --theme-preview-200: 253 230 138;
-  --theme-preview-300: 252 211 77;
-  --theme-preview-400: 251 191 36;
-  --theme-preview-500: 245 158 11;
-  --theme-preview-600: 217 119 6;
-  --theme-preview-700: 180 83 9;
-  --theme-preview-800: 146 64 14;
-  --theme-preview-900: 120 53 15;
-  --theme-preview-950: 69 26 3;
   --tw-color-primary-50: 255 251 235;
   --tw-color-primary-100: 254 243 199;
   --tw-color-primary-200: 253 230 138;
@@ -289,17 +201,6 @@
 }
 
 .yellow {
-  --theme-preview-50: 254 252 232;
-  --theme-preview-100: 254 249 195;
-  --theme-preview-200: 254 240 138;
-  --theme-preview-300: 253 224 71;
-  --theme-preview-400: 250 204 21;
-  --theme-preview-500: 234 179 8;
-  --theme-preview-600: 202 138 4;
-  --theme-preview-700: 161 98 7;
-  --theme-preview-800: 133 77 14;
-  --theme-preview-900: 113 63 18;
-  --theme-preview-950: 66 32 6;
   --tw-color-primary-50: 254 252 232;
   --tw-color-primary-100: 254 249 195;
   --tw-color-primary-200: 254 240 138;
@@ -324,17 +225,6 @@
   --color-primary-950: rgb(var(--tw-color-primary-950)); /* #422006 */
 }
 .lime {
-  --theme-preview-50: 247 254 231;
-  --theme-preview-100: 236 252 203;
-  --theme-preview-200: 217 249 157;
-  --theme-preview-300: 190 242 100;
-  --theme-preview-400: 163 230 53;
-  --theme-preview-500: 132 204 22;
-  --theme-preview-600: 101 163 13;
-  --theme-preview-700: 77 124 15;
-  --theme-preview-800: 63 98 18;
-  --theme-preview-900: 54 83 20;
-  --theme-preview-950: 26 46 5;
   --tw-color-primary-50: 247 254 231;
   --tw-color-primary-100: 236 252 203;
   --tw-color-primary-200: 217 249 157;
@@ -360,17 +250,6 @@
 }
 
 .green {
-  --theme-preview-50: 240 253 244;
-  --theme-preview-100: 220 252 231;
-  --theme-preview-200: 187 247 208;
-  --theme-preview-300: 134 239 172;
-  --theme-preview-400: 74 222 128;
-  --theme-preview-500: 34 197 94;
-  --theme-preview-600: 22 163 74;
-  --theme-preview-700: 21 128 61;
-  --theme-preview-800: 22 101 52;
-  --theme-preview-900: 20 83 45;
-  --theme-preview-950: 5 46 22;
   --tw-color-primary-50: 240 253 244;
   --tw-color-primary-100: 220 252 231;
   --tw-color-primary-200: 187 247 208;
@@ -396,17 +275,6 @@
 }
 
 .emerald {
-  --theme-preview-50: 236 253 245;
-  --theme-preview-100: 209 250 229;
-  --theme-preview-200: 167 243 208;
-  --theme-preview-300: 110 231 183;
-  --theme-preview-400: 52 211 153;
-  --theme-preview-500: 16 185 129;
-  --theme-preview-600: 5 150 105;
-  --theme-preview-700: 4 120 87;
-  --theme-preview-800: 6 95 70;
-  --theme-preview-900: 6 78 59;
-  --theme-preview-950: 2 44 34;
   --tw-color-primary-50: 236 253 245;
   --tw-color-primary-100: 209 250 229;
   --tw-color-primary-200: 167 243 208;
@@ -432,17 +300,6 @@
 }
 
 .teal {
-  --theme-preview-50: 240 253 250;
-  --theme-preview-100: 204 251 241;
-  --theme-preview-200: 153 246 228;
-  --theme-preview-300: 94 234 212;
-  --theme-preview-400: 45 212 191;
-  --theme-preview-500: 20 184 166;
-  --theme-preview-600: 13 148 136;
-  --theme-preview-700: 15 118 110;
-  --theme-preview-800: 17 94 89;
-  --theme-preview-900: 19 78 74;
-  --theme-preview-950: 4 47 46;
   --tw-color-primary-50: 240 253 250;
   --tw-color-primary-100: 204 251 241;
   --tw-color-primary-200: 153 246 228;
@@ -468,17 +325,6 @@
 }
 
 .cyan {
-  --theme-preview-50: 236 254 255;
-  --theme-preview-100: 207 250 254;
-  --theme-preview-200: 165 243 252;
-  --theme-preview-300: 103 232 249;
-  --theme-preview-400: 34 211 238;
-  --theme-preview-500: 6 182 212;
-  --theme-preview-600: 8 145 178;
-  --theme-preview-700: 14 116 144;
-  --theme-preview-800: 21 94 117;
-  --theme-preview-900: 22 78 99;
-  --theme-preview-950: 8 51 68;
   --tw-color-primary-50: 236 254 255;
   --tw-color-primary-100: 207 250 254;
   --tw-color-primary-200: 165 243 252;
@@ -504,17 +350,6 @@
 }
 
 .sky {
-  --theme-preview-50: 240 249 255;
-  --theme-preview-100: 224 242 254;
-  --theme-preview-200: 186 230 253;
-  --theme-preview-300: 125 211 252;
-  --theme-preview-400: 56 189 248;
-  --theme-preview-500: 14 165 233;
-  --theme-preview-600: 2 132 199;
-  --theme-preview-700: 3 105 161;
-  --theme-preview-800: 7 89 133;
-  --theme-preview-900: 12 74 110;
-  --theme-preview-950: 8 47 73;
   --tw-color-primary-50: 240 249 255;
   --tw-color-primary-100: 224 242 254;
   --tw-color-primary-200: 186 230 253;
@@ -540,17 +375,6 @@
 }
 
 .blue {
-  --theme-preview-50: 239 246 255;
-  --theme-preview-100: 219 234 254;
-  --theme-preview-200: 191 219 254;
-  --theme-preview-300: 147 197 253;
-  --theme-preview-400: 96 165 250;
-  --theme-preview-500: 59 130 246;
-  --theme-preview-600: 37 99 235;
-  --theme-preview-700: 29 78 216;
-  --theme-preview-800: 30 64 175;
-  --theme-preview-900: 30 58 138;
-  --theme-preview-950: 23 37 84;
   --tw-color-primary-50: 239 246 255;
   --tw-color-primary-100: 219 234 254;
   --tw-color-primary-200: 191 219 254;
@@ -576,17 +400,6 @@
 }
 
 .indigo {
-  --theme-preview-50: 238 242 255;
-  --theme-preview-100: 224 231 255;
-  --theme-preview-200: 199 210 254;
-  --theme-preview-300: 165 180 252;
-  --theme-preview-400: 129 140 248;
-  --theme-preview-500: 99 102 241;
-  --theme-preview-600: 79 70 229;
-  --theme-preview-700: 67 56 202;
-  --theme-preview-800: 55 48 163;
-  --theme-preview-900: 49 46 129;
-  --theme-preview-950: 30 27 75;
   --tw-color-primary-50: 238 242 255;
   --tw-color-primary-100: 224 231 255;
   --tw-color-primary-200: 199 210 254;
@@ -612,17 +425,6 @@
 }
 
 .violet {
-  --theme-preview-50: 245 243 255;
-  --theme-preview-100: 237 233 254;
-  --theme-preview-200: 221 214 254;
-  --theme-preview-300: 196 181 253;
-  --theme-preview-400: 167 139 250;
-  --theme-preview-500: 139 92 246;
-  --theme-preview-600: 124 58 237;
-  --theme-preview-700: 109 40 217;
-  --theme-preview-800: 91 33 182;
-  --theme-preview-900: 76 29 149;
-  --theme-preview-950: 46 16 101;
   --tw-color-primary-50: 245 243 255;
   --tw-color-primary-100: 237 233 254;
   --tw-color-primary-200: 221 214 254;
@@ -648,17 +450,6 @@
 }
 
 .purple {
-  --theme-preview-50: 250 245 255;
-  --theme-preview-100: 243 232 255;
-  --theme-preview-200: 233 213 255;
-  --theme-preview-300: 216 180 254;
-  --theme-preview-400: 192 132 252;
-  --theme-preview-500: 168 85 247;
-  --theme-preview-600: 147 51 234;
-  --theme-preview-700: 126 34 206;
-  --theme-preview-800: 107 33 168;
-  --theme-preview-900: 88 28 135;
-  --theme-preview-950: 59 7 100;
   --tw-color-primary-50: 250 245 255;
   --tw-color-primary-100: 243 232 255;
   --tw-color-primary-200: 233 213 255;
@@ -684,17 +475,6 @@
 }
 
 .fuchsia {
-  --theme-preview-50: 253 244 255;
-  --theme-preview-100: 250 232 255;
-  --theme-preview-200: 245 208 254;
-  --theme-preview-300: 240 171 252;
-  --theme-preview-400: 232 121 249;
-  --theme-preview-500: 217 70 239;
-  --theme-preview-600: 192 38 211;
-  --theme-preview-700: 162 28 175;
-  --theme-preview-800: 134 25 143;
-  --theme-preview-900: 112 26 117;
-  --theme-preview-950: 74 4 78;
   --tw-color-primary-50: 253 244 255;
   --tw-color-primary-100: 250 232 255;
   --tw-color-primary-200: 245 208 254;
@@ -720,17 +500,6 @@
 }
 
 .pink {
-  --theme-preview-50: 253 242 248;
-  --theme-preview-100: 252 231 243;
-  --theme-preview-200: 251 207 232;
-  --theme-preview-300: 249 168 212;
-  --theme-preview-400: 244 114 182;
-  --theme-preview-500: 236 72 153;
-  --theme-preview-600: 219 39 119;
-  --theme-preview-700: 190 24 93;
-  --theme-preview-800: 157 23 77;
-  --theme-preview-900: 131 24 67;
-  --theme-preview-950: 80 4 36;
   --tw-color-primary-50: 253 242 248;
   --tw-color-primary-100: 252 231 243;
   --tw-color-primary-200: 251 207 232;
@@ -756,17 +525,6 @@
 }
 
 .rose {
-  --theme-preview-50: 255 241 242;
-  --theme-preview-100: 255 228 230;
-  --theme-preview-200: 254 205 211;
-  --theme-preview-300: 253 164 175;
-  --theme-preview-400: 251 113 133;
-  --theme-preview-500: 244 63 94;
-  --theme-preview-600: 225 29 72;
-  --theme-preview-700: 190 18 60;
-  --theme-preview-800: 159 18 57;
-  --theme-preview-900: 136 19 55;
-  --theme-preview-950: 76 5 25;
   --tw-color-primary-50: 255 241 242;
   --tw-color-primary-100: 255 228 230;
   --tw-color-primary-200: 254 205 211;

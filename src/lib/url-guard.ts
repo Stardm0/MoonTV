@@ -33,37 +33,10 @@ function isDecimalIpv4(hostname: string): boolean {
   return /^\d{1,10}$/.test(hostname);
 }
 
-/**
- * 即便显式放开了私有网段也**照拦不误**的地址。
- *
- * 放行局域网是为了让自建/内网部署能访问同网段的 OpenList、Emby，
- * 但云元数据（169.254.169.254）与 `0.0.0.0` 一旦放行就是完整的 SSRF，
- * 所以它们不随开关一起放开。
- */
-const ALWAYS_BLOCKED_HOST_PATTERNS: RegExp[] = [/^169\.254\./, /^0\.0\.0\.0$/];
-
-export interface UrlGuardOptions {
-  /**
-   * 允许访问私有网段（局域网）。
-   *
-   * 仅适用于**自建部署**（Docker / NAS 同网段）访问内网影库的场景，
-   * 用户需在影库设置里显式勾选。Cloudflare / Vercel 等托管环境访问不到
-   * 局域网，开着也只是多一层风险，默认关闭。
-   */
-  allowPrivateNetwork?: boolean;
-}
-
-export function isBlockedHost(
-  hostname: string,
-  options?: UrlGuardOptions
-): boolean {
+export function isBlockedHost(hostname: string): boolean {
   const host = hostname.trim().toLowerCase();
   if (!host) return true;
   if (isDecimalIpv4(host)) return true;
-  if (ALWAYS_BLOCKED_HOST_PATTERNS.some((pattern) => pattern.test(host))) {
-    return true;
-  }
-  if (options?.allowPrivateNetwork) return false;
   return PRIVATE_HOST_PATTERNS.some((pattern) => pattern.test(host));
 }
 
@@ -99,12 +72,10 @@ export interface UrlGuardResult {
  *
  * @param raw 用户传入的原始地址
  * @param extraAllowHosts 额外允许的主机（如从站点配置读取的源站域名）
- * @param options 校验选项（如自建部署下放行局域网）
  */
 export function validateMediaUrl(
   raw: unknown,
-  extraAllowHosts?: Iterable<string>,
-  options?: UrlGuardOptions
+  extraAllowHosts?: Iterable<string>
 ): UrlGuardResult {
   if (typeof raw !== 'string' || raw.length === 0) {
     return { ok: false, reason: '缺少 URL 参数' };
@@ -124,7 +95,7 @@ export function validateMediaUrl(
     return { ok: false, reason: '仅支持 http/https 协议' };
   }
 
-  if (isBlockedHost(parsed.hostname, options)) {
+  if (isBlockedHost(parsed.hostname)) {
     return { ok: false, reason: '不允许访问该地址' };
   }
 

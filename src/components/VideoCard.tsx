@@ -16,8 +16,6 @@ import {
   saveFollowing,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { applyImageFallback } from '@/lib/douban-image';
-import { buildPosterInitial, buildPosterPalette } from '@/lib/poster-fallback';
 import { SearchResult } from '@/lib/types';
 import { processImageUrl } from '@/lib/utils';
 
@@ -115,10 +113,6 @@ export default function VideoCard({
   }, [isAggregate, items]);
 
   const actualTitle = aggregateData?.first.title ?? title;
-  // 无封面资源（影库里很常见：网盘只有视频文件，没有海报）的占位色块，
-  // 按标题派生，保证同一部片每次进来颜色一致
-  const posterPalette = useMemo(() => buildPosterPalette(actualTitle), [actualTitle]);
-  const posterInitial = useMemo(() => buildPosterInitial(actualTitle), [actualTitle]);
   const actualPoster = aggregateData?.first.poster ?? poster;
   const actualSource = aggregateData?.first.source ?? source;
   const actualId = aggregateData?.first.id ?? id;
@@ -291,11 +285,8 @@ export default function VideoCard({
         currentEpisode >= 1
           ? `&ep=${currentEpisode}`
           : '';
-      // id 必须编码：影库的 id 是虚拟路径（含中文、空格、斜杠），拼进 query 会截断
       router.push(
-        `/play?source=${actualSource}&id=${encodeURIComponent(
-          actualId
-        )}&title=${encodeURIComponent(
+        `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
           actualTitle
         )}${sanitizedYear ? `&year=${sanitizedYear}` : ''}${
           isAggregate ? '&prefer=true' : ''
@@ -412,45 +403,25 @@ export default function VideoCard({
     >
       {/* 图片和播放按钮 */}
       <div className='relative aspect-[2/3] overflow-hidden rounded-lg'>
-        {actualPoster ? (
-          <>
-            {!isLoading && <ImagePlaceholder aspectRatio='aspect-[2/3]' />}
-            <Image
-              src={processImageUrl(actualPoster)}
-              alt={actualTitle}
-              fill
-              className='object-cover'
-              referrerPolicy='no-referrer'
-              loading='lazy'
-              onLoad={() => setIsLoading(true)}
-              onError={(e) => {
-                // 逐级回退：用户配置的方式 → 自带服务端代理 → 公共 CDN。
-                //
-                // 原实现是失败后把**同一个** URL（`processImageUrl(actualPoster)`）
-                // 再赋一次，等于什么都没做，所以「有时图片出不来」一直存在。
-                // 现在每次失败都换到下一个**不同**的候选；候选用尽后返回 false，
-                // 保留占位图，不再空转。
-                applyImageFallback(
-                  e.target as HTMLImageElement,
-                  actualPoster,
-                  processImageUrl(actualPoster)
-                );
-              }}
-            />
-          </>
-        ) : (
-          // 没有海报（影库资源常态）：渐变色块 + 首字，避免空白卡片与空 src 报错
-          <div
-            className='absolute inset-0 flex items-center justify-center'
-            style={{
-              background: `linear-gradient(135deg, ${posterPalette.from}, ${posterPalette.to})`,
-            }}
-          >
-            <span className='select-none text-4xl font-bold text-white/90'>
-              {posterInitial}
-            </span>
-          </div>
-        )}
+        {!isLoading && <ImagePlaceholder aspectRatio='aspect-[2/3]' />}
+        <Image
+          src={processImageUrl(actualPoster)}
+          alt={actualTitle}
+          fill
+          className='object-cover'
+          referrerPolicy='no-referrer'
+          loading='lazy'
+          onLoad={() => setIsLoading(true)}
+          onError={(e) => {
+            const img = e.target as HTMLImageElement;
+            if (!img.dataset.retried) {
+              img.dataset.retried = 'true';
+              setTimeout(() => {
+                img.src = processImageUrl(actualPoster);
+              }, 2000);
+            }
+          }}
+        />
 
         <div className='absolute inset-0 bg-gradient-to-t from-black/80 via-black-20 to-transparent opacity-0 transition-opacity duration-300 ease-in-out group-hover:opacity-100' />
 
@@ -684,9 +655,7 @@ export default function VideoCard({
                     ? `&ep=${currentEpisode}`
                     : '';
                 window.open(
-                  `/play?source=${actualSource}&id=${encodeURIComponent(
-                    actualId
-                  )}&title=${encodeURIComponent(
+                  `/play?source=${actualSource}&id=${actualId}&title=${encodeURIComponent(
                     actualTitle
                   )}${actualYear ? `&year=${actualYear}` : ''}${
                     isAggregate ? '&prefer=true' : ''

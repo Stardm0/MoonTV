@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { danmakuTypeToMode, decimalColorToHex } from './danmaku-color';
 import { DanmakuItem, DanmakuResponse } from './types';
 
 /**
@@ -39,11 +38,6 @@ function getDanmakuFormat(format?: string): DanmakuFormat {
 
 /**
  * 解析 JSON 格式的弹幕数据（实际 API 格式）
- *
- * `p` 字段与 XML 同为 8 段（与 danmu_api 文档一致）：
- *   时间, 类型, 字体大小, 颜色, 时间戳, 弹幕池, 用户Hash, 弹幕ID
- * 索引依次为 0..7。**颜色在索引 3，不是索引 2** —— 索引 2 是字号，
- * 取错会把字号（如 25）当成颜色解析。
  */
 function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
   const danmakuList: DanmakuItem[] = [];
@@ -53,6 +47,8 @@ function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
     for (const comment of json.comments) {
       if (!comment.m) continue; // 没有文本内容，跳过
 
+      // 解析 p 字段：格式为 "时间,类型,颜色,作者"
+      // 例如："0.45,5,16777215,[bilibili1]"
       const pParts = comment.p ? comment.p.split(',') : [];
 
       // 优先使用 t 字段作为时间，如果没有则从 p 解析
@@ -63,10 +59,9 @@ function parseJsonDanmaku(json: DanmakuResponse): DanmakuItem[] {
           ? parseFloat(pParts[0])
           : 0;
       const type = pParts[1] ? parseInt(pParts[1]) : 1; // 默认滚动弹幕
-      // 索引 3 才是颜色；索引 2 是字体大小
-      const color = pParts[3] ? parseInt(pParts[3]) : 16777215; // 默认白色
-      const size = pParts[2] ? parseInt(pParts[2]) : 25;
-      const pool = pParts.length > 5 ? parseInt(pParts[5]) : 0;
+      const color = pParts[2] ? parseInt(pParts[2]) : 16777215; // 默认白色
+      const size = 25; // 默认大小
+      const pool = pParts.length > 4 ? parseInt(pParts[4]) : 0;
 
       danmakuList.push({
         time,
@@ -107,12 +102,11 @@ function parseXmlDanmaku(xmlText: string): DanmakuItem[] {
     const parts = p.split(',');
     if (parts.length < 4) continue;
 
-    // p: 时间, 类型, 字体大小, 颜色, 时间戳, 弹幕池, 用户Hash, 弹幕ID
     const time = parseFloat(parts[0]) || 0;
     const type = parseInt(parts[1]) || 1;
     const size = parseInt(parts[2]) || 25;
     const color = parseInt(parts[3]) || 16777215; // 默认白色
-    const pool = parts.length > 5 ? parseInt(parts[5]) : 0;
+    const pool = parts.length > 4 ? parseInt(parts[4]) : 0;
 
     danmakuList.push({
       time,
@@ -163,62 +157,6 @@ export async function getDanmakuByCommentId(
     console.error('获取弹幕失败:', error);
     throw new Error(`获取弹幕失败: ${(error as Error).message}`);
   }
-}
-
-/**
- * 交给 artplayer-plugin-danmuku 的弹幕条目。
- *
- * 与 `DanmakuItem` 的区别（两者不可混用）：
- *   - `color` 是 `#rrggbb` 字符串，不是十进制数字
- *   - 用 `mode`（0 滚动 / 1 顶部 / 2 底部），不是 B 站的 `type`
- */
-export interface PluginDanmakuItem {
-  text: string;
-  mode: number;
-  time: number;
-  color: string;
-}
-
-/**
- * 拉取指定弹幕地址并解析成插件可直接消费的格式。
- *
- * 之所以不让插件自行 fetch：插件内部的颜色解析缺少 hex 补零，
- * 任何 R 通道为 0 的深色系弹幕都会产出非法色值（详见
- * `src/lib/danmaku-color.ts` 的说明）。这里接管解析后统一补零。
- *
- * 调用方必须处理失败：解析不可靠时（网络异常、格式变化）应回退为
- * 直接把 URL 交给插件，宁可颜色有损也不能没有弹幕。
- */
-export async function fetchPluginDanmaku(
-  url: string,
-  signal?: AbortSignal
-): Promise<PluginDanmakuItem[]> {
-  if (!url) throw new Error('弹幕地址不能为空');
-
-  const response = await fetch(url, { signal });
-  if (!response.ok) {
-    throw new Error(`HTTP error! Status: ${response.status}`);
-  }
-
-  const text = await response.text();
-
-  // 服务端可能返回 XML（我们请求的就是 xml）也可能返回 JSON，
-  // 用首字符粗判，避免为了判型多解析一次。
-  const trimmed = text.trimStart();
-  const isJson = trimmed.startsWith('{') || trimmed.startsWith('[');
-
-  const items: DanmakuItem[] = isJson
-    ? parseJsonDanmaku(JSON.parse(trimmed) as DanmakuResponse)
-    : parseXmlDanmaku(text);
-
-  return items
-    .filter((item) => item.text && item.text.trim().length > 0)
-    .map((item) => ({
-      text: item.text,
-      mode: danmakuTypeToMode(item.type),
-      time: Number.isFinite(item.time) ? item.time : 0,
-      color: decimalColorToHex(item.color),
-    }));
 }
 
 /**

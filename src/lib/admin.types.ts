@@ -1,5 +1,3 @@
-import type { MediaLibraryConfig } from './media-library';
-
 export interface AdminConfig {
   ConfigFile: string;
   SiteConfig: {
@@ -19,8 +17,6 @@ export interface AdminConfig {
     TVBoxPassword?: string;
     // 播放进度自动保存间隔（秒），用于控制播放记录保存频率
     PlaybackSaveInterval?: number;
-    // 站点级私人影库连接（含令牌，只存服务端，不下发浏览器）
-    MediaLibrary?: MediaLibraryConfig | null;
   };
   UserConfig: {
     AllowRegister: boolean;

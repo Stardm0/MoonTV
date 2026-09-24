@@ -14,14 +14,13 @@ import {
   X,
 } from 'lucide-react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
 import { checkForUpdates, CURRENT_VERSION, UpdateStatus } from '@/lib/version';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
-import ThemePaletteSelector from './ThemePaletteSelector';
 import { VersionPanel } from './VersionPanel';
 
 interface AuthInfo {
@@ -34,12 +33,6 @@ export const UserMenu: React.FC = () => {
   const pathname = usePathname();
   const { startLoading } = useNavigationLoading();
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPos, setMenuPos] = useState<{
-    top?: number;
-    left?: number;
-    bottom?: number;
-  } | null>(null);
-  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const [isVersionPanelOpen, setIsVersionPanelOpen] = useState(false);
@@ -305,34 +298,6 @@ export const UserMenu: React.FC = () => {
   }, [isDoubanImageProxyDropdownOpen]);
 
   const handleMenuClick = () => {
-    if (!isOpen) {
-      // 打开前按按钮当前位置计算面板落点（4.2.9，4.2.10 收紧间距）：
-      // 面板经 Portal 挂到 body，写死 top-14 right-4 的话，
-      // 从侧边栏左下角的按钮打开会飘到右上角。
-      // 按钮在屏幕左半边（侧边栏场景）：面板贴按钮右侧弹出，
-      // 且**底边与按钮底边对齐**（用 bottom 定位、向上生长）——
-      // 不再估算面板高度，之前按 360px 估算会让面板上飘出一大截。
-      const rect = menuButtonRef.current?.getBoundingClientRect();
-      if (rect && typeof window !== 'undefined') {
-        const PANEL_W = 224; // w-56
-        const GAP = 8;
-        if (rect.left < window.innerWidth / 2) {
-          let left = rect.right + GAP;
-          if (left + PANEL_W + GAP > window.innerWidth) {
-            left = Math.max(GAP, rect.left - PANEL_W - GAP);
-          }
-          const bottom = Math.max(GAP, window.innerHeight - rect.bottom);
-          setMenuPos({ left, bottom });
-        } else {
-          const PANEL_H = 360; // 估算高度，防底部溢出
-          let top = rect.bottom + GAP;
-          if (top + PANEL_H > window.innerHeight - GAP) {
-            top = Math.max(GAP, window.innerHeight - PANEL_H - GAP);
-          }
-          setMenuPos({ top, left: rect.right - PANEL_W });
-        }
-      }
-    }
     setIsOpen(!isOpen);
   };
 
@@ -601,17 +566,8 @@ export const UserMenu: React.FC = () => {
         onClick={handleCloseMenu}
       />
 
-      {/* 菜单面板：位置由按钮实际位置决定（见 handleMenuClick），不再写死右上角 */}
-      <div
-        className='fixed w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'
-        style={
-          menuPos
-            ? menuPos.bottom !== undefined
-              ? { left: menuPos.left, bottom: menuPos.bottom }
-              : { top: menuPos.top, left: menuPos.left }
-            : { top: 56, right: 16 }
-        }
-      >
+      {/* 菜单面板 */}
+      <div className='fixed top-14 right-4 w-56 bg-white dark:bg-gray-900 rounded-lg shadow-xl z-[1001] border border-gray-200/50 dark:border-gray-700/50 overflow-hidden select-none'>
         {/* 用户信息区域 */}
         <div className='px-3 py-2.5 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-gray-50 to-gray-100/50 dark:from-gray-800 dark:to-gray-800/50'>
           <div className='space-y-1'>
@@ -1261,12 +1217,6 @@ export const UserMenu: React.FC = () => {
               </div>
             </label>
           </div>
-
-          {/* 分割线 */}
-          <div className='border-t border-gray-200 dark:border-gray-700'></div>
-
-          {/* 主题配色（第二层主题） */}
-          <ThemePaletteSelector />
         </div>
 
         {/* 底部说明 */}
@@ -1376,7 +1326,6 @@ export const UserMenu: React.FC = () => {
     <>
       <div className='relative'>
         <button
-          ref={menuButtonRef}
           onClick={handleMenuClick}
           className='w-10 h-10 p-2 rounded-full flex items-center justify-center text-gray-600 hover:bg-gray-200/50 dark:text-gray-300 dark:hover:bg-gray-700/50 transition-colors'
           aria-label='User Menu'

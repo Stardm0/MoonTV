@@ -35,7 +35,6 @@ import ContinueWatching from '@/components/ContinueWatching';
 import { useNavigationLoading } from '@/components/NavigationLoadingProvider';
 import PageLayout from '@/components/PageLayout';
 import ScrollableRow from '@/components/ScrollableRow';
-import SideNav from '@/components/SideNav';
 import { useSite } from '@/components/SiteProvider';
 import VideoCard from '@/components/VideoCard';
 
@@ -128,9 +127,9 @@ function HomeClient() {
     updated: 0,
     running: false,
   });
-  // 失败明细目前只在「刷新结果」弹窗里从 refreshFailedRef 读取，
-  // state 本身没有消费方（保留 setter 以维持原有触发时序，避免行为漂移）。
-  const [, setRefreshFailedItems] = useState<FollowingRefreshItem[]>([]);
+  const [refreshFailedItems, setRefreshFailedItems] = useState<
+    FollowingRefreshItem[]
+  >([]);
   const refreshFailedRef = useRef<FollowingRefreshItem[]>([]);
   // 本轮刷新中“集数有更新”的追更条目（今日有新集数，页面展示）
   type TodayUpdatedItem = FollowingItem & {
@@ -647,17 +646,7 @@ function HomeClient() {
 
   return (
     <PageLayout>
-      {/* 首页桌面端改用左侧导航栏（SideNav 内部已 hidden md:flex，移动端不渲染）。
-          内容区靠 .moontv-sidenav-content 让出侧边栏宽度。 */}
-      <SideNav />
-      {/*
-        内容区左内边距 = 侧边栏宽度 + 原本的 2.5rem（对应 sm:px-10）。
-        这里刻意用 Tailwind 任意值而不是在 globals.css 手写一条同名规则：
-        Next 会把 Tailwind 的 utilities 排在 globals.css 里手写规则**之后**，
-        同优先级下手写规则会被 `sm:px-10` 盖掉（实测 padding-left 停在 40px）。
-        走 Tailwind 变体则由它自己保证 md 覆盖 sm 的顺序。
-      */}
-      <div className='moontv-sidenav-content px-2 sm:px-10 py-4 sm:py-8 overflow-visible transition-[padding-left] duration-200 md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]'>
+      <div className='px-2 sm:px-10 py-4 sm:py-8 overflow-visible'>
         {/* 顶部 Tab 切换 */}
         <div className='mb-8 flex justify-center'>
           <CapsuleSwitch
@@ -955,9 +944,6 @@ function HomeClient() {
           ) : (
             // 首页视图
             <>
-              {/* 4.2.10 起首页不再放搜索框与推荐：搜索收进侧边栏一级菜单，
-                  热门推荐搬到搜索页搜索框下方（SearchRecommendations） */}
-
               {/* 继续观看 - 组件内部已处理简洁模式 */}
               <ContinueWatching />
 

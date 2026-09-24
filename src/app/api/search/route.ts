@@ -5,121 +5,9 @@ import { NextRequest } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getAvailableApiSites, getCacheTime, getConfig } from '@/lib/config';
 import { searchFromApiStream } from '@/lib/downstream';
-import { EMBY_SOURCE, EMBY_SOURCE_NAME } from '@/lib/emby';
-import { searchEmbyItems } from '@/lib/emby.server';
-import { toEmbyConfig, toOpenListConfig } from '@/lib/media-library';
-import { resolveMediaLibraryPolicy } from '@/lib/media-library.server';
-import {
-  type OpenListConfig,
-  mapOpenListSearchItems,
-  OPENLIST_SOURCE,
-  OPENLIST_SOURCE_NAME,
-  parseOpenListConfigFromCookieHeader,
-  requestOpenList,
-} from '@/lib/openlist';
 import { yellowWords } from '@/lib/yellow';
 
 export const runtime = 'edge';
-
-interface SearchFailure {
-  name: string;
-  key: string;
-  error: string;
-}
-
-/**
- * 搜私人影库并转成与 Apple CMS 一致的 `SearchResult`。
- *
- * 未配置影库时静默返回空（不是错误，用户只是没接影库）；
- * 配置了但搜不出来才进 `failedSources`，提示里点出「索引」这个最常见原因——
- * OpenList 默认不做索引，没在「设置 → 索引」里建过就搜不到东西。
- *
- * 连接配置取「个人 cookie 优先、管理员站点级配置兜底」，与 `/api/detail` 一致；
- * 站点级配置的类型（OpenList / Emby）决定走哪个适配器。
- */
-async function searchPrivateLibrary(
-  cookieHeader: string | null,
-  query: string
-): Promise<{ results: any[]; failed: SearchFailure | null }> {
-  // 站点级影库可能禁止个人覆盖，所以先问策略再决定要不要读 cookie
-  const { server: serverConfig, allowPersonalOverride } =
-    await resolveMediaLibraryPolicy();
-
-  // 个人 cookie 只可能是 OpenList
-  const personal = allowPersonalOverride
-    ? parseOpenListConfigFromCookieHeader(cookieHeader)
-    : null;
-  if (personal?.baseUrl) return searchOpenListLibrary(personal, query);
-
-  if (!serverConfig) return { results: [], failed: null };
-
-  if (serverConfig.Type === 'emby') {
-    return searchEmbyLibrary(serverConfig, query);
-  }
-  return searchOpenListLibrary(toOpenListConfig(serverConfig), query);
-}
-
-/** OpenList 影库搜索（需要影库已建立索引） */
-async function searchOpenListLibrary(
-  config: OpenListConfig | null,
-  query: string
-): Promise<{ results: any[]; failed: SearchFailure | null }> {
-  if (!config || !config.baseUrl) return { results: [], failed: null };
-
-  const rootPath = config.rootPath || '/';
-  const response = await requestOpenList(config, 'search', rootPath, query);
-
-  if (!response.ok) {
-    return {
-      results: [],
-      failed: {
-        name: OPENLIST_SOURCE_NAME,
-        key: OPENLIST_SOURCE,
-        error: `${response.error ?? '影库搜索失败'}（需先在影库「设置 → 索引」建立索引）`,
-      },
-    };
-  }
-
-  // HTTP 200 但业务码非 200：未开启索引时 OpenList 就是这种返回
-  const payload = response.data as { code?: number; message?: string; data?: { content?: unknown } } | null;
-  if (payload && typeof payload.code === 'number' && payload.code !== 200) {
-    return {
-      results: [],
-      failed: {
-        name: OPENLIST_SOURCE_NAME,
-        key: OPENLIST_SOURCE,
-        error: `${payload.message || '影库搜索失败'}（需先在影库「设置 → 索引」建立索引）`,
-      },
-    };
-  }
-
-  return {
-    results: mapOpenListSearchItems(payload?.data?.content, rootPath),
-    failed: null,
-  };
-}
-
-/** Emby / Jellyfin 影库搜索（有元数据，直接按标题搜） */
-async function searchEmbyLibrary(
-  config: unknown,
-  query: string
-): Promise<{ results: any[]; failed: SearchFailure | null }> {
-  const embyConfig = toEmbyConfig(config as Parameters<typeof toEmbyConfig>[0]);
-  if (!embyConfig?.baseUrl) return { results: [], failed: null };
-
-  const { results, error } = await searchEmbyItems(embyConfig, query);
-  if (error) {
-    return {
-      results: [],
-      failed: {
-        name: EMBY_SOURCE_NAME,
-        key: EMBY_SOURCE,
-        error: `${error}（请检查管理台里的地址与 API Key）`,
-      },
-    };
-  }
-  return { results, failed: null };
-}
 
 export async function GET(request: NextRequest) {
   // 检查是否为本地存储模式
@@ -244,20 +132,9 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 用户显式挑过搜索源时只搜挑中的源（影库不在源列表里），否则并入影库结果
-    const libraryTask: Promise<{ siteResults: any[]; failed: SearchFailure | null }> =
-      selectedSourcesParam
-        ? Promise.resolve({ siteResults: [], failed: null })
-        : searchPrivateLibrary(request.headers.get('cookie'), query).then((r) => ({
-            siteResults: r.results,
-            failed: r.failed,
-          }));
-
-    const results = await Promise.all([...tasks, libraryTask]);
+    const results = await Promise.all(tasks);
     const aggregatedResults = results.flatMap((r) => r.siteResults);
-    const failedSources = results
-      .filter((r) => r.failed)
-      .map((r) => r.failed as SearchFailure);
+    const failedSources = results.filter((r) => r.failed).map((r) => r.failed);
 
     if (aggregatedResults.length === 0) {
       const body = { results: [], failedSources };
@@ -288,7 +165,7 @@ export async function GET(request: NextRequest) {
     const aggregatedResults: any[] = [];
     const failedSources: { name: string; key: string; error: string }[] = [];
 
-    const siteTasks: Promise<void>[] = apiSites.map(async (site) => {
+    const tasks = apiSites.map(async (site) => {
       try {
         const generator = searchFromApiStream(site, query, true, timeout);
         let hasResults = false;
@@ -339,26 +216,8 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // 影库搜索作为一路并发（用户挑过源时不并入）
-    const libraryTask: Promise<void> = selectedSourcesParam
-      ? Promise.resolve()
-      : (async () => {
-          const { results, failed } = await searchPrivateLibrary(
-            request.headers.get('cookie'),
-            query
-          );
-          if (results.length > 0) {
-            aggregatedResults.push(...results);
-            await safeWrite({ site: OPENLIST_SOURCE, pageResults: results });
-          }
-          if (failed) {
-            failedSources.push(failed);
-            await safeWrite({ failedSources });
-          }
-        })();
-
     // 等所有 site 跑完
-    await Promise.allSettled([...siteTasks, libraryTask]);
+    await Promise.allSettled(tasks);
 
     if (failedSources.length > 0) {
       await safeWrite({ failedSources });

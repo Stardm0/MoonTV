@@ -14,7 +14,6 @@ import {
   getSearchHistory,
   subscribeToDataUpdates,
 } from '@/lib/db.client';
-import { useDownloadTaskCount } from '@/hooks/useDownloadTaskCount';
 
 import { useNavigationLoading } from './NavigationLoadingProvider';
 import SearchSuggestions from './SearchSuggestions';
@@ -53,8 +52,56 @@ const TopNav = ({ activePath }: TopNavProps) => {
   const [showSearchBar, setShowSearchBar] = useState(false);
   const searchBarRef = useRef<HTMLDivElement>(null);
 
-  // 下载任务数量：与首页侧边栏共用同一份统计逻辑（含 storage / 自定义事件）
-  const downloadTaskCount = useDownloadTaskCount();
+  // 下载任务数量统计
+  const [downloadTaskCount, setDownloadTaskCount] = useState(0);
+
+  // 监听下载任务变化，更新角标
+  useEffect(() => {
+    const updateTaskCount = () => {
+      if (typeof window !== 'undefined') {
+        const saved = localStorage.getItem('downloadTasks');
+        if (saved) {
+          try {
+            const tasks = JSON.parse(saved);
+            // 统计未完成的任务数量（下载中、暂停、等待、错误）
+            const activeCount = tasks.filter(
+              (t: { status: string }) => 
+                t.status === 'downloading' || 
+                t.status === 'paused' || 
+                t.status === 'waiting' || 
+                t.status === 'error'
+            ).length;
+            setDownloadTaskCount(activeCount);
+          } catch {
+            setDownloadTaskCount(0);
+          }
+        } else {
+          setDownloadTaskCount(0);
+        }
+      }
+    };
+
+    // 初始加载
+    updateTaskCount();
+
+    // 监听 localStorage 变化
+    const handleStorageChange = () => {
+      updateTaskCount();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorageChange);
+      // 自定义事件：当任务列表更新时
+      window.addEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleStorageChange);
+        window.removeEventListener('downloadTasksUpdated', handleStorageChange as EventListener);
+      }
+    };
+  }, []);
 
   // 检查是否启用简洁模式
   const [simpleMode, setSimpleMode] = useState(false);

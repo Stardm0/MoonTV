@@ -31,7 +31,6 @@ import {
   FileText,
   FolderOpen,
   Settings,
-  Trash2,
   Users,
   Video,
 } from 'lucide-react';
@@ -41,16 +40,6 @@ import Swal from 'sweetalert2';
 
 import { AdminConfig, AdminConfigResult } from '@/lib/admin.types';
 import { getAuthInfoFromBrowserCookie } from '@/lib/auth';
-import {
-  type MediaLibraryConfig,
-  createEmptyMediaLibraryConfig,
-  MEDIA_LIBRARY_TYPE_LABELS,
-  MEDIA_LIBRARY_TYPES as MEDIA_LIBRARY_TYPE_LIST,
-} from '@/lib/media-library';
-import {
-  clearOpenListConfigCookie,
-  readOpenListConfigFromCookie,
-} from '@/lib/openlist';
 import {
   getDefaultPlaybackSaveInterval,
   PLAYBACK_SAVE_DEFAULT_SECONDS,
@@ -88,7 +77,6 @@ interface SiteConfig {
   TVBoxPassword?: string;
   DanmakuApiBaseUrl?: string;
   PlaybackSaveInterval?: number;
-  MediaLibrary?: MediaLibraryConfig | null;
 }
 
 // 视频源数据类型
@@ -2240,14 +2228,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
     TVBoxPassword: '',
     DanmakuApiBaseUrl: '',
     PlaybackSaveInterval: PLAYBACK_SAVE_DEFAULT_SECONDS,
-    MediaLibrary: createEmptyMediaLibraryConfig(),
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
-  // 站点级影库「清空配置」的进行态
-  const [clearingLibrary, setClearingLibrary] = useState(false);
-  /** 本浏览器里那份个人影库配置的地址（有值 = 它正在盖住站点级配置） */
-  const [personalLibraryBaseUrl, setPersonalLibraryBaseUrl] = useState('');
   
   // TVBox 密码生成
   const generateRandomPassword = () => {
@@ -2337,22 +2320,9 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
           '',
         PlaybackSaveInterval:
           config.SiteConfig.PlaybackSaveInterval || defaultSaveInterval,
-        MediaLibrary:
-          config.SiteConfig.MediaLibrary ?? createEmptyMediaLibraryConfig(),
       });
     }
   }, [config, defaultSaveInterval]);
-
-  /**
-   * 读本浏览器的个人影库配置（只为了提示，不参与保存）。
-   *
-   * 个人 cookie 优先级高于站点级配置：管理员在自己机器上配过一次之后，
-   * 后台怎么改这台浏览器都不变——看着就像「保存没效果」。读出来显式提示。
-   */
-  useEffect(() => {
-    const saved = readOpenListConfigFromCookie();
-    setPersonalLibraryBaseUrl(saved?.baseUrl ? saved.baseUrl : '');
-  }, []);
 
   // 点击外部区域关闭下拉框
   useEffect(() => {
@@ -2429,131 +2399,6 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       showError(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
-    }
-  };
-
-  // 影库连接测试：用表单里当前填的地址与令牌试一次，不写库
-  const [testingLibrary, setTestingLibrary] = useState(false);
-  const [libraryTestResult, setLibraryTestResult] = useState<{
-    ok: boolean;
-    text: string;
-  } | null>(null);
-
-  const mediaLibrary =
-    siteSettings.MediaLibrary ?? createEmptyMediaLibraryConfig();
-
-  const updateMediaLibrary = (patch: Partial<MediaLibraryConfig>) => {
-    setSiteSettings((prev) => ({
-      ...prev,
-      MediaLibrary: {
-        ...(prev.MediaLibrary ?? createEmptyMediaLibraryConfig()),
-        ...patch,
-      },
-    }));
-  };
-
-  /**
-   * 清空站点级影库配置。
-   *
-   * 直接发 `MediaLibrary: null`（而不是「把地址改成空串再保存」）：
-   * 后者依赖「空地址归一成 null」这条隐式规则，管理员看不出自己到底删掉没有，
-   * 而且只要地址还留着一个字符，配置就在——这正是「删了保存没效果」的来源。
-   * 这里清空后立刻把表单也置空，状态一眼可见。
-   */
-  const handleClearMediaLibrary = async () => {
-    if (isLocalStorage) return;
-    try {
-      setClearingLibrary(true);
-      const resp = await fetch('/api/admin/site', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...siteSettings, MediaLibrary: null }),
-      });
-      if (!resp.ok) {
-        const data = await resp.json().catch(() => ({}));
-        throw new Error(data.error || `清空失败: ${resp.status}`);
-      }
-      setSiteSettings((prev) => ({
-        ...prev,
-        MediaLibrary: createEmptyMediaLibraryConfig(),
-      }));
-      setLibraryTestResult(null);
-      showSuccess('站点级影库配置已清空');
-    } catch (err) {
-      showError(err instanceof Error ? err.message : '清空失败');
-    } finally {
-      setClearingLibrary(false);
-    }
-  };
-
-  /**
-   * 清掉本浏览器的个人影库 cookie。
-   *
-   * 个人 cookie 优先级高于站点级配置，管理员在自己机器上配过一次之后，
-   * 后台怎么改这台浏览器都不变——看着就像「保存没效果」。这里给一条明路。
-   */
-  const handleClearPersonalLibrary = () => {
-    clearOpenListConfigCookie();
-    setPersonalLibraryBaseUrl('');
-    showSuccess('已清除本浏览器的个人影库配置，站点级配置将立即生效');
-  };
-
-  const handleTestLibrary = async () => {
-    if (!mediaLibrary.BaseUrl.trim()) {
-      setLibraryTestResult({ ok: false, text: '请先填写影库地址' });
-      return;
-    }
-    setTestingLibrary(true);
-    setLibraryTestResult(null);
-    try {
-      // Emby 与 OpenList 的鉴权方式不同，按类型转发到各自的测试端点
-      if (mediaLibrary.Type === 'emby') {
-        const resp = await fetch('/api/emby', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'ping',
-            baseUrl: mediaLibrary.BaseUrl,
-            token: mediaLibrary.Token,
-            userId: mediaLibrary.UserId || '',
-            allowPrivateNetwork:
-              mediaLibrary.AllowPrivateNetwork === true,
-          }),
-        });
-        const data = await resp.json().catch(() => ({}));
-        if (!resp.ok) {
-          throw new Error(
-            data?.message || data?.error || `测试失败: ${resp.status}`
-          );
-        }
-        setLibraryTestResult({ ok: true, text: data?.message ?? '连接成功' });
-        return;
-      }
-
-      const resp = await fetch('/api/openlist', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'me',
-          baseUrl: mediaLibrary.BaseUrl,
-          token: mediaLibrary.Token,
-          allowPrivateNetwork: mediaLibrary.AllowPrivateNetwork === true,
-        }),
-      });
-      const data = await resp.json().catch(() => ({}));
-      if (!resp.ok) {
-        throw new Error(
-          data?.message || data?.error || `测试失败: ${resp.status}`
-        );
-      }
-      setLibraryTestResult({ ok: true, text: '连接成功：影库可访问，令牌有效' });
-    } catch (err) {
-      setLibraryTestResult({
-        ok: false,
-        text: err instanceof Error ? err.message : '连接失败',
-      });
-    } finally {
-      setTestingLibrary(false);
     }
   };
 
@@ -3141,263 +2986,6 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
             </p>
           </div>
         </div>
-      </div>
-
-      {/* 私人影库（站点级）配置 */}
-      <div className='space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700'>
-        <div className='flex flex-wrap items-center gap-2'>
-          <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
-            私人影库（OpenList / AList）
-          </h3>
-          <span
-            className={`rounded-full px-2 py-0.5 text-xs ${
-              mediaLibrary.BaseUrl
-                ? mediaLibrary.Enabled
-                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
-                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                : 'bg-gray-500/10 text-gray-500 dark:text-gray-400'
-            }`}
-          >
-            {mediaLibrary.BaseUrl
-              ? mediaLibrary.Enabled
-                ? '已启用'
-                : '已停用（配置保留）'
-              : '未配置'}
-          </span>
-          {mediaLibrary.BaseUrl && !isLocalStorage && (
-            <button
-              type='button'
-              onClick={handleClearMediaLibrary}
-              disabled={clearingLibrary}
-              className='ml-auto flex items-center gap-1 rounded-lg border border-red-300 px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:hover:bg-red-500/10'
-            >
-              <Trash2 className='h-3.5 w-3.5' />
-              {clearingLibrary ? '清空中…' : '清空配置'}
-            </button>
-          )}
-        </div>
-        <p className='text-xs text-gray-500 dark:text-gray-400'>
-          配置后全站用户自动可用，令牌只保存在服务端、不会下发给浏览器。
-          它与个人在「影库」页填的那份互不影响：个人配置默认优先（只影响那台浏览器），
-          不想被它盖过就把下面的「允许个人影库覆盖」关掉。
-        </p>
-
-        {/* 本浏览器的个人配置覆盖提示：管理台改了没效果，八成是它 */}
-        {personalLibraryBaseUrl && (
-          <div className='flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300'>
-            <span>
-              当前浏览器保存了个人影库配置（{personalLibraryBaseUrl}），
-              它会覆盖上面的站点级配置——你在管理台改的东西<b>在这台浏览器上看不出变化</b>，
-              其他用户不受影响。
-            </span>
-            <button
-              type='button'
-              onClick={handleClearPersonalLibrary}
-              className='ml-auto rounded-lg border border-amber-400 px-2 py-1 text-xs transition-colors hover:bg-amber-100 dark:border-amber-500/50 dark:hover:bg-amber-500/20'
-            >
-              清除本浏览器的个人配置
-            </button>
-          </div>
-        )}
-
-        {/* 启用开关 */}
-        <div>
-          <div className='flex items-center justify-between'>
-            <label
-              className={`block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 ${
-                isLocalStorage ? 'opacity-50' : ''
-              }`}
-            >
-              启用站点级影库
-              {isLocalStorage && (
-                <span className='ml-2 text-xs text-gray-500 dark:text-gray-400'>
-                  (本地存储模式不支持保存)
-                </span>
-              )}
-            </label>
-            <button
-              type='button'
-              onClick={() =>
-                !isLocalStorage &&
-                updateMediaLibrary({ Enabled: !mediaLibrary.Enabled })
-              }
-              disabled={isLocalStorage}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
-                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-              } ${
-                mediaLibrary.Enabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                  mediaLibrary.Enabled ? 'translate-x-6' : 'translate-x-1'
-                }`}
-              />
-            </button>
-          </div>
-        </div>
-
-        {/* 影库类型 / 地址 / 令牌 / 根路径 */}
-        <div className='grid grid-cols-1 md:grid-cols-2 gap-4'>
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              影库类型
-            </label>
-            <select
-              value={mediaLibrary.Type}
-              onChange={(e) =>
-                !isLocalStorage &&
-                updateMediaLibrary({
-                  Type: e.target.value as MediaLibraryConfig['Type'],
-                })
-              }
-              disabled={isLocalStorage}
-              className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-            >
-              {MEDIA_LIBRARY_TYPE_LIST.map((type) => (
-                <option key={type} value={type}>
-                  {MEDIA_LIBRARY_TYPE_LABELS[type]}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              影库地址
-            </label>
-            <input
-              type='text'
-              value={mediaLibrary.BaseUrl}
-              onChange={(e) =>
-                !isLocalStorage && updateMediaLibrary({ BaseUrl: e.target.value })
-              }
-              disabled={isLocalStorage}
-              placeholder='https://openlist.example.com（小雅直接填小雅地址）'
-              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
-                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            />
-          </div>
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              访问令牌（OpenList：设置 → 其他 → Token）
-            </label>
-            <input
-              type='password'
-              value={mediaLibrary.Token}
-              onChange={(e) =>
-                !isLocalStorage && updateMediaLibrary({ Token: e.target.value })
-              }
-              disabled={isLocalStorage}
-              placeholder='可留空（影库开启访客模式时）'
-              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
-                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            />
-          </div>
-          <div>
-            <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-              浏览根路径
-            </label>
-            <input
-              type='text'
-              value={mediaLibrary.RootPath}
-              onChange={(e) =>
-                !isLocalStorage && updateMediaLibrary({ RootPath: e.target.value })
-              }
-              disabled={isLocalStorage}
-              placeholder='/'
-              className={`w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent ${
-                isLocalStorage ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
-            />
-          </div>
-          {mediaLibrary.Type === 'emby' && (
-            <div>
-              <label className='block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2'>
-                Emby 用户 ID（留空自动取第一个用户）
-              </label>
-              <input
-                type='text'
-                value={mediaLibrary.UserId || ''}
-                onChange={(e) =>
-                  !isLocalStorage &&
-                  updateMediaLibrary({ UserId: e.target.value })
-                }
-                disabled={isLocalStorage}
-                placeholder='自动获取'
-                className='w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-green-500 focus:border-transparent'
-              />
-            </div>
-          )}
-          <div className='flex items-end'>
-            <label className='flex items-center gap-2 pb-2 text-sm text-gray-700 dark:text-gray-300'>
-              <input
-                type='checkbox'
-                checked={mediaLibrary.AllowPrivateNetwork === true}
-                onChange={(e) =>
-                  !isLocalStorage &&
-                  updateMediaLibrary({ AllowPrivateNetwork: e.target.checked })
-                }
-                disabled={isLocalStorage}
-                className='w-4 h-4'
-              />
-              影库在内网（自建部署访问 192.168.x.x / NAS）
-            </label>
-          </div>
-          <div className='flex items-end'>
-            <label className='flex items-center gap-2 pb-2 text-sm text-gray-700 dark:text-gray-300'>
-              <input
-                type='checkbox'
-                checked={mediaLibrary.AllowPersonalOverride !== false}
-                onChange={(e) =>
-                  !isLocalStorage &&
-                  updateMediaLibrary({
-                    AllowPersonalOverride: e.target.checked,
-                  })
-                }
-                disabled={isLocalStorage}
-                className='w-4 h-4'
-              />
-              允许个人影库覆盖站点级配置
-            </label>
-          </div>
-        </div>
-        <p className='-mt-1 text-xs text-gray-500 dark:text-gray-400'>
-          勾选时：用户在「影库」页自己填的地址优先（只影响他自己的浏览器）。
-          取消勾选后：全站强制用上面这份，个人配置一律不生效。
-        </p>
-
-        {/* 测试连接 */}
-        <div className='flex flex-wrap items-center gap-3'>
-          <button
-            type='button'
-            onClick={handleTestLibrary}
-            disabled={testingLibrary}
-            className={`px-4 py-2 rounded-lg text-white transition-colors ${
-              testingLibrary
-                ? 'bg-gray-400 cursor-not-allowed'
-                : 'bg-green-600 hover:bg-green-700'
-            }`}
-          >
-            {testingLibrary ? '测试中…' : '测试连接'}
-          </button>
-          {libraryTestResult && (
-            <span
-              className={`text-sm ${
-                libraryTestResult.ok
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-red-500 dark:text-red-400'
-              }`}
-            >
-              {libraryTestResult.text}
-            </span>
-          )}
-        </div>
-        <p className='text-xs text-gray-500 dark:text-gray-400'>
-          托管环境（Cloudflare / Vercel）访问不到局域网地址，影库需要用公网 HTTPS（推荐 Cloudflare Tunnel）；自建部署才适合开内网开关。
-          小雅（xiaoya）就是 OpenList / AList 协议，类型选 OpenList、地址填小雅即可。
-        </p>
       </div>
 
       {/* 操作按钮 */}

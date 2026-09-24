@@ -87,31 +87,21 @@ function parseChangelog(content) {
 }
 
 function generateTypeScript(changelogData) {
-  /**
-   * 把一段文本安全地嵌进 TS 双引号字符串。
-   *
-   * ⚠️ 不能直接 `"${entry}"` —— CHANGELOG 是中文写作，很容易出现
-   * `"..."` 这类引号（或是反斜杠）。不做转义时生成的 TS 会直接语法错误，
-   * 表现为 `next build` 报 `Expected ',', got '...'`，但报错位置指向
-   * 生成物 `src/lib/changelog.ts`，容易误判成源文件问题。
-   */
-  const quote = (text) => JSON.stringify(String(text ?? ''));
-
   const entries = changelogData.versions
     .map((version) => {
       const addedEntries = version.added
-        .map((entry) => `    ${quote(entry)}`)
+        .map((entry) => `    "${entry}"`)
         .join(',\n');
       const changedEntries = version.changed
-        .map((entry) => `    ${quote(entry)}`)
+        .map((entry) => `    "${entry}"`)
         .join(',\n');
       const fixedEntries = version.fixed
-        .map((entry) => `    ${quote(entry)}`)
+        .map((entry) => `    "${entry}"`)
         .join(',\n');
 
       return `  {
-    version: ${quote(version.version)},
-    date: ${quote(version.date)},
+    version: "${version.version}",
+    date: "${version.date}",
     added: [
 ${addedEntries || '      // 无新增内容'}
     ],

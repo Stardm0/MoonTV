@@ -2,7 +2,7 @@
 'use client';
 
 import { ChevronUp, Search, X } from 'lucide-react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -18,14 +18,12 @@ import { getRequestTimeout } from '@/lib/utils';
 import FailedSourcesDisplay from '@/components/FailedSourcesDisplay';
 import FilterOptions from '@/components/FilterOptions';
 import PageLayout from '@/components/PageLayout';
-import SearchRecommendations from '@/components/SearchRecommendations';
 import SearchSuggestions from '@/components/SearchSuggestions';
 import SourceSelector from '@/components/SourceSelector';
 import VideoCard from '@/components/VideoCard';
 
 
 function SearchPageClient() {
-  const router = useRouter();
   const [searchHistory, setSearchHistory] = useState<string[]>([]);
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -581,21 +579,9 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
 
   return (
     <PageLayout activePath="/search">
-      <div className="moontv-sidenav-content px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10 transition-[padding-left] duration-200 md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]">
-        {/* 返回按钮：侧边栏时代顶栏 Logo 不在搜索页顶部了，留一个明确的回退入口 */}
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm text-gray-500 transition-colors hover:bg-gray-100/70 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/70 dark:hover:text-gray-200"
-          >
-            <ChevronUp className="h-4 w-4 -rotate-90" />
-            返回
-          </button>
-        </div>
-
-        {/* 搜索框和搜索源选择器（4.2.9 起桌面端也显示：侧边栏常驻后顶部导航不再提供搜索框） */}
-        <div className="mb-7 max-w-2xl mx-auto">
+      <div className="px-4 sm:px-10 py-4 sm:py-8 overflow-visible mb-10">
+        {/* 移动端搜索框和搜索源选择器 */}
+        <div className="mb-7 max-w-2xl mx-auto md:hidden">
           <div className="flex items-center">
             {/* 搜索源选择器 - 在搜索框左侧，作为一个整体 */}
             <div className="flex-shrink-0">
@@ -607,7 +593,7 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
               />
             </div>
             
-            {/* 搜索框：右侧带「搜索」按钮（4.2.10 补回，原来只有回车触发） */}
+            {/* 搜索框 */}
             <form onSubmit={handleSearch} className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
               <input
@@ -617,93 +603,13 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
                 onChange={handleInputChange}
                 onFocus={handleInputFocus}
                 placeholder="搜索电影、电视剧..."
-                className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-28 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
+                className="w-full h-12 rounded-r-lg rounded-l-none bg-gray-50/80 py-3 pl-10 pr-4 text-base text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-green-400 focus:bg-white border border-gray-200/50 border-l-0 shadow-sm dark:bg-gray-800 dark:text-gray-300 dark:placeholder-gray-500 dark:focus:bg-gray-700 dark:border-gray-700 dark:border-l-0"
               />
-
-              <button
-                type="submit"
-                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-green-500 px-5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-600 dark:hover:bg-green-600"
-              >
-                搜索
-              </button>
 
               <SearchSuggestions query={searchQuery} isVisible={showSuggestions} onSelect={handleSuggestionSelect} onClose={() => setShowSuggestions(false)} />
             </form>
           </div>
         </div>
-
-        {/* 顺序（4.3.1 用户要求）：搜索框 → 搜索历史 → 热门推荐。
-            两者都只在「未搜索 / 未加载」时出现，有结果时把空间让给结果。 */}
-        {!isLoading && !showResults && searchHistory.length > 0 && (
-          <section className='mb-8'>
-            <h2 className='mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200'>
-              搜索历史
-              <button
-                onClick={() => clearSearchHistory()}
-                className='ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500'
-              >
-                清空
-              </button>
-            </h2>
-            <div ref={historyRef} className='flex flex-wrap gap-2'>
-              {searchHistory.map((item, index) => (
-                <div key={`history-${item}-${index}`} className='relative group'>
-                  <button
-                    onClick={() => {
-                      if (selectedHistoryItem === item) {
-                        // 第二次点击触发搜索
-                        handleSearch(undefined, item);
-                      } else {
-                        // 第一次点击，选中历史项
-                        setSearchQuery(item);
-                        setSelectedHistoryItem(item);
-                      }
-                    }}
-                    className={`px-4 py-2 rounded-full text-sm transition-colors duration-200 ${
-                      selectedHistoryItem === item
-                        ? 'bg-green-500/20 text-green-600 dark:bg-green-600/30 dark:text-green-300'
-                        : 'bg-gray-500/10 hover:bg-gray-300 text-gray-700 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
-                    }`}
-                  >
-                    {item}
-                  </button>
-
-                  {/* 删除按钮 */}
-                  {selectedHistoryItem === item ? (
-                    <button
-                      aria-label='删除搜索历史'
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        deleteSearchHistory(item);
-                        if (selectedHistoryItem === item)
-                          setSelectedHistoryItem(null);
-                      }}
-                      className='absolute -top-1 -right-1 w-4 h-4 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
-                    >
-                      <X className='w-3 h-3' />
-                    </button>
-                  ) : (
-                    <button
-                      aria-label='删除搜索历史'
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        deleteSearchHistory(item);
-                      }}
-                      className='absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors'
-                    >
-                      <X className='w-3 h-3' />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* 热门推荐：历史下方的横滑条，20 部填满首屏 */}
-        {!isLoading && !showResults && <SearchRecommendations />}
 
 
 
@@ -894,6 +800,73 @@ const sortedAggregatedResults: { exact: [string, SearchResult[]][], others: [str
           </section>
           
 
+          ) : searchHistory.length > 0 ? (
+            <section className="mb-12">
+            <h2 className="mb-4 text-xl font-bold text-gray-800 text-left dark:text-gray-200">
+              搜索历史
+              {searchHistory.length > 0 && (
+                <button
+                  onClick={() => clearSearchHistory()}
+                  className="ml-3 text-sm text-gray-500 hover:text-red-500 transition-colors dark:text-gray-400 dark:hover:text-red-500"
+                >
+                  清空
+                </button>
+              )}
+            </h2>
+            <div ref={historyRef} className="flex flex-wrap gap-2">
+            {searchHistory.map((item, index) => (
+              <div key={`history-${item}-${index}`} className="relative group">
+                <button
+                  onClick={() => {
+                    if (selectedHistoryItem === item) {
+                      // 第二次点击触发搜索
+                      handleSearch(undefined, item);
+                    } else {
+                      // 第一次点击，选中历史项
+                      setSearchQuery(item);
+                      setSelectedHistoryItem(item);
+                    }
+                  }}
+                  className={`px-4 py-2 rounded-full text-sm transition-colors duration-200 ${
+                    selectedHistoryItem === item
+                      ? 'bg-green-500/20 text-green-600 dark:bg-green-600/30 dark:text-green-300'
+                      : 'bg-gray-500/10 hover:bg-gray-300 text-gray-700 dark:bg-gray-700/50 dark:hover:bg-gray-600 dark:text-gray-300'
+                  }`}
+                >
+                  {item}
+                </button>
+
+                {/* 删除按钮 */}
+                {(selectedHistoryItem === item) ? (
+                  <button
+                    aria-label="删除搜索历史"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSearchHistory(item);
+                      if (selectedHistoryItem === item) setSelectedHistoryItem(null);
+                    }}
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                ) : (
+                  <button
+                    aria-label="删除搜索历史"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      e.preventDefault();
+                      deleteSearchHistory(item);
+                    }}
+                    className="absolute -top-1 -right-1 w-4 h-4 opacity-0 group-hover:opacity-100 bg-gray-400 hover:bg-red-500 text-white rounded-full flex items-center justify-center text-[10px] transition-colors"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+          </section>
           ) : null}
         </div>
       </div>

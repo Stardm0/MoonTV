@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthInfoFromCookie } from '@/lib/auth';
 import { getConfig } from '@/lib/config';
 import { getStorage } from '@/lib/db';
-import { normalizeMediaLibraryConfig } from '@/lib/media-library';
 
 export const runtime = 'edge';
 
@@ -43,7 +42,6 @@ export async function POST(request: NextRequest) {
       TVBoxEnabled,
       TVBoxPassword,
       PlaybackSaveInterval,
-      MediaLibrary,
     } = body as {
       SiteName: string;
       Announcement: string;
@@ -58,7 +56,6 @@ export async function POST(request: NextRequest) {
       TVBoxEnabled?: boolean;
       TVBoxPassword?: string;
       PlaybackSaveInterval?: number;
-      MediaLibrary?: unknown;
     };
 
     // 参数校验
@@ -80,11 +77,7 @@ export async function POST(request: NextRequest) {
         (typeof PlaybackSaveInterval !== 'number' ||
           !Number.isFinite(PlaybackSaveInterval) ||
           PlaybackSaveInterval < 1 ||
-          PlaybackSaveInterval > 3600)) ||
-      // 影库配置要么不传（保持原值），要么是对象或 null（清空）
-      (MediaLibrary !== undefined &&
-        MediaLibrary !== null &&
-        typeof MediaLibrary !== 'object')
+          PlaybackSaveInterval > 3600))
     ) {
       return NextResponse.json({ error: '参数格式错误' }, { status: 400 });
     }
@@ -118,12 +111,6 @@ export async function POST(request: NextRequest) {
       TVBoxEnabled,
       TVBoxPassword,
       PlaybackSaveInterval,
-      // 不传 = 保持原值（老客户端/局部更新不会误清空）；传 null = 清空；
-      // 传对象但地址为空 = 归一成 null（等于没配）
-      MediaLibrary:
-        MediaLibrary === undefined
-          ? adminConfig.SiteConfig.MediaLibrary
-          : normalizeMediaLibraryConfig(MediaLibrary),
     };
 
     // 同步更新 ConfigFile 中的 cache_time

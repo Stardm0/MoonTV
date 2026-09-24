@@ -93,7 +93,7 @@ function RankingClient() {
 
   return (
     <PageLayout activePath='/ranking'>
-      <div className='moontv-sidenav-content px-4 sm:px-10 py-4 sm:py-8 transition-[padding-left] duration-200 md:pl-[calc(var(--moontv-sidenav-w)_+_2.5rem)]'>
+      <div className='px-4 sm:px-10 py-4 sm:py-8'>
         <div className='mb-6 flex items-center gap-3'>
           <BackButton showLabel />
           <div>
