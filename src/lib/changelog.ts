@@ -11,6 +11,20 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.4.3",
+    date: "2026-09-24",
+    added: [
+    "侧边栏「影库」二级菜单: 展开后有「浏览影库」与「影库设置」两个入口, 连接配置不再占着影库页正文"
+    ],
+    changed: [
+    "影库连接配置改为弹窗: 页面顶栏「设置」或侧边栏「影库设置」(/library?settings=1)打开, 保存并连上后自动收起",
+    "未连接影库时正文改为一张引导卡(含 OpenList / 小雅搭建说明与「配置影库」按钮), 不再把整张表单铺在页面上"
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.4.2",
     date: "2026-09-24",
     added: [

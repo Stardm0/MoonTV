@@ -15,11 +15,12 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  Settings,
   Trophy,
   Tv,
 } from 'lucide-react';
 import Link from 'next/link';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { memo, useCallback, useEffect, useState } from 'react';
 
 import {
@@ -45,6 +46,17 @@ const LIBRARY_ITEMS = [
   { icon: Cat, label: '动漫', href: '/douban?type=anime' },
   { icon: Clover, label: '综艺', href: '/douban?type=show' },
   { icon: Compass, label: '纪录片', href: '/douban?type=doc' },
+];
+
+/**
+ * 「影库」二级菜单的子项。
+ *
+ * 连接配置（地址 / 令牌 / 根路径）原本常驻在影库页正文里，占掉半屏；
+ * 4.4.3 起收进弹窗，入口放这里，浏览页只留内容。
+ */
+const PRIVATE_LIBRARY_ITEMS = [
+  { icon: HardDrive, label: '浏览影库', href: '/library' },
+  { icon: Settings, label: '影库设置', href: '/library?settings=1' },
 ];
 
 /** 导航项基础样式；折叠态由 globals.css 的 `.moontv-sidenav-item` 覆盖成居中图标 */
@@ -90,7 +102,10 @@ const SideNav = () => {
   const { startLoading } = useNavigationLoading();
   const downloadTaskCount = useDownloadTaskCount();
 
+  const router = useRouter();
+
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [privateLibraryOpen, setPrivateLibraryOpen] = useState(false);
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
 
@@ -102,6 +117,8 @@ const SideNav = () => {
   const isRankingActive = pathname.startsWith('/ranking');
   const isLibraryActive = pathname.startsWith('/douban');
   const isPrivateLibraryActive = pathname.startsWith('/library');
+  /** /library?settings=1 = 打开影库设置弹窗，二级菜单按此高亮 */
+  const wantsSettings = searchParams.get('settings') === '1';
 
   // 首屏内联脚本已经写好 DOM 属性，这里把 localStorage 的其余偏好对齐。
   useEffect(() => {
@@ -149,6 +166,26 @@ const SideNav = () => {
    */
   const toggleLibrary = useCallback(() => {
     setLibraryOpen((open) => !open);
+  }, []);
+
+  /**
+   * 「影库」主按钮：展开态仍然一键进浏览页（不能因为加了二级菜单就多点一次），
+   * 顺手把子菜单展开——用户多半就是想进去或想改配置。
+   *
+   * ⚠️ 折叠态不一样：箭头被 `sidenav-expanded-only` 藏了，主按钮就地当展开开关，
+   * 与「影视库」在折叠态的行为保持一致（4.3.3 定下的规则）。
+   */
+  const openPrivateLibrary = useCallback(() => {
+    if (isVisuallyCollapsed()) {
+      setPrivateLibraryOpen((open) => !open);
+      return;
+    }
+    setPrivateLibraryOpen(true);
+    if (pathname !== '/library') router.push('/library');
+  }, [pathname, router]);
+
+  const togglePrivateLibrary = useCallback(() => {
+    setPrivateLibraryOpen((open) => !open);
   }, []);
 
   const openDownloadManager = () => {
@@ -211,20 +248,66 @@ const SideNav = () => {
           <span className='sidenav-expanded-only'>首页</span>
         </Link>
 
-        {/* 私人影库：一级菜单，单独打开 /library 页面（OpenList / AList 影库浏览） */}
-        <Link
-          href='/library'
-          onClick={startLoading}
+        {/* 私人影库：一级菜单 + 二级菜单（浏览 / 设置）。
+            配置表单 4.4.3 起收进弹窗，二级菜单是它的入口。 */}
+        <div
           className={`${ITEM_CLASS} ${
             isPrivateLibraryActive
               ? 'bg-green-500/10 text-green-600 dark:text-green-400'
               : ''
           }`}
-          title='私人影库'
         >
-          <HardDrive className='h-5 w-5 flex-shrink-0' />
-          <span className='sidenav-expanded-only'>影库</span>
-        </Link>
+          <button
+            type='button'
+            onClick={openPrivateLibrary}
+            className='flex min-w-0 flex-1 items-center gap-3'
+            title='私人影库'
+          >
+            <HardDrive className='h-5 w-5 flex-shrink-0' />
+            <span className='sidenav-expanded-only flex-1 text-left'>影库</span>
+          </button>
+          <button
+            type='button'
+            onClick={togglePrivateLibrary}
+            className='sidenav-expanded-only flex-shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-gray-200'
+            title='展开影库子菜单'
+            aria-label='展开影库子菜单'
+            aria-expanded={privateLibraryOpen}
+          >
+            <ChevronDown
+              className={`h-4 w-4 transition-transform duration-200 ${
+                privateLibraryOpen ? 'rotate-180' : ''
+              }`}
+            />
+          </button>
+        </div>
+
+        {privateLibraryOpen && (
+          <div className='moontv-sidenav-sub mt-1 space-y-0.5 border-l border-gray-200 pl-2 dark:border-gray-700'>
+            {PRIVATE_LIBRARY_ITEMS.map((item) => {
+              const Icon = item.icon;
+              const isSettings = item.href.includes('settings=1');
+              const isItemActive =
+                isPrivateLibraryActive && isSettings === wantsSettings;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={startLoading}
+                  title={item.label}
+                  className={`moontv-sidenav-item flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors hover:bg-gray-100/70 hover:text-green-600 dark:hover:bg-gray-800/70 dark:hover:text-green-400 ${
+                    isItemActive
+                      ? 'bg-green-500/10 font-medium text-green-600 dark:text-green-400'
+                      : 'text-gray-600 dark:text-gray-400'
+                  }`}
+                >
+                  <Icon className='h-4 w-4 flex-shrink-0' />
+                  <span className='sidenav-expanded-only'>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
 
         {/* 搜索：一级菜单，单独打开 /search 页面（与「电影」等平级，不是就地展开） */}
         <Link

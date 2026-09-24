@@ -2,8 +2,16 @@
 
 'use client';
 
-import { Folder, HardDrive, Play, Search, Trash2, X } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import {
+  Folder,
+  HardDrive,
+  Play,
+  Search,
+  Settings,
+  Trash2,
+  X,
+} from 'lucide-react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { formatFileSize } from '@/lib/file-size';
@@ -73,6 +81,7 @@ const SERVER_LIBRARY_PLACEHOLDER: OpenListConfig = {
  */
 const OpenListBrowser = () => {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [config, setConfig] = useState<OpenListConfig | null>(null);
   const [source, setSource] = useState<LibrarySource>('none');
@@ -101,6 +110,8 @@ const OpenListBrowser = () => {
   const [view, setView] = useState<LibraryView>('list');
   /** 单击选中的条目名（只高亮，不跳转） */
   const [selected, setSelected] = useState<string | null>(null);
+  /** 连接设置弹窗：入口是顶栏「设置」或侧边栏「影库设置」（?settings=1） */
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   /**
    * 连接来源：**个人 cookie 优先，管理员站点级配置兜底**。
@@ -159,6 +170,11 @@ const OpenListBrowser = () => {
       cancelled = true;
     };
   }, []);
+
+  /** 侧边栏「影库设置」跳 /library?settings=1 —— 进来就直接把弹窗打开 */
+  useEffect(() => {
+    if (searchParams.get('settings') === '1') setSettingsOpen(true);
+  }, [searchParams]);
 
   const callOpenList = useCallback(
     async (
@@ -256,6 +272,8 @@ const OpenListBrowser = () => {
     setSource('personal');
     setNotice('已保存，正在连接影库…');
     await loadDir(next, next.rootPath || '/');
+    // 连上了就收起弹窗，让位给内容区
+    setSettingsOpen(false);
   };
 
   const handleTest = async () => {
@@ -487,13 +505,59 @@ const OpenListBrowser = () => {
             断开连接
           </button>
         )}
+        <button
+          type='button'
+          onClick={() => setSettingsOpen(true)}
+          className='ml-auto flex items-center gap-1 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+          title='影库连接设置'
+        >
+          <Settings className='h-3.5 w-3.5' />
+          设置
+        </button>
       </div>
 
-      {/* 连接设置：未配置时默认展开，已配置时折叠在下方 */}
-      <section className='mb-6 rounded-xl border border-gray-200/70 bg-white/60 p-4 dark:border-gray-700/60 dark:bg-gray-900/40'>
-        <h2 className='mb-3 text-sm font-semibold text-gray-700 dark:text-gray-300'>
-          影库连接（OpenList / AList）
-        </h2>
+      {/* 没连上影库时给一张引导卡；连接表单已收进弹窗（入口：顶栏「设置」/ 侧边栏二级菜单） */}
+      {source === 'none' && !settingsOpen && (
+        <section className='mb-6 rounded-xl border border-dashed border-gray-300 bg-white/40 p-6 text-center dark:border-gray-700 dark:bg-gray-900/30'>
+          <HardDrive className='mx-auto mb-3 h-8 w-8 text-gray-300 dark:text-gray-600' />
+          <p className='text-sm text-gray-600 dark:text-gray-300'>还没有连接影库</p>
+          <p className='mx-auto mt-1 max-w-md text-xs text-gray-500 dark:text-gray-400'>
+            先在服务器或 NAS 上装 OpenList，再用 Cloudflare Tunnel 暴露成 HTTPS 地址
+            （免公网 IP）。小雅就是 OpenList / AList 协议，地址直接填小雅即可；
+            管理员也可以在后台配一份，全站用户自动可用。
+          </p>
+          <button
+            type='button'
+            onClick={() => setSettingsOpen(true)}
+            className='mt-4 rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600'
+          >
+            配置影库
+          </button>
+        </section>
+      )}
+
+      {settingsOpen && (
+        <div
+          className='fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4'
+          onClick={() => setSettingsOpen(false)}
+        >
+          <div
+            className='max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-5 shadow-2xl dark:border-gray-700 dark:bg-gray-900'
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className='mb-3 flex items-center gap-2'>
+              <h2 className='text-sm font-semibold text-gray-700 dark:text-gray-300'>
+                影库连接（OpenList / AList）
+              </h2>
+              <button
+                type='button'
+                onClick={() => setSettingsOpen(false)}
+                className='ml-auto rounded-lg p-1 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-800'
+                aria-label='关闭设置'
+              >
+                <X className='h-4 w-4' />
+              </button>
+            </div>
         <div className='grid gap-3 sm:grid-cols-2'>
           <label className='flex flex-col gap-1 text-xs text-gray-600 dark:text-gray-400'>
             影库地址
@@ -583,7 +647,9 @@ const OpenListBrowser = () => {
             小雅（xiaoya）就是 OpenList / AList 协议，地址直接填小雅即可。
           </p>
         )}
-      </section>
+          </div>
+        </div>
+      )}
 
       {source !== 'none' && (
         <>
