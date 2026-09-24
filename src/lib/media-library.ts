@@ -17,6 +17,10 @@
  * 理由：已经配过 cookie 的用户不能因为管理员新增了全局配置就被悄悄换掉影库
  * （那会让人以为「我的片子不见了」）。反过来，没配过的用户自动拿到全局配置。
  *
+ * 4.3.12 起这条优先级可以被管理员关掉（`AllowPersonalOverride: false`）：
+ * 关掉之后全站强制只用站点级影库，浏览器里的个人配置不再生效，
+ * 两处配置从此**互不干扰**（对应「管理台与个人设置分开控制」的诉求）。
+ *
  * ## 令牌不落前端
  *
  * 服务端配置里的 `Token` **永远不下发给浏览器**。浏览器只拿到
@@ -60,6 +64,14 @@ export interface MediaLibraryConfig {
   AllowPrivateNetwork: boolean;
   /** Emby 用户 ID（Emby 的部分接口需要，留空则由服务端取第一个用户） */
   UserId?: string;
+  /**
+   * 是否允许浏览器里的个人影库配置覆盖这份站点级配置（默认允许）。
+   *
+   * 关掉之后：全站强制只用站点级影库，个人在「影库」页填的地址一律不生效。
+   * 这是「管理台与个人设置分开控制」的开关——管理员不再被某台浏览器上
+   * 残留的 cookie 影响判断。
+   */
+  AllowPersonalOverride: boolean;
 }
 
 /** 浏览器可见的影库摘要（不含任何凭据） */
@@ -68,6 +80,8 @@ export interface MediaLibrarySummary {
   Type: MediaLibraryType;
   /** 是否已填好可用地址（没填地址时管理员可能只开了开关） */
   Configured: boolean;
+  /** 是否允许个人影库覆盖站点级配置（没配过站点级影库时恒为 true） */
+  AllowPersonalOverride: boolean;
 }
 
 export function isMediaLibraryType(value: unknown): value is MediaLibraryType {
@@ -91,6 +105,7 @@ export function createEmptyMediaLibraryConfig(): MediaLibraryConfig {
     Token: '',
     RootPath: '/',
     AllowPrivateNetwork: false,
+    AllowPersonalOverride: true,
   };
 }
 
@@ -125,6 +140,8 @@ export function normalizeMediaLibraryConfig(
     RootPath: rootPath,
     AllowPrivateNetwork: input.AllowPrivateNetwork === true,
     UserId: typeof input.UserId === 'string' ? input.UserId : '',
+    // 缺省 = 允许覆盖（老配置没有这个字段，行为必须与升级前一致）
+    AllowPersonalOverride: input.AllowPersonalOverride !== false,
   };
 }
 
@@ -176,5 +193,32 @@ export function summarizeMediaLibrary(
     Enabled: isMediaLibraryUsable(config),
     Type: config?.Type ?? 'openlist',
     Configured: !!config?.BaseUrl,
+    AllowPersonalOverride: config?.AllowPersonalOverride !== false,
   };
+}
+
+/** 本次请求最终用的是哪一份影库配置 */
+export type LibrarySourceKind = 'none' | 'personal' | 'server';
+
+/**
+ * 决定该用哪份影库配置（纯函数，便于回归）。
+ *
+ * - 有个人配置且允许覆盖 → 用个人的
+ * - 否则站点级可用 → 用站点级
+ * - 都没有 → 没接影库
+ *
+ * ⚠️ 覆盖被管理员关掉且站点级又不可用时，结果是 `none` 而不是退回个人配置：
+ * 管理员关掉这个开关的意图就是「只认站点级」，退回个人会让开关形同虚设。
+ */
+export function resolveLibrarySourceKind(input: {
+  /** 本次请求是否带上了可用的个人影库配置 */
+  hasPersonal: boolean;
+  /** 站点级配置是否真的可用（启用 + 有地址） */
+  serverUsable: boolean;
+  /** 管理员是否允许个人配置覆盖站点级配置 */
+  allowPersonalOverride: boolean;
+}): LibrarySourceKind {
+  if (input.hasPersonal && input.allowPersonalOverride) return 'personal';
+  if (input.serverUsable) return 'server';
+  return 'none';
 }

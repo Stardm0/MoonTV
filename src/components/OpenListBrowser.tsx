@@ -139,40 +139,50 @@ const OpenListBrowser = () => {
    *
    * 个人配置优先是为了不让人已有的影库被管理员新加的配置悄悄顶掉；
    * 没配过的人才自动用后台那份（家庭/小团队场景里这是最常见的用法）。
+   *
+   * ⚠️ 4.3.12：管理员可以把这条优先级关掉（`AllowPersonalOverride: false`），
+   * 关掉后**先读摘要再决定要不要看 cookie**——所以必须先等 `/api/server-config`，
+   * 不能像以前那样直接同步读 cookie 就 return。
    */
   useEffect(() => {
     let cancelled = false;
 
-    const saved = readOpenListConfigFromCookie();
-    if (saved?.baseUrl) {
-      setConfig(saved);
-      setSource('personal');
-      setForm({
-        baseUrl: saved.baseUrl,
-        token: saved.token,
-        rootPath: saved.rootPath || '/',
-        allowPrivateNetwork: saved.allowPrivateNetwork === true,
-      });
-      setPath(saved.rootPath || '/');
-      return;
-    }
-
-    // 只取摘要：后台那份的令牌与地址不会下发到浏览器
-    fetch('/api/server-config')
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled) return;
-        const summary = (data?.MediaLibrary ?? null) as MediaLibrarySummary | null;
-        setServerSummary(summary);
-        if (summary?.Enabled) {
-          setConfig(SERVER_LIBRARY_PLACEHOLDER);
-          setSource('server');
-          setPath('/');
-        }
-      })
-      .catch(() => {
+    (async () => {
+      // 只取摘要：后台那份的令牌与地址不会下发到浏览器
+      let summary: MediaLibrarySummary | null = null;
+      try {
+        const res = await fetch('/api/server-config');
+        const data = res.ok ? await res.json() : null;
+        summary = (data?.MediaLibrary ?? null) as MediaLibrarySummary | null;
+      } catch {
         // 拿不到就当没有站点级影库，用户仍可自己填
-      });
+      }
+      if (cancelled) return;
+      setServerSummary(summary);
+
+      // 覆盖被管理员关掉时，本浏览器里的个人配置一律不生效
+      const allowOverride = summary?.AllowPersonalOverride !== false;
+      const saved = allowOverride ? readOpenListConfigFromCookie() : null;
+
+      if (saved?.baseUrl) {
+        setConfig(saved);
+        setSource('personal');
+        setForm({
+          baseUrl: saved.baseUrl,
+          token: saved.token,
+          rootPath: saved.rootPath || '/',
+          allowPrivateNetwork: saved.allowPrivateNetwork === true,
+        });
+        setPath(saved.rootPath || '/');
+        return;
+      }
+
+      if (summary?.Enabled) {
+        setConfig(SERVER_LIBRARY_PLACEHOLDER);
+        setSource('server');
+        setPath('/');
+      }
+    })();
 
     return () => {
       cancelled = true;
@@ -238,6 +248,10 @@ const OpenListBrowser = () => {
   const handleSave = async () => {
     setError('');
     setNotice('');
+    if (personalOverrideBlocked) {
+      setError('管理员已禁止个人影库覆盖站点级配置，此处的连接设置不会生效');
+      return;
+    }
     if (!form.baseUrl.trim()) {
       setError('请填写影库地址');
       return;
@@ -347,6 +361,8 @@ const OpenListBrowser = () => {
    */
   const rootPrefix = normalizeRootPath(config?.rootPath || '/');
   const isAtRoot = path === rootPrefix;
+  /** 管理员关掉了「个人影库覆盖站点级配置」：本页的个人连接表单不再生效 */
+  const personalOverrideBlocked = serverSummary?.AllowPersonalOverride === false;
   /** 当前所在的网盘名（根路径之下的第一段），在根目录时为空串 */
   const currentDrive = getDriveNameFromPath(path, rootPrefix);
   /** 挂载的网盘 = 根目录里的目录项（sortOpenListItems 已保证目录在前） */
@@ -395,6 +411,11 @@ const OpenListBrowser = () => {
             {serverSummary?.Type
               ? `（${MEDIA_LIBRARY_TYPE_LABELS[serverSummary.Type]}）`
               : ''}
+          </span>
+        )}
+        {source === 'personal' && (
+          <span className='rounded-full bg-blue-500/10 px-2.5 py-1 text-xs text-blue-600 dark:text-blue-400'>
+            个人配置（仅本浏览器）
           </span>
         )}
         {source === 'personal' && serverSummary?.Enabled && (
@@ -472,7 +493,8 @@ const OpenListBrowser = () => {
           <button
             type='button'
             onClick={handleSave}
-            className='rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600'
+            disabled={personalOverrideBlocked}
+            className='rounded-lg bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50'
           >
             保存并打开
           </button>
@@ -501,10 +523,18 @@ const OpenListBrowser = () => {
         {error && (
           <p className='mt-2 text-xs text-red-500 dark:text-red-400'>{error}</p>
         )}
+        {personalOverrideBlocked && (
+          <p className='mt-3 text-xs text-amber-600 dark:text-amber-400'>
+            管理员已禁止个人影库覆盖站点级配置：上面这份连接设置不会生效，
+            全站统一使用后台配置的那份影库。
+          </p>
+        )}
         {source === 'server' && (
           <p className='mt-3 text-xs text-green-600 dark:text-green-400'>
-            当前用的是管理员在后台配置的影库。想在自己这个浏览器上换一个影库，
-            填上面的表单保存即可覆盖。
+            当前用的是管理员在后台配置的影库。
+            {personalOverrideBlocked
+              ? '管理员已禁止个人覆盖，全站统一用这份。'
+              : '想在自己这个浏览器上换一个影库，填上面的表单保存即可覆盖。'}
           </p>
         )}
         {source === 'none' && (

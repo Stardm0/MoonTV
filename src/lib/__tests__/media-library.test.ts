@@ -5,6 +5,7 @@ import {
   MEDIA_LIBRARY_TYPE_LABELS,
   normalizeMediaLibraryConfig,
   normalizeMediaLibraryType,
+  resolveLibrarySourceKind,
   summarizeMediaLibrary,
   toOpenListConfig,
 } from '@/lib/media-library';
@@ -67,6 +68,7 @@ describe('影库配置归一', () => {
       RootPath: '/',
       AllowPrivateNetwork: false,
       UserId: '',
+      AllowPersonalOverride: true,
     });
   });
 
@@ -103,6 +105,7 @@ describe('可用性与类型转换', () => {
     Token: 't',
     RootPath: '/movie',
     AllowPrivateNetwork: true,
+    AllowPersonalOverride: true,
   };
 
   it('启用且有地址才算可用', () => {
@@ -140,8 +143,14 @@ describe('下发浏览器的摘要', () => {
       Token: 'super-secret-token',
       RootPath: '/',
       AllowPrivateNetwork: false,
+      AllowPersonalOverride: true,
     });
-    expect(summary).toEqual({ Enabled: true, Type: 'openlist', Configured: true });
+    expect(summary).toEqual({
+      Enabled: true,
+      Type: 'openlist',
+      Configured: true,
+      AllowPersonalOverride: true,
+    });
     expect(JSON.stringify(summary)).not.toContain('super-secret-token');
     expect(JSON.stringify(summary)).not.toContain('secret.example.com');
   });
@@ -155,12 +164,87 @@ describe('下发浏览器的摘要', () => {
         Token: '',
         RootPath: '/',
         AllowPrivateNetwork: false,
+        AllowPersonalOverride: true,
       }).Enabled
     ).toBe(false);
     expect(summarizeMediaLibrary(null)).toEqual({
       Enabled: false,
       Type: 'openlist',
       Configured: false,
+      AllowPersonalOverride: true,
     });
+  });
+});
+
+describe('个人配置与站点级配置的优先级（4.3.12）', () => {
+  it('缺省允许个人覆盖——升级前的老配置行为不变', () => {
+    expect(
+      normalizeMediaLibraryConfig({ BaseUrl: 'https://x.com' })
+        ?.AllowPersonalOverride
+    ).toBe(true);
+    expect(summarizeMediaLibrary(null).AllowPersonalOverride).toBe(true);
+  });
+
+  it('显式关掉后摘要里也带出去（浏览器据此不再用个人配置）', () => {
+    const summary = summarizeMediaLibrary({
+      Enabled: true,
+      Type: 'openlist',
+      BaseUrl: 'https://x.com',
+      Token: '',
+      RootPath: '/',
+      AllowPrivateNetwork: false,
+      AllowPersonalOverride: false,
+    });
+    expect(summary.AllowPersonalOverride).toBe(false);
+  });
+
+  it('有个人配置且允许覆盖 → 用个人的', () => {
+    expect(
+      resolveLibrarySourceKind({
+        hasPersonal: true,
+        serverUsable: true,
+        allowPersonalOverride: true,
+      })
+    ).toBe('personal');
+  });
+
+  it('没有个人配置 → 用站点级', () => {
+    expect(
+      resolveLibrarySourceKind({
+        hasPersonal: false,
+        serverUsable: true,
+        allowPersonalOverride: true,
+      })
+    ).toBe('server');
+  });
+
+  it('允许覆盖但站点级不可用、也没个人配置 → 没接影库', () => {
+    expect(
+      resolveLibrarySourceKind({
+        hasPersonal: false,
+        serverUsable: false,
+        allowPersonalOverride: true,
+      })
+    ).toBe('none');
+  });
+
+  it('管理员关闭覆盖 → 即使有个人配置也走站点级', () => {
+    expect(
+      resolveLibrarySourceKind({
+        hasPersonal: true,
+        serverUsable: true,
+        allowPersonalOverride: false,
+      })
+    ).toBe('server');
+  });
+
+  it('管理员关闭覆盖且站点级不可用 → 不会偷偷退回个人配置', () => {
+    expect(
+      resolveLibrarySourceKind({
+        hasPersonal: true,
+        serverUsable: false,
+        allowPersonalOverride: false,
+      })
+    ).toBe('none');
   });
 });

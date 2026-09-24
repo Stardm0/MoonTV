@@ -13,9 +13,8 @@ import {
 import { toEmbyConfig } from '@/lib/media-library';
 import {
   getServerMediaLibraryConfig,
-  getServerOpenListConfig,
+  resolveOpenListConfig,
 } from '@/lib/media-library.server';
-import { parseOpenListConfigFromCookieHeader } from '@/lib/openlist';
 
 export const runtime = 'edge';
 
@@ -56,12 +55,8 @@ export async function GET(request: Request) {
     return imageResponse(result);
   }
 
-  // OpenList：个人 cookie 优先，服务端全局兜底
-  const cookieHeader = request.headers.get('cookie');
-  const fromCookie = parseOpenListConfigFromCookieHeader(cookieHeader);
-  const config = fromCookie?.baseUrl
-    ? fromCookie
-    : await getServerOpenListConfig();
+  // OpenList：个人 cookie 优先，服务端全局兜底（覆盖策略由服务端统一裁决）
+  const config = await resolveOpenListConfig(request.headers.get('cookie'));
 
   if (!config?.baseUrl) {
     return NextResponse.json({ error: '尚未配置私人影库' }, { status: 400 });

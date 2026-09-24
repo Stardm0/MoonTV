@@ -8,9 +8,7 @@ import { searchFromApiStream } from '@/lib/downstream';
 import { EMBY_SOURCE, EMBY_SOURCE_NAME } from '@/lib/emby';
 import { searchEmbyItems } from '@/lib/emby.server';
 import { toEmbyConfig, toOpenListConfig } from '@/lib/media-library';
-import {
-  getServerMediaLibraryConfig,
-} from '@/lib/media-library.server';
+import { resolveMediaLibraryPolicy } from '@/lib/media-library.server';
 import {
   type OpenListConfig,
   mapOpenListSearchItems,
@@ -43,11 +41,16 @@ async function searchPrivateLibrary(
   cookieHeader: string | null,
   query: string
 ): Promise<{ results: any[]; failed: SearchFailure | null }> {
+  // 站点级影库可能禁止个人覆盖，所以先问策略再决定要不要读 cookie
+  const { server: serverConfig, allowPersonalOverride } =
+    await resolveMediaLibraryPolicy();
+
   // 个人 cookie 只可能是 OpenList
-  const personal = parseOpenListConfigFromCookieHeader(cookieHeader);
+  const personal = allowPersonalOverride
+    ? parseOpenListConfigFromCookieHeader(cookieHeader)
+    : null;
   if (personal?.baseUrl) return searchOpenListLibrary(personal, query);
 
-  const serverConfig = await getServerMediaLibraryConfig();
   if (!serverConfig) return { results: [], failed: null };
 
   if (serverConfig.Type === 'emby') {

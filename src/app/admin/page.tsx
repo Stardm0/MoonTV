@@ -31,6 +31,7 @@ import {
   FileText,
   FolderOpen,
   Settings,
+  Trash2,
   Users,
   Video,
 } from 'lucide-react';
@@ -46,6 +47,10 @@ import {
   MEDIA_LIBRARY_TYPE_LABELS,
   MEDIA_LIBRARY_TYPES as MEDIA_LIBRARY_TYPE_LIST,
 } from '@/lib/media-library';
+import {
+  clearOpenListConfigCookie,
+  readOpenListConfigFromCookie,
+} from '@/lib/openlist';
 import {
   getDefaultPlaybackSaveInterval,
   PLAYBACK_SAVE_DEFAULT_SECONDS,
@@ -2239,6 +2244,10 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
   });
   // 保存状态
   const [saving, setSaving] = useState(false);
+  // 站点级影库「清空配置」的进行态
+  const [clearingLibrary, setClearingLibrary] = useState(false);
+  /** 本浏览器里那份个人影库配置的地址（有值 = 它正在盖住站点级配置） */
+  const [personalLibraryBaseUrl, setPersonalLibraryBaseUrl] = useState('');
   
   // TVBox 密码生成
   const generateRandomPassword = () => {
@@ -2333,6 +2342,17 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
       });
     }
   }, [config, defaultSaveInterval]);
+
+  /**
+   * 读本浏览器的个人影库配置（只为了提示，不参与保存）。
+   *
+   * 个人 cookie 优先级高于站点级配置：管理员在自己机器上配过一次之后，
+   * 后台怎么改这台浏览器都不变——看着就像「保存没效果」。读出来显式提示。
+   */
+  useEffect(() => {
+    const saved = readOpenListConfigFromCookie();
+    setPersonalLibraryBaseUrl(saved?.baseUrl ? saved.baseUrl : '');
+  }, []);
 
   // 点击外部区域关闭下拉框
   useEffect(() => {
@@ -2430,6 +2450,52 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
         ...patch,
       },
     }));
+  };
+
+  /**
+   * 清空站点级影库配置。
+   *
+   * 直接发 `MediaLibrary: null`（而不是「把地址改成空串再保存」）：
+   * 后者依赖「空地址归一成 null」这条隐式规则，管理员看不出自己到底删掉没有，
+   * 而且只要地址还留着一个字符，配置就在——这正是「删了保存没效果」的来源。
+   * 这里清空后立刻把表单也置空，状态一眼可见。
+   */
+  const handleClearMediaLibrary = async () => {
+    if (isLocalStorage) return;
+    try {
+      setClearingLibrary(true);
+      const resp = await fetch('/api/admin/site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...siteSettings, MediaLibrary: null }),
+      });
+      if (!resp.ok) {
+        const data = await resp.json().catch(() => ({}));
+        throw new Error(data.error || `清空失败: ${resp.status}`);
+      }
+      setSiteSettings((prev) => ({
+        ...prev,
+        MediaLibrary: createEmptyMediaLibraryConfig(),
+      }));
+      setLibraryTestResult(null);
+      showSuccess('站点级影库配置已清空');
+    } catch (err) {
+      showError(err instanceof Error ? err.message : '清空失败');
+    } finally {
+      setClearingLibrary(false);
+    }
+  };
+
+  /**
+   * 清掉本浏览器的个人影库 cookie。
+   *
+   * 个人 cookie 优先级高于站点级配置，管理员在自己机器上配过一次之后，
+   * 后台怎么改这台浏览器都不变——看着就像「保存没效果」。这里给一条明路。
+   */
+  const handleClearPersonalLibrary = () => {
+    clearOpenListConfigCookie();
+    setPersonalLibraryBaseUrl('');
+    showSuccess('已清除本浏览器的个人影库配置，站点级配置将立即生效');
   };
 
   const handleTestLibrary = async () => {
@@ -3079,12 +3145,60 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
 
       {/* 私人影库（站点级）配置 */}
       <div className='space-y-4 pt-4 border-t border-gray-200 dark:border-gray-700'>
-        <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
-          私人影库（OpenList / AList）
-        </h3>
+        <div className='flex flex-wrap items-center gap-2'>
+          <h3 className='text-base font-semibold text-gray-900 dark:text-gray-100'>
+            私人影库（OpenList / AList）
+          </h3>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              mediaLibrary.BaseUrl
+                ? mediaLibrary.Enabled
+                  ? 'bg-green-500/10 text-green-600 dark:text-green-400'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                : 'bg-gray-500/10 text-gray-500 dark:text-gray-400'
+            }`}
+          >
+            {mediaLibrary.BaseUrl
+              ? mediaLibrary.Enabled
+                ? '已启用'
+                : '已停用（配置保留）'
+              : '未配置'}
+          </span>
+          {mediaLibrary.BaseUrl && !isLocalStorage && (
+            <button
+              type='button'
+              onClick={handleClearMediaLibrary}
+              disabled={clearingLibrary}
+              className='ml-auto flex items-center gap-1 rounded-lg border border-red-300 px-2 py-1 text-xs text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50 dark:border-red-500/40 dark:hover:bg-red-500/10'
+            >
+              <Trash2 className='h-3.5 w-3.5' />
+              {clearingLibrary ? '清空中…' : '清空配置'}
+            </button>
+          )}
+        </div>
         <p className='text-xs text-gray-500 dark:text-gray-400'>
-          配置后全站用户自动可用，令牌只保存在服务端、不会下发给浏览器；个人用户仍可在「影库」页填写自己的影库来覆盖这份配置。
+          配置后全站用户自动可用，令牌只保存在服务端、不会下发给浏览器。
+          它与个人在「影库」页填的那份互不影响：个人配置默认优先（只影响那台浏览器），
+          不想被它盖过就把下面的「允许个人影库覆盖」关掉。
         </p>
+
+        {/* 本浏览器的个人配置覆盖提示：管理台改了没效果，八成是它 */}
+        {personalLibraryBaseUrl && (
+          <div className='flex flex-wrap items-center gap-2 rounded-lg border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300'>
+            <span>
+              当前浏览器保存了个人影库配置（{personalLibraryBaseUrl}），
+              它会覆盖上面的站点级配置——你在管理台改的东西<b>在这台浏览器上看不出变化</b>，
+              其他用户不受影响。
+            </span>
+            <button
+              type='button'
+              onClick={handleClearPersonalLibrary}
+              className='ml-auto rounded-lg border border-amber-400 px-2 py-1 text-xs transition-colors hover:bg-amber-100 dark:border-amber-500/50 dark:hover:bg-amber-500/20'
+            >
+              清除本浏览器的个人配置
+            </button>
+          </div>
+        )}
 
         {/* 启用开关 */}
         <div>
@@ -3231,7 +3345,28 @@ const SiteConfigComponent = ({ config }: { config: AdminConfig | null }) => {
               影库在内网（自建部署访问 192.168.x.x / NAS）
             </label>
           </div>
+          <div className='flex items-end'>
+            <label className='flex items-center gap-2 pb-2 text-sm text-gray-700 dark:text-gray-300'>
+              <input
+                type='checkbox'
+                checked={mediaLibrary.AllowPersonalOverride !== false}
+                onChange={(e) =>
+                  !isLocalStorage &&
+                  updateMediaLibrary({
+                    AllowPersonalOverride: e.target.checked,
+                  })
+                }
+                disabled={isLocalStorage}
+                className='w-4 h-4'
+              />
+              允许个人影库覆盖站点级配置
+            </label>
+          </div>
         </div>
+        <p className='-mt-1 text-xs text-gray-500 dark:text-gray-400'>
+          勾选时：用户在「影库」页自己填的地址优先（只影响他自己的浏览器）。
+          取消勾选后：全站强制用上面这份，个人配置一律不生效。
+        </p>
 
         {/* 测试连接 */}
         <div className='flex flex-wrap items-center gap-3'>
