@@ -555,6 +555,85 @@ export function mapOpenListSearchItems(
   return results;
 }
 
+/**
+ * 网盘图标种类。
+ *
+ * ⚠️ 只存**种类**，不存图标组件也不存 Tailwind 类名：
+ *   - lib 目录不在 Tailwind 的 `content` 扫描范围内，类名写在这里 JIT 收不到；
+ *   - 本模块要保持纯函数、可在 node 下单测，不该反向依赖 UI 组件。
+ * 由 UI 层（`src/components/library/*`）映射到具体图标与色值。
+ */
+export type OpenListDriveIcon =
+  | 'aliyun'
+  | 'baidu'
+  | 'quark'
+  | 'tianyi'
+  | 'xunlei'
+  | 'drive115'
+  | 'onedrive'
+  | 'pikpak'
+  | 'xiaoya'
+  | 'webdav'
+  | 'local'
+  | 'cloud';
+
+/** 网盘配色种类（同样是抽象 key，具体类名在 UI 层） */
+export type OpenListDriveTone =
+  | 'sky'
+  | 'indigo'
+  | 'cyan'
+  | 'orange'
+  | 'amber'
+  | 'blue'
+  | 'purple'
+  | 'teal'
+  | 'slate'
+  | 'emerald'
+  | 'gray';
+
+export interface DriveVisual {
+  icon: OpenListDriveIcon;
+  tone: OpenListDriveTone;
+}
+
+/**
+ * 常见网盘的识别表：按名字片段匹配（不区分大小写）。
+ *
+ * 顺序即优先级——`115` 这种短片段放在靠后，避免误伤包含数字的名字。
+ */
+const DRIVE_MATCHERS: Array<{
+  keys: string[];
+  icon: OpenListDriveIcon;
+  tone: OpenListDriveTone;
+}> = [
+  { keys: ['阿里云盘', 'aliyun', 'aliyundrive', 'ali'], icon: 'aliyun', tone: 'sky' },
+  { keys: ['夸克', 'quark'], icon: 'quark', tone: 'cyan' },
+  { keys: ['百度', 'baidu'], icon: 'baidu', tone: 'indigo' },
+  { keys: ['天翼', 'tianyi', '189'], icon: 'tianyi', tone: 'orange' },
+  { keys: ['迅雷', 'xunlei', 'thunder'], icon: 'xunlei', tone: 'amber' },
+  { keys: ['小雅', 'xiaoya'], icon: 'xiaoya', tone: 'purple' },
+  { keys: ['onedrive'], icon: 'onedrive', tone: 'blue' },
+  { keys: ['pikpak'], icon: 'pikpak', tone: 'teal' },
+  { keys: ['webdav'], icon: 'webdav', tone: 'slate' },
+  { keys: ['本地', 'local'], icon: 'local', tone: 'emerald' },
+  { keys: ['115'], icon: 'drive115', tone: 'blue' },
+];
+
+/**
+ * 按网盘名（根目录里的顶层目录名）推断图标与配色。
+ *
+ * 认不出来的统一给通用云图标 + 中性灰，不让列表里出现「认不出就空白」。
+ */
+export function resolveDriveVisual(name: string): DriveVisual {
+  const lower = String(name ?? '').toLowerCase();
+  for (const matcher of DRIVE_MATCHERS) {
+    if (matcher.keys.some((key) => lower.includes(key))) {
+      return { icon: matcher.icon, tone: matcher.tone };
+    }
+  }
+  return { icon: 'cloud', tone: 'gray' };
+}
+
 /** 影库页内搜索结果条目（带完整路径，可直接播放或跳到所在目录） */
 export interface OpenListSearchEntry {
   name: string;

@@ -2,25 +2,21 @@
 
 'use client';
 
-import {
-  ArrowLeft,
-  Cloud,
-  Folder,
-  HardDrive,
-  Play,
-  RefreshCw,
-  Search,
-  Trash2,
-  X,
-} from 'lucide-react';
+import { Folder, HardDrive, Play, Search, Trash2, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { formatFileSize } from '@/lib/file-size';
 import {
   buildLibraryImageUrl,
   isImageFile,
   pickCoverFromItems,
 } from '@/lib/library-image';
+import {
+  type LibraryView,
+  readLibraryView,
+  writeLibraryView,
+} from '@/lib/library-view';
 import {
   type MediaLibrarySummary,
   MEDIA_LIBRARY_TYPE_LABELS,
@@ -32,7 +28,6 @@ import {
   buildDrivePath,
   clearOpenListConfigCookie,
   getDriveNameFromPath,
-  getFileExtension,
   isVideoFile,
   joinOpenListPath,
   mapOpenListSearchEntries,
@@ -42,6 +37,10 @@ import {
   stripFileExtension,
   writeOpenListConfigToCookie,
 } from '@/lib/openlist';
+
+import DriveSidebar from '@/components/library/DriveSidebar';
+import LibraryItems from '@/components/library/LibraryItems';
+import LibraryToolbar from '@/components/library/LibraryToolbar';
 
 /** 播放页来源代号，必须与 `/api/detail` 里的分支一致 */
 const OPENLIST_SOURCE = 'openlist';
@@ -60,51 +59,6 @@ const SERVER_LIBRARY_PLACEHOLDER: OpenListConfig = {
   token: '',
   rootPath: '/',
   allowPrivateNetwork: false,
-};
-
-function formatSize(size: number): string {
-  if (!size || size < 0) return '-';
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let value = size;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toFixed(unit === 0 ? 0 : 1)} ${units[unit]}`;
-}
-
-/**
- * 列表行的小海报。
- *
- * 图片走 `/api/library-image` 代理而不是直连：站点级影库配置下浏览器根本拿不到
- * 影库地址与令牌。加载失败（影库没这图 / 不是图片）就退回文件夹图标，
- * 不让列表里出现破图。
- */
-const RowThumb = ({ src, isDir }: { src: string; isDir: boolean }) => {
-  const [failed, setFailed] = useState(false);
-
-  if (!src || failed) {
-    return (
-      <Folder
-        className={`h-4 w-4 flex-shrink-0 ${
-          isDir ? 'text-amber-500' : 'text-gray-300 dark:text-gray-600'
-        }`}
-      />
-    );
-  }
-
-  return (
-    // 影库图片是同源代理地址且尺寸不可控，用原生 img 而不是 next/image
-    // eslint-disable-next-line @next/next/no-img-element
-    <img
-      src={src}
-      alt=''
-      loading='lazy'
-      onError={() => setFailed(true)}
-      className='h-10 w-7 flex-shrink-0 rounded object-cover'
-    />
-  );
 };
 
 /**
@@ -143,6 +97,10 @@ const OpenListBrowser = () => {
   const [searchResults, setSearchResults] =
     useState<OpenListSearchEntry[] | null>(null);
   const [searching, setSearching] = useState(false);
+  /** 查看方式（列表 / 小中大图标），存 localStorage */
+  const [view, setView] = useState<LibraryView>('list');
+  /** 单击选中的条目名（只高亮，不跳转） */
+  const [selected, setSelected] = useState<string | null>(null);
 
   /**
    * 连接来源：**个人 cookie 优先，管理员站点级配置兜底**。
@@ -173,6 +131,9 @@ const OpenListBrowser = () => {
       // 覆盖被管理员关掉时，本浏览器里的个人配置一律不生效
       const allowOverride = summary?.AllowPersonalOverride !== false;
       const saved = allowOverride ? readOpenListConfigFromCookie() : null;
+
+      // 查看方式是纯本地偏好，与服务端的影库策略无关，先读回来渲染
+      setView(readLibraryView());
 
       if (saved?.baseUrl) {
         setConfig(saved);
@@ -236,6 +197,7 @@ const OpenListBrowser = () => {
       // 浏览目录即退出搜索态，否则面包屑与结果列表会同时出现
       setSearchResults(null);
       setQuery('');
+      setSelected(null);
       try {
         const payload = await callOpenList(
           'list',
@@ -470,12 +432,18 @@ const OpenListBrowser = () => {
     loadDir(config, `/${segments.slice(0, index + 1).join('/')}`);
   };
 
-  /** 网盘切换：下拉选根目录（空串）或某个网盘名 */
+  /** 网盘切换：左侧列点根目录（空串）或某个网盘名 */
   const switchDrive = (driveName: string) => {
     const target = driveName
       ? buildDrivePath(rootPrefix, driveName)
       : rootPrefix;
     if (target) loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, target);
+  };
+
+  /** 切换查看方式并记住（列表 / 小 / 中 / 大图标） */
+  const changeView = (next: LibraryView) => {
+    setView(next);
+    writeLibraryView(next);
   };
 
   return (
@@ -586,16 +554,6 @@ const OpenListBrowser = () => {
           >
             {testing ? '测试中…' : '测试连接'}
           </button>
-          {source !== 'none' && (
-            <button
-              type='button'
-              onClick={() => loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, path)}
-              className='flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
-            >
-              <RefreshCw className='h-3.5 w-3.5' />
-              刷新
-            </button>
-          )}
         </div>
         {notice && (
           <p className='mt-2 text-xs text-green-600 dark:text-green-400'>{notice}</p>
@@ -695,7 +653,7 @@ const OpenListBrowser = () => {
                         <span className='ml-2 text-xs text-gray-400'>
                           {entry.parent}
                           {!entry.isDir && entry.size
-                            ? ` · ${formatSize(entry.size)}`
+                            ? ` · ${formatFileSize(entry.size)}`
                             : ''}
                         </span>
                       </span>
@@ -732,177 +690,57 @@ const OpenListBrowser = () => {
               )}
             </section>
           ) : (
-          <>
-          <div className='mb-3 flex flex-wrap items-center gap-1 text-sm text-gray-500 dark:text-gray-400'>
-            <button
-              type='button'
-              onClick={goUp}
-              disabled={segments.length === 0}
-              className='flex items-center gap-1 rounded-lg px-2 py-1 transition-colors hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800'
-            >
-              <ArrowLeft className='h-4 w-4' />
-              上级
-            </button>
-            <button
-              type='button'
-              onClick={() => config && loadDir(config, rootPrefix)}
-              className='rounded-lg px-2 py-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800'
-            >
-              根目录
-            </button>
-            {segments.map((segment, index) => (
-              <span key={`${segment}-${index}`} className='flex items-center'>
-                <span className='px-1 text-gray-300 dark:text-gray-600'>/</span>
-                <button
-                  type='button'
-                  onClick={() => gotoSegment(index)}
-                  className='rounded-lg px-2 py-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800'
-                >
-                  {segment}
-                </button>
-              </span>
-            ))}
-            {isAtRoot && driveList.length > 0 && (
-              <span className='ml-auto text-xs text-gray-400 dark:text-gray-500'>
-                共 {driveList.length} 个网盘
-              </span>
-            )}
-            {!isAtRoot && driveList.length > 0 && (
-              <label className='ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400'>
-                切换网盘
-                <select
-                  value={currentDrive}
-                  onChange={(e) => switchDrive(e.target.value)}
-                  className='max-w-44 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-green-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200'
-                >
-                  <option value=''>全部（根目录）</option>
-                  {driveList.map((drive) => (
-                    <option key={drive.name} value={drive.name}>
-                      {drive.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </div>
+            <div className='flex gap-3'>
+              <DriveSidebar
+                drives={driveList}
+                currentDrive={currentDrive}
+                onSelect={switchDrive}
+              />
 
-          {loading ? (
-            <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
-              正在读取影库…
-            </p>
-          ) : (
-            <>
-              {/* 根目录：顶层目录即「挂载的网盘」，单独成列表方便选择与切换 */}
-              {isAtRoot && driveList.length > 0 && (
-                <section className='mb-4 overflow-hidden rounded-xl border border-gray-200/70 dark:border-gray-700/60'>
-                  <h2 className='border-b border-gray-200/70 bg-gray-50/60 px-4 py-2 text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-800/40 dark:text-gray-400'>
-                    挂载的网盘（{driveList.length}）
-                  </h2>
-                  <ul className='divide-y divide-gray-200/70 dark:divide-gray-700/60'>
-                    {driveList.map((drive) => {
-                      const fullPath = joinOpenListPath(rootPrefix, drive.name);
-                      return (
-                        <li
-                          key={fullPath}
-                          className='flex items-center gap-3 px-4 py-3 text-sm'
-                        >
-                          <Cloud className='h-5 w-5 flex-shrink-0 text-sky-500' />
-                          <span className='min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200'>
-                            {drive.name}
-                          </span>
-                          <button
-                            type='button'
-                            onClick={() =>
-                              loadDir(
-                                config ?? SERVER_LIBRARY_PLACEHOLDER,
-                                fullPath
-                              )
-                            }
-                            className='rounded-lg bg-green-500/10 px-3 py-1.5 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
-                          >
-                            进入
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </section>
-              )}
+              <div className='min-w-0 flex-1'>
+                <LibraryToolbar
+                  segments={segments}
+                  canUp={segments.length > 0}
+                  onUp={goUp}
+                  onRoot={() => config && loadDir(config, rootPrefix)}
+                  onSegment={gotoSegment}
+                  view={view}
+                  onViewChange={changeView}
+                  onRefresh={() =>
+                    loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, path)
+                  }
+                  count={listItems.length}
+                />
 
-              {listItems.length === 0 ? (
-                isAtRoot && driveList.length > 0 ? null : (
+                {loading ? (
                   <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
-                    这个目录是空的，或者影库拒绝了访问
+                    正在读取影库…
                   </p>
-                )
-              ) : (
-                <ul className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'>
-                  {listItems.map((item) => {
-                const fullPath = joinOpenListPath(path, item.name);
-                const video = !item.is_dir && isVideoFile(item.name);
-                return (
-                  <li
-                    key={fullPath}
-                    className='flex items-center gap-3 px-4 py-2.5 text-sm'
-                  >
-                    <RowThumb src={thumbFor(item)} isDir={item.is_dir} />
-                    <span className='min-w-0 flex-1 truncate text-gray-700 dark:text-gray-200'>
-                      {item.name}
-                      {!item.is_dir && (
-                        <span className='ml-2 text-xs text-gray-400'>
-                          {formatSize(item.size)}
-                          {getFileExtension(item.name)
-                            ? ` · ${getFileExtension(item.name)}`
-                            : ''}
-                        </span>
-                      )}
-                    </span>
-                    {item.is_dir ? (
-                      <>
-                        <button
-                          type='button'
-                          onClick={() =>
-                            loadDir(
-                              config ?? SERVER_LIBRARY_PLACEHOLDER,
-                              fullPath
-                            )
-                          }
-                          className='rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
-                        >
-                          进入
-                        </button>
-                        <button
-                          type='button'
-                          onClick={() => openDirAsSeries(item)}
-                          className='flex items-center gap-1 rounded-lg bg-green-500/10 px-2 py-1 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
-                          title='把目录里的视频按集数顺序排成选集播放'
-                        >
-                          <Play className='h-3 w-3' />
-                          按剧集播放
-                        </button>
-                      </>
-                    ) : video ? (
-                      <button
-                        type='button'
-                        onClick={() => openVideo(item)}
-                        className='flex items-center gap-1 rounded-lg bg-green-500/10 px-2 py-1 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
-                      >
-                        <Play className='h-3 w-3' />
-                        播放
-                      </button>
-                    ) : (
-                      <span className='text-xs text-gray-300 dark:text-gray-600'>
-                        不支持
-                      </span>
-                    )}
-                  </li>
-                );
-                  })}
-                </ul>
-              )}
-            </>
-          )}
-          </>
+                ) : listItems.length === 0 ? (
+                  <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
+                    {isAtRoot && driveList.length > 0
+                      ? '从左侧选一个网盘，或用上面的搜索框找片子'
+                      : '这个目录是空的，或者影库拒绝了访问'}
+                  </p>
+                ) : (
+                  <LibraryItems
+                    view={view}
+                    items={listItems}
+                    selected={selected}
+                    onSelect={setSelected}
+                    thumbFor={thumbFor}
+                    onOpenDir={(item) =>
+                      loadDir(
+                        config ?? SERVER_LIBRARY_PLACEHOLDER,
+                        joinOpenListPath(path, item.name)
+                      )
+                    }
+                    onPlayDir={openDirAsSeries}
+                    onPlayVideo={openVideo}
+                  />
+                )}
+              </div>
+            </div>
           )}
         </>
       )}
