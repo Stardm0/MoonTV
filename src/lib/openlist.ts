@@ -404,6 +404,48 @@ export function extractYearFromName(name: string): string {
 }
 
 /**
+ * 归一根路径。
+ *
+ * 用户可能填 `/media`、`/media/`、`media` 甚至空串，统一成带前导斜杠、
+ * 无尾斜杠的标准形（空串按 `/` 处理），路径比较才有唯一基准。
+ */
+export function normalizeRootPath(rootPath?: string): string {
+  const segments = String(rootPath ?? '')
+    .split('/')
+    .filter((segment) => segment.length > 0);
+  return `/${segments.join('/')}`;
+}
+
+/**
+ * 从当前浏览路径里解析出「所在的网盘（挂载源）」名字。
+ *
+ * OpenList 常把多个网盘挂在根目录下（`/阿里云盘`、`/夸克网盘`…），
+ * 根路径之下的第一段就是网盘名；还在根目录（或路径不在根之下）时返回空串。
+ */
+export function getDriveNameFromPath(path: string, rootPath?: string): string {
+  const rootSegments = normalizeRootPath(rootPath)
+    .split('/')
+    .filter(Boolean);
+  const pathSegments = String(path ?? '')
+    .split('/')
+    .filter(Boolean);
+
+  // 路径必须真的落在根路径之下（逐段比对，`/media` 不匹配 `/mediax`）
+  if (pathSegments.length <= rootSegments.length) return '';
+  for (let i = 0; i < rootSegments.length; i++) {
+    if (pathSegments[i] !== rootSegments[i]) return '';
+  }
+  return pathSegments[rootSegments.length];
+}
+
+/** 拼某个网盘的浏览入口路径（网盘名不允许含斜杠，含则视为非法返回空串） */
+export function buildDrivePath(rootPath: string, driveName: string): string {
+  const name = String(driveName ?? '').trim();
+  if (!name || name.includes('/')) return '';
+  return joinOpenListPath(normalizeRootPath(rootPath), name);
+}
+
+/**
  * 还原搜索结果条目的完整路径。
  *
  * OpenList 的搜索结果里条目只带文件名，所在目录放在 `parent` 字段；

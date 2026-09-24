@@ -2,7 +2,15 @@
 
 'use client';
 
-import { ArrowLeft, Folder, HardDrive, Play, RefreshCw, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Cloud,
+  Folder,
+  HardDrive,
+  Play,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -18,10 +26,13 @@ import {
 import {
   type OpenListConfig,
   type OpenListItem,
+  buildDrivePath,
   clearOpenListConfigCookie,
+  getDriveNameFromPath,
   getFileExtension,
   isVideoFile,
   joinOpenListPath,
+  normalizeRootPath,
   readOpenListConfigFromCookie,
   sortOpenListItems,
   writeOpenListConfigToCookie,
@@ -116,6 +127,8 @@ const OpenListBrowser = () => {
   });
   const [path, setPath] = useState('/');
   const [items, setItems] = useState<OpenListItem[]>([]);
+  /** 根目录（或配置的根路径）下的目录列表，即「挂载的网盘」，供列表展示与快速切换 */
+  const [rootItems, setRootItems] = useState<OpenListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
@@ -195,11 +208,14 @@ const OpenListBrowser = () => {
           cfg.allowPrivateNetwork === true
         );
         const content = (payload?.data?.content ?? []) as OpenListItem[];
-        setItems(
-          sortOpenListItems(
-            content.filter((item) => item && typeof item.name === 'string')
-          )
+        const cleaned = content.filter(
+          (item) => item && typeof item.name === 'string'
         );
+        setItems(sortOpenListItems(cleaned));
+        // 浏览到根路径时顺手记下挂载的网盘列表（切到深层后仍能快速切换）
+        if (normalizeRootPath(target) === normalizeRootPath(cfg.rootPath || '/')) {
+          setRootItems(cleaned);
+        }
         setPath(target);
       } catch (err) {
         setError((err as Error).message || '读取影库目录失败');
@@ -325,14 +341,45 @@ const OpenListBrowser = () => {
     [path]
   );
 
+  /**
+   * 浏览根路径（个人配置可能是 `/media` 这种子目录）。
+   * 服务端影库模式下浏览器不知道真实根路径，占位配置的 `/` 恰好就是浏览起点。
+   */
+  const rootPrefix = normalizeRootPath(config?.rootPath || '/');
+  const isAtRoot = path === rootPrefix;
+  /** 当前所在的网盘名（根路径之下的第一段），在根目录时为空串 */
+  const currentDrive = getDriveNameFromPath(path, rootPrefix);
+  /** 挂载的网盘 = 根目录里的目录项（sortOpenListItems 已保证目录在前） */
+  const driveList = useMemo(
+    () => rootItems.filter((item) => item.is_dir),
+    [rootItems]
+  );
+  /** 根目录时目录已进「网盘列表」区块，普通列表只放文件，避免同一批条目出现两遍 */
+  const listItems = useMemo(
+    () => (isAtRoot ? items.filter((item) => !item.is_dir) : items),
+    [items, isAtRoot]
+  );
+
   const goUp = () => {
     const parent = `/${segments.slice(0, -1).join('/')}`;
-    if (config) loadDir(config, parent === '' ? '/' : parent);
+    // 上一层不能越过根路径（配置了子目录根路径时 `/` 在根之外）
+    const target = parent === '' || parent.length < rootPrefix.length
+      ? rootPrefix
+      : parent;
+    if (config) loadDir(config, target);
   };
 
   const gotoSegment = (index: number) => {
     if (!config) return;
     loadDir(config, `/${segments.slice(0, index + 1).join('/')}`);
+  };
+
+  /** 网盘切换：下拉选根目录（空串）或某个网盘名 */
+  const switchDrive = (driveName: string) => {
+    const target = driveName
+      ? buildDrivePath(rootPrefix, driveName)
+      : rootPrefix;
+    if (target) loadDir(config ?? SERVER_LIBRARY_PLACEHOLDER, target);
   };
 
   return (
@@ -484,7 +531,7 @@ const OpenListBrowser = () => {
             </button>
             <button
               type='button'
-              onClick={() => config && loadDir(config, '/')}
+              onClick={() => config && loadDir(config, rootPrefix)}
               className='rounded-lg px-2 py-1 transition-colors hover:bg-gray-100 dark:hover:bg-gray-800'
             >
               根目录
@@ -501,19 +548,91 @@ const OpenListBrowser = () => {
                 </button>
               </span>
             ))}
+            {isAtRoot && driveList.length > 0 && (
+              <span className='ml-auto text-xs text-gray-400 dark:text-gray-500'>
+                共 {driveList.length} 个网盘
+              </span>
+            )}
+            {!isAtRoot && driveList.length > 0 && (
+              <label className='ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400'>
+                切换网盘
+                <select
+                  value={currentDrive}
+                  onChange={(e) => switchDrive(e.target.value)}
+                  className='max-w-44 rounded-lg border border-gray-200 bg-white px-2 py-1 text-xs text-gray-700 outline-none focus:border-green-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200'
+                >
+                  <option value=''>全部（根目录）</option>
+                  {driveList.map((drive) => (
+                    <option key={drive.name} value={drive.name}>
+                      {drive.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
           </div>
 
           {loading ? (
             <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
               正在读取影库…
             </p>
-          ) : items.length === 0 ? (
-            <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
-              这个目录是空的，或者影库拒绝了访问
-            </p>
           ) : (
-            <ul className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'>
-              {items.map((item) => {
+            <>
+              {/* 根目录：顶层目录即「挂载的网盘」，单独成列表方便选择与切换 */}
+              {isAtRoot && driveList.length > 0 && (
+                <section className='mb-4 overflow-hidden rounded-xl border border-gray-200/70 dark:border-gray-700/60'>
+                  <h2 className='border-b border-gray-200/70 bg-gray-50/60 px-4 py-2 text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-800/40 dark:text-gray-400'>
+                    挂载的网盘（{driveList.length}）
+                  </h2>
+                  <ul className='divide-y divide-gray-200/70 dark:divide-gray-700/60'>
+                    {driveList.map((drive) => {
+                      const fullPath = joinOpenListPath(rootPrefix, drive.name);
+                      return (
+                        <li
+                          key={fullPath}
+                          className='flex items-center gap-3 px-4 py-3 text-sm'
+                        >
+                          <Cloud className='h-5 w-5 flex-shrink-0 text-sky-500' />
+                          <span className='min-w-0 flex-1 truncate font-medium text-gray-700 dark:text-gray-200'>
+                            {drive.name}
+                          </span>
+                          <button
+                            type='button'
+                            onClick={() =>
+                              loadDir(
+                                config ?? SERVER_LIBRARY_PLACEHOLDER,
+                                fullPath
+                              )
+                            }
+                            className='rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                          >
+                            进入
+                          </button>
+                          <button
+                            type='button'
+                            onClick={() => openDirAsSeries(drive)}
+                            className='flex items-center gap-1 rounded-lg bg-green-500/10 px-2 py-1 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
+                            title='把目录里的视频按集数顺序排成选集播放'
+                          >
+                            <Play className='h-3 w-3' />
+                            按剧集播放
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+
+              {listItems.length === 0 ? (
+                isAtRoot && driveList.length > 0 ? null : (
+                  <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
+                    这个目录是空的，或者影库拒绝了访问
+                  </p>
+                )
+              ) : (
+                <ul className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'>
+                  {listItems.map((item) => {
                 const fullPath = joinOpenListPath(path, item.name);
                 const video = !item.is_dir && isVideoFile(item.name);
                 return (
@@ -573,8 +692,10 @@ const OpenListBrowser = () => {
                     )}
                   </li>
                 );
-              })}
-            </ul>
+                  })}
+                </ul>
+              )}
+            </>
           )}
         </>
       )}
