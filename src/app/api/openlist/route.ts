@@ -76,7 +76,13 @@ export async function POST(request: NextRequest) {
       ? payload.path
       : config.rootPath || '/';
 
-  const result = await requestOpenList(config, action, requestedPath);
+  // 只有 search 用到关键词；列目录/get 传了也会被 buildOpenListBody 忽略
+  const keyword =
+    action === 'search' && typeof payload?.keyword === 'string'
+      ? payload.keyword
+      : undefined;
+
+  const result = await requestOpenList(config, action, requestedPath, keyword);
 
   if (!result.ok) {
     if (result.status === 403) {

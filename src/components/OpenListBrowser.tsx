@@ -9,7 +9,9 @@ import {
   HardDrive,
   Play,
   RefreshCw,
+  Search,
   Trash2,
+  X,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -26,15 +28,18 @@ import {
 import {
   type OpenListConfig,
   type OpenListItem,
+  type OpenListSearchEntry,
   buildDrivePath,
   clearOpenListConfigCookie,
   getDriveNameFromPath,
   getFileExtension,
   isVideoFile,
   joinOpenListPath,
+  mapOpenListSearchEntries,
   normalizeRootPath,
   readOpenListConfigFromCookie,
   sortOpenListItems,
+  stripFileExtension,
   writeOpenListConfigToCookie,
 } from '@/lib/openlist';
 
@@ -133,6 +138,11 @@ const OpenListBrowser = () => {
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  /** 影库内搜索：null = 没在搜索（显示目录浏览），数组 = 搜索结果 */
+  const [query, setQuery] = useState('');
+  const [searchResults, setSearchResults] =
+    useState<OpenListSearchEntry[] | null>(null);
+  const [searching, setSearching] = useState(false);
 
   /**
    * 连接来源：**个人 cookie 优先，管理员站点级配置兜底**。
@@ -190,11 +200,25 @@ const OpenListBrowser = () => {
   }, []);
 
   const callOpenList = useCallback(
-    async (action: 'me' | 'list' | 'get', baseUrl: string, token: string, target: string, allowPrivateNetwork: boolean) => {
+    async (
+      action: 'me' | 'list' | 'get' | 'search',
+      baseUrl: string,
+      token: string,
+      target: string,
+      allowPrivateNetwork: boolean,
+      keyword?: string
+    ) => {
       const response = await fetch('/api/openlist', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, baseUrl, token, path: target, allowPrivateNetwork }),
+        body: JSON.stringify({
+          action,
+          baseUrl,
+          token,
+          path: target,
+          allowPrivateNetwork,
+          keyword,
+        }),
       });
       const payload = await response.json().catch(() => ({}));
       if (!response.ok) {
@@ -209,6 +233,9 @@ const OpenListBrowser = () => {
     async (cfg: OpenListConfig, target: string) => {
       setLoading(true);
       setError('');
+      // 浏览目录即退出搜索态，否则面包屑与结果列表会同时出现
+      setSearchResults(null);
+      setQuery('');
       try {
         const payload = await callOpenList(
           'list',
@@ -287,6 +314,59 @@ const OpenListBrowser = () => {
     } finally {
       setTesting(false);
     }
+  };
+
+  /**
+   * 影库内搜索（走影库自己的索引，不是遍历目录）。
+   *
+   * ⚠️ 没建索引时 OpenList 会返回 **HTTP 200 + 业务码非 200**，
+   * 所以不能只看 `response.ok`，必须自己判 `code`（与 /api/search 一致）。
+   */
+  const handleSearch = async () => {
+    const keyword = query.trim();
+    if (!keyword) {
+      setSearchResults(null);
+      return;
+    }
+    setSearching(true);
+    setError('');
+    setNotice('');
+    try {
+      const cfg = config ?? SERVER_LIBRARY_PLACEHOLDER;
+      const payload = await callOpenList(
+        'search',
+        cfg.baseUrl,
+        cfg.token,
+        rootPrefix,
+        cfg.allowPrivateNetwork === true,
+        keyword
+      );
+      if (payload && typeof payload.code === 'number' && payload.code !== 200) {
+        setError(
+          `影库搜索失败：${payload.message || '未知错误'}（需先在影库「设置 → 索引」建立索引）`
+        );
+        setSearchResults([]);
+        return;
+      }
+      const entries = mapOpenListSearchEntries(
+        payload?.data?.content,
+        rootPrefix
+      );
+      setSearchResults(entries);
+      if (entries.length === 0) setNotice('影库里没有匹配的条目');
+    } catch (err) {
+      setError((err as Error).message || '影库搜索失败');
+      setSearchResults(null);
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const clearSearch = () => {
+    setQuery('');
+    setSearchResults(null);
+    setNotice('');
+    setError('');
   };
 
   /** 断开个人配置：后台还有站点级影库时退回那份，否则才是真的断开 */
@@ -549,6 +629,110 @@ const OpenListBrowser = () => {
 
       {source !== 'none' && (
         <>
+          {/* 影库内搜索：走影库自己的索引，跨目录找文件，不必一层层翻 */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSearch();
+            }}
+            className='mb-3 flex items-center gap-2'
+          >
+            <div className='relative min-w-0 flex-1'>
+              <Search className='pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400' />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder='在影库里搜索（需要影库已建立索引）'
+                className='w-full rounded-xl border border-gray-200 bg-white py-2 pl-9 pr-3 text-sm text-gray-700 outline-none focus:border-green-400 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200'
+              />
+            </div>
+            <button
+              type='submit'
+              disabled={searching || !query.trim()}
+              className='flex-shrink-0 rounded-xl bg-green-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50'
+            >
+              {searching ? '搜索中…' : '搜索'}
+            </button>
+            {searchResults !== null && (
+              <button
+                type='button'
+                onClick={clearSearch}
+                className='flex flex-shrink-0 items-center gap-1 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+              >
+                <X className='h-4 w-4' />
+                清除
+              </button>
+            )}
+          </form>
+
+          {searchResults !== null ? (
+            <section className='overflow-hidden rounded-xl border border-gray-200/70 dark:border-gray-700/60'>
+              <h2 className='border-b border-gray-200/70 bg-gray-50/60 px-4 py-2 text-xs font-semibold text-gray-500 dark:border-gray-700/60 dark:bg-gray-800/40 dark:text-gray-400'>
+                搜索结果（{searchResults.length}）
+              </h2>
+              {searchResults.length === 0 ? (
+                <p className='py-10 text-center text-sm text-gray-500 dark:text-gray-400'>
+                  没有匹配的条目
+                </p>
+              ) : (
+                <ul className='divide-y divide-gray-200/70 dark:divide-gray-700/60'>
+                  {searchResults.map((entry) => (
+                    <li
+                      key={entry.path}
+                      className='flex items-center gap-3 px-4 py-2.5 text-sm'
+                    >
+                      {entry.isDir ? (
+                        <Folder className='h-4 w-4 flex-shrink-0 text-amber-500' />
+                      ) : (
+                        <Play className='h-4 w-4 flex-shrink-0 text-green-500' />
+                      )}
+                      <span className='min-w-0 flex-1 truncate'>
+                        <span className='text-gray-700 dark:text-gray-200'>
+                          {entry.isDir
+                            ? entry.name
+                            : stripFileExtension(entry.name)}
+                        </span>
+                        <span className='ml-2 text-xs text-gray-400'>
+                          {entry.parent}
+                          {!entry.isDir && entry.size
+                            ? ` · ${formatSize(entry.size)}`
+                            : ''}
+                        </span>
+                      </span>
+                      {entry.isDir ? (
+                        <button
+                          type='button'
+                          onClick={() =>
+                            loadDir(
+                              config ?? SERVER_LIBRARY_PLACEHOLDER,
+                              entry.path
+                            )
+                          }
+                          className='rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                        >
+                          进入
+                        </button>
+                      ) : (
+                        <button
+                          type='button'
+                          onClick={() =>
+                            router.push(
+                              `/play?source=${OPENLIST_SOURCE}&id=${encodeURIComponent(entry.path)}&title=${encodeURIComponent(stripFileExtension(entry.name))}`
+                            )
+                          }
+                          className='flex items-center gap-1 rounded-lg bg-green-500/10 px-2 py-1 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
+                        >
+                          <Play className='h-3 w-3' />
+                          播放
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : (
+          <>
           <div className='mb-3 flex flex-wrap items-center gap-1 text-sm text-gray-500 dark:text-gray-400'>
             <button
               type='button'
@@ -717,6 +901,8 @@ const OpenListBrowser = () => {
                 </ul>
               )}
             </>
+          )}
+          </>
           )}
         </>
       )}

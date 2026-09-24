@@ -555,6 +555,58 @@ export function mapOpenListSearchItems(
   return results;
 }
 
+/** 影库页内搜索结果条目（带完整路径，可直接播放或跳到所在目录） */
+export interface OpenListSearchEntry {
+  name: string;
+  /** 完整路径，可直接当 `/api/detail` 的 id 用 */
+  path: string;
+  isDir: boolean;
+  size: number;
+  /** 所在目录（不含文件名），列表里用来说明「这个文件在哪」 */
+  parent: string;
+}
+
+/**
+ * 把影库搜索结果映射成影库浏览页内部可用的条目。
+ *
+ * 与 `mapOpenListSearchItems` 的区别：那个产出全站搜索混排用的 `SearchResult`
+ * （只留聚合字段），这个留给影库页自己用，要保留完整路径与大小，
+ * 让用户看清文件在哪、并能直接播放。
+ *
+ * 只收目录与视频文件：字幕 / nfo / 图片在浏览页里点开没有意义。
+ */
+export function mapOpenListSearchEntries(
+  items: unknown,
+  fallbackParent = '/'
+): OpenListSearchEntry[] {
+  if (!Array.isArray(items)) return [];
+
+  const entries: OpenListSearchEntry[] = [];
+  for (const raw of items) {
+    if (!raw || typeof raw !== 'object') continue;
+    const item = raw as Record<string, unknown>;
+    const name = typeof item.name === 'string' ? item.name : '';
+    if (!name) continue;
+
+    const isDir = item.is_dir === true;
+    if (!isDir && !isVideoFile(name)) continue;
+
+    const parent =
+      typeof item.parent === 'string' && item.parent.trim()
+        ? item.parent
+        : fallbackParent;
+
+    entries.push({
+      name,
+      path: joinOpenListPath(parent, name),
+      isDir,
+      size: typeof item.size === 'number' ? item.size : 0,
+      parent,
+    });
+  }
+  return entries;
+}
+
 /**
  * 从服务端请求的 `Cookie` 头里解析影库连接配置。
  *

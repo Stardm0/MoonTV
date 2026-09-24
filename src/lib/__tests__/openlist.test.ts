@@ -9,6 +9,7 @@ import {
   isSubtitleFile,
   isVideoFile,
   joinOpenListPath,
+  mapOpenListSearchEntries,
   mapOpenListSearchItems,
   naturalCompare,
   normalizeBaseUrl,
@@ -307,5 +308,61 @@ describe('影库连接配置 cookie 存取', () => {
   it('cookie 内容损坏时按未配置处理', () => {
     document.cookie = `${OPENLIST_COOKIE_KEY}=not-json; path=/`;
     expect(readOpenListConfigFromCookie()).toBeNull();
+  });
+});
+
+describe('mapOpenListSearchEntries', () => {
+  it('目录与视频文件都保留，并拼出完整路径', () => {
+    expect(
+      mapOpenListSearchEntries([
+        { name: '沙丘', parent: '/115/电影', is_dir: true, size: 0 },
+        { name: '沙丘2.mkv', parent: '/115/电影', is_dir: false, size: 123 },
+      ])
+    ).toEqual([
+      {
+        name: '沙丘',
+        path: '/115/电影/沙丘',
+        isDir: true,
+        size: 0,
+        parent: '/115/电影',
+      },
+      {
+        name: '沙丘2.mkv',
+        path: '/115/电影/沙丘2.mkv',
+        isDir: false,
+        size: 123,
+        parent: '/115/电影',
+      },
+    ]);
+  });
+
+  it('非视频文件（字幕 / nfo）被丢弃', () => {
+    expect(
+      mapOpenListSearchEntries([
+        { name: 'x.srt', parent: '/a', is_dir: false },
+        { name: 'x.nfo', parent: '/a', is_dir: false },
+      ])
+    ).toEqual([]);
+  });
+
+  it('缺 parent 时退回搜索根路径', () => {
+    const entries = mapOpenListSearchEntries(
+      [{ name: 'a.mp4', is_dir: false }],
+      '/media'
+    );
+    expect(entries[0].path).toBe('/media/a.mp4');
+    expect(entries[0].parent).toBe('/media');
+  });
+
+  it('非数组与脏数据一律返回空数组', () => {
+    expect(mapOpenListSearchEntries(null)).toEqual([]);
+    expect(mapOpenListSearchEntries([null, 1, 'x', {}])).toEqual([]);
+  });
+
+  it('size 缺失或非数字时归零', () => {
+    const entries = mapOpenListSearchEntries([
+      { name: 'a.mp4', parent: '/', is_dir: false, size: 'x' },
+    ]);
+    expect(entries[0].size).toBe(0);
   });
 });
