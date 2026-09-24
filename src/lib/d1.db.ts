@@ -50,8 +50,33 @@ function getD1Database(): D1Database {
 export class D1Storage implements IStorage {
   private db: D1Database;
 
+  /** 懒迁移去重标记（edge 实例级：每个请求最多跑一轮 ALTER） */
+  private schemaReady: Promise<void> | null = null;
+
   constructor() {
     this.db = getD1Database();
+  }
+
+  /**
+   * 旧版 D1 表缺新列时自动补齐（4.3.2）。
+   *
+   * 用户按旧版 d1-init.sql 建过表后，新版本代码 INSERT 带 search_title 等
+   * 新列会报 "no such column" → 写入**静默失败**（客户端只 console.warn），
+   * 表现为「追更/收藏过段时间就丢」。这里在写路径前先补列：
+   * ALTER 无 IF NOT EXISTS，列已存在时 exec 会报错，直接吞掉即可。
+   */
+  private ensureColumns(): Promise<void> {
+    if (!this.schemaReady) {
+      const alters = [
+        'ALTER TABLE play_records ADD COLUMN search_title TEXT',
+        'ALTER TABLE favorites ADD COLUMN search_title TEXT',
+        'ALTER TABLE followings ADD COLUMN search_title TEXT',
+      ];
+      this.schemaReady = Promise.all(
+        alters.map((sql) => this.db.exec(sql).catch(() => undefined))
+      ).then(() => undefined);
+    }
+    return this.schemaReady;
   }
 
   // ---------- 用户相关 ----------
@@ -199,6 +224,7 @@ export class D1Storage implements IStorage {
     if (!source || !videoId) {
       throw new Error('Invalid key format for play record');
     }
+    await this.ensureColumns();
     const userId = await this.ensureUser(userName);
 
     // 删除同名的旧记录
@@ -339,6 +365,7 @@ export class D1Storage implements IStorage {
     if (!source || !videoId) {
       throw new Error('Invalid key format for favorite');
     }
+    await this.ensureColumns();
     const userId = await this.ensureUser(userName);
 
     await this.db
@@ -454,6 +481,7 @@ export class D1Storage implements IStorage {
     if (!source || !videoId) {
       throw new Error('Invalid key format for following');
     }
+    await this.ensureColumns();
     const userId = await this.ensureUser(userName);
 
     await this.db
@@ -834,6 +862,7 @@ export class D1Storage implements IStorage {
     entries: Array<[string, PlayRecord]>,
     onProgress?: (done: number, total: number) => void
   ): Promise<void> {
+    await this.ensureColumns();
     const userId = await this.ensureUser(username);
     const statements: D1PreparedStatement[] = [];
     for (const [key, record] of entries) {
@@ -888,6 +917,7 @@ export class D1Storage implements IStorage {
     entries: Array<[string, Favorite]>,
     onProgress?: (done: number, total: number) => void
   ): Promise<void> {
+    await this.ensureColumns();
     const userId = await this.ensureUser(username);
     const statements: D1PreparedStatement[] = [];
     for (const [key, favorite] of entries) {
@@ -934,6 +964,7 @@ export class D1Storage implements IStorage {
     entries: Array<[string, Following]>,
     onProgress?: (done: number, total: number) => void
   ): Promise<void> {
+    await this.ensureColumns();
     const userId = await this.ensureUser(username);
     const statements: D1PreparedStatement[] = [];
     for (const [key, following] of entries) {
