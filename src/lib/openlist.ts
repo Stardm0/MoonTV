@@ -259,6 +259,49 @@ export function isMediaItem(item: Pick<OpenListItem, 'name' | 'is_dir'>): boolea
 }
 
 /**
+ * 网盘里的系统/杂项目录（回收站、缩略图缓存、Windows 挂载残留），
+ * 递归展开「按剧集播放」时要跳过，否则会混进一堆非媒体内容。
+ */
+export function isOpenListSystemDir(name: string): boolean {
+  const value = String(name ?? '');
+  return (
+    value.startsWith('.') ||
+    value.startsWith('$') ||
+    /^#recycle$/i.test(value) ||
+    /^#回收站$/.test(value) ||
+    /^recycle$/i.test(value) ||
+    /^System Volume Information$/i.test(value)
+  );
+}
+
+/**
+ * 计算文件相对播放目录的路径，用作摊平后的选集标题。
+ *
+ * 目录里套季/子文件夹时，选集标题要能看出结构（`第一季/E01.mkv`）；
+ * 路径不在播放目录之下时退回文件名本身。
+ */
+export function relativeOpenListPath(fullPath: string, rootPath: string): string {
+  const fullSegments = String(fullPath ?? '')
+    .split('/')
+    .filter(Boolean);
+  const rootSegments = String(rootPath ?? '')
+    .split('/')
+    .filter(Boolean);
+  const fallback = fullSegments[fullSegments.length - 1] ?? '';
+  // 播放目录就是根（`/`，空段）：整个路径都是相对路径
+  if (!rootSegments.length) {
+    return fullSegments.join('/') || fallback;
+  }
+  if (fullSegments.length <= rootSegments.length) {
+    return fallback;
+  }
+  for (let i = 0; i < rootSegments.length; i++) {
+    if (fullSegments[i] !== rootSegments[i]) return fallback;
+  }
+  return fullSegments.slice(rootSegments.length).join('/') || fallback;
+}
+
+/**
  * 规范化 OpenList 站点地址。
  *
  * - 去首尾空白与结尾斜杠（拼路径时统一由 `joinOpenListPath` 补）

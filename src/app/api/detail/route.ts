@@ -10,10 +10,14 @@ import { findLibraryCoverPath } from '@/lib/library-image.server';
 import { getServerEmbyConfig } from '@/lib/media-library.server';
 import { resolveOpenListConfig } from '@/lib/media-library.server';
 import {
+  type OpenListConfig,
   buildPlayableUrl,
+  isOpenListSystemDir,
+  isVideoFile,
   joinOpenListPath,
+  naturalCompare,
+  relativeOpenListPath,
   requestOpenList,
-  sortOpenListItems,
 } from '@/lib/openlist';
 import type { SearchResult } from '@/lib/types';
 
@@ -21,6 +25,15 @@ export const runtime = 'edge';
 
 /** 影库在播放页里的来源代号；播放页 `?source=openlist&id=<路径>` */
 const OPENLIST_SOURCE = 'openlist';
+
+/** 递归展开目录的深度上限（播放目录/季/子文件夹足够，再深基本是误挂载） */
+const FLATTEN_MAX_DEPTH = 3;
+
+/** 递归展开的列目录请求上限（防止把整块大网盘当成选集逐个列） */
+const FLATTEN_MAX_LIST_CALLS = 50;
+
+/** 递归展开的视频数量上限（单部剧集远用不到这么多，超过说明选错了目录） */
+const FLATTEN_MAX_VIDEOS = 500;
 
 /** Emby 影库的来源代号；播放页 `?source=emby&id=<条目ID>` */
 const EMBY_SOURCE = 'emby';
@@ -122,33 +135,25 @@ async function handleOpenListDetail(request: Request, path: string) {
       );
     }
     const content = ((listing.data?.data?.content ?? []) as any[]).filter(
-      (item) => !item?.is_dir
+      (item) => item && typeof item?.name === 'string'
     );
-    // 目录当剧集：只收视频文件，按自然序排（S1E2 在 S1E10 之前）
-    const videos = sortOpenListItems(
-      content
-        .filter((item) => typeof item?.name === 'string')
-        .map((item) => ({
-          name: item.name as string,
-          size: Number(item.size ?? 0),
-          is_dir: false,
-          sign: typeof item.sign === 'string' ? item.sign : undefined,
-          raw_url: typeof item.raw_url === 'string' ? item.raw_url : undefined,
-        }))
-    ).filter((item) => /\.(mp4|mkv|webm|avi|mov|m2ts|ts|flv|rmvb|rm|wmv|mpg|mpeg|m4v|iso)$/i.test(item.name));
 
-    episodes = videos.map((item) =>
-      buildPlayableUrl(
-        config.baseUrl,
-        joinOpenListPath(path, item.name),
-        item.sign,
-        item.raw_url
-      )
+    // 目录当剧集：递归收集整棵子树里的视频（季/子文件夹自动摊平成选集），
+    // 按相对路径自然序排（S1E2 在 S1E10 之前）
+    const videos = (
+      await collectOpenListVideos(config, path, content)
+    ).sort((a, b) => naturalCompare(a.relPath, b.relPath));
+
+    episodes = videos.map((video) =>
+      buildPlayableUrl(config.baseUrl, video.fullPath, video.sign, video.rawUrl)
     );
-    episodeTitles = videos.map((item) => item.name);
+    episodeTitles = videos.map((video) => video.relPath);
 
     // 目录已经列过了，直接在这批条目里挑封面，不必再请求一次
-    const dirCover = pickCoverFromItems(content, title);
+    const dirCover = pickCoverFromItems(
+      content.filter((item) => !item.is_dir),
+      title
+    );
     if (dirCover && !poster) {
       poster = buildLibraryImageUrl(joinOpenListPath(path, dirCover));
     }
@@ -188,6 +193,90 @@ async function handleOpenListDetail(request: Request, path: string) {
   return NextResponse.json(result, {
     headers: { 'Cache-Control': 'no-store' },
   });
+}
+
+/**
+ * 递归收集目录树里的视频文件（广度优先）。
+ *
+ * 网盘常见结构是「剧集目录/第一季/E01.mkv」，只看第一层会误报
+ * 「没有可播放的视频」。这里把整棵子树摊平：每个视频记录相对路径
+ * （选集标题）与完整路径（直链）；深度、列目录次数、视频数都有上限，
+ * 防止把整块大网盘（或回收站等系统目录）当选集逐个列。
+ */
+async function collectOpenListVideos(
+  config: OpenListConfig,
+  rootPath: string,
+  firstLevelItems: any[]
+): Promise<
+  { relPath: string; fullPath: string; sign?: string; rawUrl?: string }[]
+> {
+  const budget = { listCalls: 1, videos: 0 };
+  const videos: {
+    relPath: string;
+    fullPath: string;
+    sign?: string;
+    rawUrl?: string;
+  }[] = [];
+
+  const isExhausted = () =>
+    budget.videos >= FLATTEN_MAX_VIDEOS ||
+    budget.listCalls >= FLATTEN_MAX_LIST_CALLS;
+
+  const collectFrom = (dirPath: string, items: any[]) => {
+    for (const item of items) {
+      if (budget.videos >= FLATTEN_MAX_VIDEOS) return;
+      if (!item || item.is_dir === true) continue;
+      const name = item.name;
+      if (typeof name !== 'string' || !isVideoFile(name)) continue;
+      const fullPath = joinOpenListPath(dirPath, name);
+      videos.push({
+        relPath: relativeOpenListPath(fullPath, rootPath),
+        fullPath,
+        sign: typeof item.sign === 'string' ? item.sign : undefined,
+        rawUrl: typeof item.raw_url === 'string' ? item.raw_url : undefined,
+      });
+      budget.videos++;
+    }
+  };
+
+  collectFrom(rootPath, firstLevelItems);
+
+  let queue = firstLevelItems
+    .filter(
+      (item) =>
+        item?.is_dir === true &&
+        typeof item?.name === 'string' &&
+        !isOpenListSystemDir(item.name)
+    )
+    .map((item) => joinOpenListPath(rootPath, item.name));
+  let depth = 1;
+
+  while (queue.length && depth < FLATTEN_MAX_DEPTH && !isExhausted()) {
+    const next: string[] = [];
+    for (const dir of queue) {
+      if (isExhausted()) break;
+      const res = await requestOpenList(config, 'list', dir);
+      budget.listCalls++;
+      if (!res.ok) continue;
+      const items = ((res.data?.data?.content ?? []) as any[]).filter(
+        (item) => item && typeof item?.name === 'string'
+      );
+      collectFrom(dir, items);
+      for (const item of items) {
+        if (
+          item.is_dir === true &&
+          !isOpenListSystemDir(item.name) &&
+          !isExhausted()
+        ) {
+          next.push(joinOpenListPath(dir, item.name));
+        }
+      }
+    }
+    queue = next;
+    depth++;
+  }
+
+  return videos;
 }
 
 /**

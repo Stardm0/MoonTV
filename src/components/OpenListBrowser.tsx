@@ -604,18 +604,9 @@ const OpenListBrowser = () => {
                                 fullPath
                               )
                             }
-                            className='rounded-lg px-2 py-1 text-xs text-gray-500 transition-colors hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-gray-800'
+                            className='rounded-lg bg-green-500/10 px-3 py-1.5 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
                           >
                             进入
-                          </button>
-                          <button
-                            type='button'
-                            onClick={() => openDirAsSeries(drive)}
-                            className='flex items-center gap-1 rounded-lg bg-green-500/10 px-2 py-1 text-xs text-green-600 transition-colors hover:bg-green-500/20 dark:text-green-400'
-                            title='把目录里的视频按集数顺序排成选集播放'
-                          >
-                            <Play className='h-3 w-3' />
-                            按剧集播放
                           </button>
                         </li>
                       );
