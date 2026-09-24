@@ -2,8 +2,8 @@
 
 /* eslint-disable @next/next/no-img-element */
 
-import { File, FileVideo, Folder, Play } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { ChevronDown, File, FileVideo, Folder, Play } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { formatFileSize } from '@/lib/file-size';
 import type { LibraryView } from '@/lib/library-view';
@@ -40,6 +40,9 @@ export interface LibraryItemsProps {
   onPlayDir: (item: OpenListItem) => void;
   onPlayVideo: (item: OpenListItem) => void;
 }
+
+/** 一次最多渲染多少条：网盘大目录动辄上千项，全渲染会卡住整页 */
+const PAGE_SIZE = 60;
 
 /** 图标视图的三档尺寸（卡片宽 / 封面高 / 图标大小） */
 const GRID_SIZE: Record<
@@ -151,6 +154,36 @@ const LibraryItems = ({
   onPlayDir,
   onPlayVideo,
 }: LibraryItemsProps) => {
+  /**
+   * 分页：OpenList 的 fs/list 一次把整个目录返回完，服务端没有分页参数，
+   * 所以只能客户端截断渲染。翻页 / 换目录 / 换视图都要回到第一页。
+   */
+  const [visible, setVisible] = useState(PAGE_SIZE);
+  useEffect(() => {
+    setVisible(PAGE_SIZE);
+  }, [items, view]);
+
+  const shown = useMemo(() => items.slice(0, visible), [items, visible]);
+  const hasMore = items.length > shown.length;
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // 滚到底自动续加载（IntersectionObserver 在老浏览器/jsdom 里没有，要有兜底按钮）
+  useEffect(() => {
+    if (!hasMore || typeof IntersectionObserver === 'undefined') return;
+    const node = sentinelRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible((count) => count + PAGE_SIZE);
+        }
+      },
+      { rootMargin: '200px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, shown.length]);
+
   /** 双击的「打开」语义：目录进入，视频播放，其它不动 */
   const activate = (item: OpenListItem) => {
     if (item.is_dir) {
@@ -160,10 +193,25 @@ const LibraryItems = ({
     if (isVideoFile(item.name)) onPlayVideo(item);
   };
 
+  /** 续加载入口：滚到底会自动触发，点按钮也能手动加载（老浏览器兜底） */
+  const moreFooter = hasMore ? (
+    <div ref={sentinelRef} className='flex justify-center py-4'>
+      <button
+        type='button'
+        onClick={() => setVisible((count) => count + PAGE_SIZE)}
+        className='flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+      >
+        <ChevronDown className='h-3.5 w-3.5' />
+        加载更多（还有 {items.length - shown.length} 项）
+      </button>
+    </div>
+  ) : null;
+
   if (view === 'list') {
     return (
+      <>
       <ul className='divide-y divide-gray-200/70 rounded-xl border border-gray-200/70 dark:divide-gray-700/60 dark:border-gray-700/60'>
-        {items.map((item) => {
+        {shown.map((item) => {
           const video = !item.is_dir && isVideoFile(item.name);
           const active = selected === item.name;
           return (
@@ -224,13 +272,16 @@ const LibraryItems = ({
           );
         })}
       </ul>
+        {moreFooter}
+      </>
     );
   }
 
   const size = GRID_SIZE[view];
   return (
+    <>
     <div className='flex flex-wrap gap-2'>
-      {items.map((item) => {
+      {shown.map((item) => {
         const active = selected === item.name;
         return (
           <div
@@ -262,6 +313,8 @@ const LibraryItems = ({
         );
       })}
     </div>
+      {moreFooter}
+    </>
   );
 };
 

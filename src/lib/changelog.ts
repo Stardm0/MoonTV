@@ -11,6 +11,19 @@ export interface ChangelogEntry {
 
 export const changelog: ChangelogEntry[] = [
   {
+    version: "4.4.4",
+    date: "2026-09-24",
+    added: [
+    "影库大目录分页: 一次只渲染 60 条, 滚到底自动续加载, 也可点「加载更多（还有 N 项）」手动翻, 上千条的大目录不再一次铺满整页卡住"
+    ],
+    changed: [
+      // 无变更内容
+    ],
+    fixed: [
+      // 无修复内容
+    ]
+  },
+  {
     version: "4.4.3",
     date: "2026-09-24",
     added: [
