@@ -2,6 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "main": ".open-next/worker.js",
   "name": "moontv",
+  "keep_vars": true,
   "compatibility_date": "2026-03-17",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
