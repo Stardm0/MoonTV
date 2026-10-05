@@ -2,6 +2,24 @@
 import he from 'he';
 import Hls from 'hls.js';
 
+import { createPreparationLoader } from './media-preparation-loader';
+
+export function videoQualityFromWidth(width: number): string {
+  return width >= 3840
+    ? '4K'
+    : width >= 2560
+    ? '2K'
+    : width >= 1920
+    ? '1080p'
+    : width >= 1280
+    ? '720p'
+    : width >= 854
+    ? '480p'
+    : width > 0
+    ? 'SD'
+    : '未知';
+}
+
 function getDoubanImageProxyConfig(): {
   proxyType:
     | 'direct'
@@ -92,7 +110,22 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         });
 
       // 固定使用hls.js加载
-      const hls = new Hls();
+      const hls = new Hls({
+        loader: createPreparationLoader(Hls.DefaultConfig.loader, {
+          maxWaitMs: 4000,
+          onState: ({ phase }) => {
+            if (phase !== 'waiting') return;
+            clearTimeout(timeout);
+            resolve({
+              quality: '准备中',
+              loadSpeed: '未知',
+              pingTime: Math.round(pingTime),
+            });
+            hls.destroy();
+            video.remove();
+          },
+        }),
+      });
 
       // 设置超时处理
       const timeout = setTimeout(() => {
@@ -127,18 +160,7 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
             video.remove();
 
             // 根据视频宽度判断视频质量等级，使用经典分辨率的宽度作为分割点
-            const quality =
-              width >= 3840
-                ? '4K' // 4K: 3840x2160
-                : width >= 2560
-                ? '2K' // 2K: 2560x1440
-                : width >= 1920
-                ? '1080p' // 1080p: 1920x1080
-                : width >= 1280
-                ? '720p' // 720p: 1280x720
-                : width >= 854
-                ? '480p'
-                : 'SD'; // 480p: 854x480
+            const quality = videoQualityFromWidth(width);
 
             resolve({
               quality,
@@ -240,18 +262,22 @@ export function getRequestTimeout(): number {
   if (typeof window === 'undefined') {
     return 30; // 服务器端返回默认值
   }
-  
+
   try {
     const savedTimeout = localStorage.getItem('requestTimeout');
     if (savedTimeout) {
       const timeoutSeconds = parseInt(savedTimeout, 10);
-      if (!isNaN(timeoutSeconds) && timeoutSeconds >= 1 && timeoutSeconds <= 60) {
+      if (
+        !isNaN(timeoutSeconds) &&
+        timeoutSeconds >= 1 &&
+        timeoutSeconds <= 60
+      ) {
         return timeoutSeconds;
       }
     }
   } catch (error) {
     console.warn('Failed to read timeout from localStorage:', error);
   }
-  
+
   return 30; // 默认30秒
 }
