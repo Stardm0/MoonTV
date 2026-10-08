@@ -72,6 +72,65 @@ export function filterAdsFromM3U8(m3u8Content: string): string {
 }
 
 /**
+ * 弹幕密度限制参数。
+ *
+ * 用时间补偿的方式平滑削峰，避免硬窗口把某个时间段直接掏空。
+ */
+const DANMAKU_REFILL_RATE = 14 / 5;
+const DANMAKU_BUCKET_CAPACITY = 28;
+const DANMAKU_MAX_TOTAL = 8000;
+
+function createDanmakuFilter() {
+  let credits = DANMAKU_BUCKET_CAPACITY;
+  let lastTime = -Infinity;
+  let acceptedCount = 0;
+
+  return (danmu: any) => {
+    if (!danmu || typeof danmu !== 'object') return false;
+
+    if (typeof danmu.text === 'string' && danmu.text.length > 100) {
+      return false;
+    }
+
+    const rawTime =
+      typeof danmu.time === 'number'
+        ? danmu.time
+        : typeof danmu.time === 'string'
+        ? Number(danmu.time)
+        : NaN;
+
+    if (!Number.isFinite(rawTime)) {
+      return true;
+    }
+
+    if (rawTime + 0.5 < lastTime) {
+      credits = DANMAKU_BUCKET_CAPACITY;
+      acceptedCount = 0;
+      lastTime = rawTime;
+    } else {
+      const elapsed = Math.max(0, rawTime - lastTime);
+      credits = Math.min(
+        DANMAKU_BUCKET_CAPACITY,
+        credits + elapsed * DANMAKU_REFILL_RATE
+      );
+      lastTime = rawTime;
+    }
+
+    if (acceptedCount >= DANMAKU_MAX_TOTAL) {
+      return false;
+    }
+
+    if (credits < 1) {
+      return false;
+    }
+
+    credits -= 1;
+    acceptedCount += 1;
+    return true;
+  };
+}
+
+/**
  * 计算播放源综合评分。
  *
  * 权重：分辨率 60% + 下载速度 30% + 网络延迟 10%。
@@ -170,7 +229,7 @@ export function createDanmakuDefaultConfig(): any {
     heatmap: false,
     width: 512,
     points: [],
-    filter: (danmu: any) => danmu.text.length <= 100,
+    filter: createDanmakuFilter(),
     beforeVisible: () => true,
     visible: true,
     emitter: false,
