@@ -185,7 +185,7 @@ export function VideoLoadingMask({ visible, stage }: VideoLoadingMaskProps) {
   if (!visible) return null;
 
   return (
-    <div className='absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-[500] transition-all duration-300'>
+    <div className='absolute inset-0 bg-black/85 backdrop-blur-sm flex items-center justify-center z-[120] transition-all duration-300'>
       <div className='text-center max-w-md mx-auto px-6'>
         {/* 动画影院图标 */}
         <div className='relative mb-8'>
