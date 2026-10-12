@@ -32,7 +32,7 @@ function getDoubanImageProxyConfig(): {
 export function processImageUrl(originalUrl: string): string {
   if (!originalUrl) return originalUrl;
 
-  const normalizedUrl = originalUrl.trim();
+  let normalizedUrl = originalUrl.trim();
 
   // 已经是本地代理、内联资源或本地资源时，直接返回
   if (
@@ -42,6 +42,15 @@ export function processImageUrl(originalUrl: string): string {
     normalizedUrl.startsWith('/')
   ) {
     return normalizedUrl;
+  }
+
+  // Bangumi 日历接口（api.bgm.tv/calendar）返回的封面是 http:// 明文地址，
+  // 但 lain.bgm.tv 强制 HTTPS，明文请求会被 Cloudflare 直接拒掉：
+  //   400 The plain HTTP request was sent to HTTPS port
+  // 升级为 https 后浏览器可直连（该图床不校验 Referer，实测无 Referer 也是 200）。
+  // 必须在下面「http:// 一律走代理」那条之前处理，否则会被送进代理拿 400。
+  if (normalizedUrl.startsWith('http://lain.bgm.tv')) {
+    normalizedUrl = normalizedUrl.replace('http://', 'https://');
   }
 
   // HTTPS 页面下直接加载 http 图片会触发 Mixed Content，统一走服务端代理兜底
@@ -59,7 +68,9 @@ export function processImageUrl(originalUrl: string): string {
     case 'server':
       return `/api/image-proxy?url=${encodeURIComponent(normalizedUrl)}`;
     case 'img3':
-      return normalizedUrl.replace(/img\d+\.doubanio\.com/g, 'img3.doubanio.com');
+      // 「豆瓣精品 CDN」只把子域名改写成 img3.doubanio.com，绕不过豆瓣的
+      // Referer 白名单（实测无 Referer 同样 418），因此同样降级到服务端代理。
+      return `/api/image-proxy?url=${encodeURIComponent(normalizedUrl)}`;
     case 'cmliussss-cdn-tencent':
       return normalizedUrl.replace(
         /img\d+\.doubanio\.com/g,
@@ -74,7 +85,15 @@ export function processImageUrl(originalUrl: string): string {
       return `${proxyUrl}${encodeURIComponent(normalizedUrl)}`;
     case 'direct':
     default:
-      return normalizedUrl;
+      // 豆瓣图床对图片做了 Referer 白名单（实测，2026-10）：
+      //   不带 Referer                      -> 418  cdn error 001
+      //   带第三方站点 Referer（本站域名）    -> 403
+      //   带 douban.com 的 Referer          -> 200
+      // 所以浏览器直连（无论 referrerPolicy 设成什么）都拿不到图。
+      // 这里降级到服务端代理 —— /api/image-proxy 转发时会带上
+      // Referer: https://movie.douban.com/，可以正常取图。
+      // 若想避免图片流量过自己的函数，可在设置里改用「豆瓣 CDN By CMLiussss」。
+      return `/api/image-proxy?url=${encodeURIComponent(normalizedUrl)}`;
   }
 }
 
