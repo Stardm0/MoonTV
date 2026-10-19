@@ -54,7 +54,7 @@ function HomeClient() {
   const { startLoading } = useNavigationLoading();
 
   const [showAnnouncement, setShowAnnouncement] = useState(false);
-  
+
   // 检查是否启用简洁模式
   const [simpleMode, setSimpleMode] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -64,7 +64,11 @@ function HomeClient() {
     if (typeof window !== 'undefined') {
       const savedSimpleMode = localStorage.getItem('simpleMode');
       if (savedSimpleMode !== null) {
-        setSimpleMode(JSON.parse(savedSimpleMode));
+        try {
+          setSimpleMode(JSON.parse(savedSimpleMode));
+        } catch {
+          setSimpleMode(false);
+        }
       }
     }
   }, []);
@@ -168,7 +172,14 @@ function HomeClient() {
 
     const loadRecommendData = async () => {
       const savedSimpleMode = localStorage.getItem('simpleMode');
-      const isSimpleMode = savedSimpleMode ? JSON.parse(savedSimpleMode) : false;
+      let isSimpleMode = false;
+      if (savedSimpleMode) {
+        try {
+          isSimpleMode = JSON.parse(savedSimpleMode);
+        } catch {
+          isSimpleMode = false;
+        }
+      }
 
       if (isSimpleMode) {
         if (cancelled) return;
@@ -191,7 +202,7 @@ function HomeClient() {
             category: '热门',
             type: '全部',
           });
-          if (!cancelled && moviesData.code === 200) {
+          if (!cancelled && moviesData?.code === 200 && Array.isArray(moviesData.list)) {
             setHotMovies(moviesData.list);
           }
         } catch (error) {
@@ -208,7 +219,7 @@ function HomeClient() {
             category: 'tv',
             type: 'tv',
           });
-          if (!cancelled && tvShowsData.code === 200) {
+          if (!cancelled && tvShowsData?.code === 200 && Array.isArray(tvShowsData.list)) {
             setHotTvShows(tvShowsData.list);
           }
         } catch (error) {
@@ -225,7 +236,7 @@ function HomeClient() {
             category: 'show',
             type: 'show',
           });
-          if (!cancelled && varietyShowsData.code === 200) {
+          if (!cancelled && varietyShowsData?.code === 200 && Array.isArray(varietyShowsData.list)) {
             setHotVarietyShows(varietyShowsData.list);
           }
         } catch (error) {
@@ -238,7 +249,7 @@ function HomeClient() {
       void (async () => {
         try {
           const bangumiData = await GetBangumiCalendarData();
-          if (!cancelled) {
+          if (!cancelled && Array.isArray(bangumiData)) {
             setBangumiCalendarData(bangumiData);
           }
         } catch (error) {
@@ -258,11 +269,12 @@ function HomeClient() {
 
   // 处理收藏数据更新的函数
   const updateFavoriteItems = async (allFavorites: Record<string, any>) => {
-    const allPlayRecords = await getAllPlayRecords();
+    const allPlayRecords = (await getAllPlayRecords()) || {};
 
     // 根据保存时间排序（从近到远）
-    const sorted = Object.entries(allFavorites)
-      .sort(([, a], [, b]) => b.save_time - a.save_time)
+    const sorted = Object.entries(allFavorites || {})
+      .filter(([, fav]) => fav && typeof fav === 'object')
+      .sort(([, a], [, b]) => (b.save_time || 0) - (a.save_time || 0))
       .map(([key, fav]) => {
         const plusIndex = key.indexOf('+');
         const source = key.slice(0, plusIndex);
@@ -292,14 +304,15 @@ function HomeClient() {
     providedPlayRecords?: Record<string, any>
   ) => {
     const allPlayRecords =
-      providedPlayRecords ?? latestPlayRecordsRef.current ?? (await getAllPlayRecords());
+      providedPlayRecords ?? latestPlayRecordsRef.current ?? (await getAllPlayRecords()) ?? {};
     latestPlayRecordsRef.current = allPlayRecords;
 
     // 按标题索引播放记录，优先按标题匹配“当前播放集数/总集数”，
     // 解决用户换片源观看后追更 key(source+id) 与播放记录 key 对不上而取不到的问题。
     const playRecordTitleIndex = buildPlayRecordTitleIndex(allPlayRecords);
 
-    const sorted = Object.entries(allFollowings)
+    const sorted = Object.entries(allFollowings || {})
+      .filter(([, item]) => item && typeof item === 'object')
       .sort(([, a], [, b]) => (b.save_time || 0) - (a.save_time || 0))
       .map(([key, item]) => {
         const plusIndex = key.indexOf('+');
@@ -1138,32 +1151,38 @@ function HomeClient() {
 
                             // 找到当前星期对应的番剧数据
                             const todayAnimes =
-                              bangumiCalendarData.find(
-                                (item) => item.weekday.en === currentWeekday
+                              (Array.isArray(bangumiCalendarData)
+                                ? bangumiCalendarData
+                                : []
+                              ).find(
+                                (item) => item?.weekday?.en === currentWeekday
                               )?.items || [];
 
-                            return todayAnimes.map((anime, index) => (
-                              <div
-                                key={`${anime.id}-${index}`}
-                                className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
-                              >
-                                <VideoCard
-                                  from='douban'
-                                  title={anime.name_cn || anime.name}
-                                  poster={
-                                    anime.images.large ||
-                                    anime.images.common ||
-                                    anime.images.medium ||
-                                    anime.images.small ||
-                                    anime.images.grid
-                                  }
-                                  douban_id={anime.id}
-                                  rate={anime.rating?.score?.toString() || ''}
-                                  year={anime.air_date?.split('-')?.[0] || ''}
-                                  isBangumi={true}
-                                />
-                              </div>
-                            ));
+                            return todayAnimes
+                              .filter(Boolean)
+                              .map((anime, index) => (
+                                <div
+                                  key={`${anime.id}-${index}`}
+                                  className='min-w-[96px] w-24 sm:min-w-[180px] sm:w-44'
+                                >
+                                  <VideoCard
+                                    from='douban'
+                                    title={anime.name_cn || anime.name || ''}
+                                    poster={
+                                      anime.images?.large ||
+                                      anime.images?.common ||
+                                      anime.images?.medium ||
+                                      anime.images?.small ||
+                                      anime.images?.grid ||
+                                      ''
+                                    }
+                                    douban_id={anime.id}
+                                    rate={anime.rating?.score?.toString() || ''}
+                                    year={anime.air_date?.split('-')?.[0] || ''}
+                                    isBangumi={true}
+                                  />
+                                </div>
+                              ));
                           })()}
                     </ScrollableRow>
                   </section>
