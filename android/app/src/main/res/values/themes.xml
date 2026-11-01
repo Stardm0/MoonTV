@@ -1,0 +1,11 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Theme.MoonTV" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/moon_green</item>
+        <item name="colorPrimaryVariant">@color/moon_green_dark</item>
+        <item name="colorSecondary">@color/moon_green</item>
+        <item name="android:statusBarColor">@color/moon_background</item>
+        <item name="android:navigationBarColor">@color/moon_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowActionModeOverlay">true</item>
+    </style>
+</resources>

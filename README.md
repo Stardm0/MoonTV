@@ -390,6 +390,12 @@ MoonTV 支持标准的苹果 CMS V10 API 格式。
 
 目前该项目可以配合 [OrionTV](https://github.com/zimplexing/OrionTV) 在 Android TV 上使用，可以直接作为 OrionTV 后端
 
+## Android 手机端与 DLNA 投屏
+
+仓库内的 [`android`](./android) 目录提供 Android 手机端。它会加载已有 MoonTV 服务，并通过原生 DLNA 模块把当前视频投放到同一局域网内的电视；无需在电视上安装配套应用，也无需新增桥接服务器。
+
+构建、安装和当前兼容范围见 [`android/README.md`](./android/README.md)。
+
 ## TVBox 对接
 
 - 在首页右上角的“设置”中，开启“启用 TVBox 接口”。

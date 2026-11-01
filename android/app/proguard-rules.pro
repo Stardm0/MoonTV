@@ -1,0 +1,2 @@
+-keep class com.yinnho.upnpcast.** { *; }
+-dontwarn org.slf4j.**

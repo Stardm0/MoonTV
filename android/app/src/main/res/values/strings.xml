@@ -1,0 +1,17 @@
+<resources>
+    <string name="app_name">MoonTV</string>
+    <string name="no_media">请先打开一个视频</string>
+    <string name="searching_devices">正在搜索同一局域网内的电视…</string>
+    <string name="no_devices">没有发现 DLNA 电视，请确认手机和电视在同一网络</string>
+    <string name="connecting_device">正在连接 %1$s…</string>
+    <string name="cast_failed">投屏失败：%1$s</string>
+    <string name="cast_connected">正在投屏到 %1$s</string>
+    <string name="cast_idle">DLNA 投屏</string>
+    <string name="server_url_title">MoonTV 服务地址</string>
+    <string name="server_url_hint">例如：https://moon.example.com</string>
+    <string name="server_url_error">请输入有效的 http 或 https 地址</string>
+    <string name="seek_back_30">后退 30 秒</string>
+    <string name="play_pause">播放或暂停</string>
+    <string name="seek_forward_30">前进 30 秒</string>
+    <string name="stop_cast">停止投屏</string>
+</resources>

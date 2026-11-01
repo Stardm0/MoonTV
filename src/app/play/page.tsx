@@ -39,6 +39,25 @@ declare global {
   interface HTMLVideoElement {
     hls?: any;
   }
+
+  interface Window {
+    MoonTVNative?: {
+      postMessage(message: string): void;
+    };
+  }
+}
+
+interface NativeCastState {
+  version: number;
+  type: 'cast-state';
+  active: boolean;
+  connecting: boolean;
+  url: string;
+  title: string;
+  position: number;
+  duration: number;
+  playbackState: string;
+  deviceName: string;
 }
 
 // Wake Lock API 类型声明
@@ -52,6 +71,9 @@ interface WakeLockSentinel {
 function PlayPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const isMoonTVAndroid =
+    typeof navigator !== 'undefined' &&
+    navigator.userAgent.includes('MoonTVAndroid/');
 
   // -----------------------------------------------------------------------------
   // 状态变量（State）
@@ -322,6 +344,52 @@ function PlayPageClient() {
   const artRef = useRef<HTMLDivElement | null>(null);
   const danmukuPluginInstanceRef = useRef<any>(null); // 弹幕插件实例
   const lastDanmakuUrlRef = useRef<string>(''); // 上一次加载的弹幕 URL
+  const nativeCastStateRef = useRef<NativeCastState | null>(null);
+
+  const postMediaToNative = () => {
+    if (!videoUrl || typeof window === 'undefined' || !window.MoonTVNative) {
+      return;
+    }
+    const player = artPlayerRef.current;
+    const episodeTitle =
+      detailRef.current?.episodes_titles?.[currentEpisodeIndexRef.current] ||
+      ((detailRef.current?.episodes.length || 0) > 1
+        ? `第 ${currentEpisodeIndexRef.current + 1} 集`
+        : '');
+    const title = episodeTitle
+      ? `${videoTitleRef.current} - ${episodeTitle}`
+      : videoTitleRef.current;
+
+    window.MoonTVNative.postMessage(
+      JSON.stringify({
+        version: 1,
+        type: 'media',
+        url: videoUrl,
+        title,
+        position: player?.currentTime || 0,
+        duration: player?.duration || 0,
+        paused: player?.paused ?? true,
+      })
+    );
+  };
+
+  const postNativeAction = (action: 'discover' | 'open-settings'): boolean => {
+    if (typeof window === 'undefined' || !window.MoonTVNative) return false;
+    window.MoonTVNative.postMessage(
+      JSON.stringify({
+        version: 1,
+        type: 'action',
+        action,
+      })
+    );
+    return true;
+  };
+
+  useEffect(() => {
+    postMediaToNative();
+    const timer = window.setInterval(postMediaToNative, 2000);
+    return () => window.clearInterval(timer);
+  }, [videoUrl, videoTitle, currentEpisodeIndex, detail]);
 
   // Wake Lock 相关
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -1427,9 +1495,8 @@ function PlayPageClient() {
   // 播放记录相关
   // ---------------------------------------------------------------------------
   // 保存播放进度
-  const saveCurrentPlayProgress = async () => {
+  const savePlayProgressAt = async (currentTime: number, duration: number) => {
     if (
-      !artPlayerRef.current ||
       !currentSourceRef.current ||
       !currentIdRef.current ||
       !videoTitleRef.current ||
@@ -1437,10 +1504,6 @@ function PlayPageClient() {
     ) {
       return;
     }
-
-    const player = artPlayerRef.current;
-    const currentTime = player.currentTime || 0;
-    const duration = player.duration || 0;
 
     // 如果播放时间太短（少于5秒）或者视频时长无效，不保存
     if (currentTime < 1 || !duration) {
@@ -1472,6 +1535,71 @@ function PlayPageClient() {
       console.error('保存播放进度失败:', err);
     }
   };
+
+  const saveCurrentPlayProgress = async () => {
+    const nativeState = nativeCastStateRef.current;
+    const useNativeProgress =
+      nativeState?.active && nativeState.url === videoUrl;
+    const player = artPlayerRef.current;
+    if (!player && !useNativeProgress) return;
+
+    const currentTime = useNativeProgress
+      ? nativeState.position
+      : player?.currentTime || 0;
+    const duration = useNativeProgress
+      ? nativeState.duration
+      : player?.duration || 0;
+    await savePlayProgressAt(currentTime, duration);
+  };
+
+  useEffect(() => {
+    const handleNativeState = (event: Event) => {
+      const state = (event as CustomEvent<NativeCastState>).detail;
+      if (!state || state.version !== 1 || state.type !== 'cast-state') return;
+
+      const previous = nativeCastStateRef.current;
+      nativeCastStateRef.current = state;
+      if (state.url !== videoUrl) return;
+
+      let interval = 5000;
+      if (process.env.NEXT_PUBLIC_STORAGE_TYPE === 'upstash') {
+        interval = 20000;
+      }
+      const now = Date.now();
+      if (
+        state.active &&
+        state.position > 0 &&
+        state.duration > 0 &&
+        now - lastSaveTimeRef.current > interval
+      ) {
+        void savePlayProgressAt(state.position, state.duration);
+      }
+      if (
+        previous?.active &&
+        !state.active &&
+        state.position > 0 &&
+        state.duration > 0
+      ) {
+        void savePlayProgressAt(state.position, state.duration);
+      }
+    };
+
+    const handleNativeControl = (event: Event) => {
+      const detail = (event as CustomEvent<{ version: number; action: string }>)
+        .detail;
+      if (detail?.version !== 1) return;
+      if (detail.action === 'pause-local' && artPlayerRef.current) {
+        artPlayerRef.current.pause();
+      }
+    };
+
+    window.addEventListener('moontv-native-state', handleNativeState);
+    window.addEventListener('moontv-native-control', handleNativeControl);
+    return () => {
+      window.removeEventListener('moontv-native-state', handleNativeState);
+      window.removeEventListener('moontv-native-control', handleNativeControl);
+    };
+  }, [videoUrl, currentSource, currentId, currentEpisodeIndex, detail]);
 
   useEffect(() => {
     // 页面即将卸载时保存播放进度和清理资源
@@ -1903,6 +2031,21 @@ function PlayPageClient() {
               setShowDanmakuSelector(true);
             },
           },
+          ...(isMoonTVAndroid
+            ? [
+                {
+                  name: '应用服务地址',
+                  html: '应用服务地址',
+                  tooltip: '修改',
+                  icon: '<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M3 5h10v2H3V5Zm12 0h6v2h-6V5Zm-2-2h2v6h-2V3ZM3 11h2v2H3v-2Zm4 0h14v2H7v-2ZM5 9h2v6H5V9ZM3 17h10v2H3v-2Zm12 0h6v2h-6v-2Zm-2-2h2v6h-2v-6Z"/></svg>',
+                  onClick() {
+                    return postNativeAction('open-settings')
+                      ? '已打开'
+                      : '应用服务尚未就绪';
+                  },
+                },
+              ]
+            : []),
         ],
         // 控制栏配置
         controls: [
@@ -1915,6 +2058,24 @@ function PlayPageClient() {
               handleNextEpisode();
             },
           },
+          ...(isMoonTVAndroid
+            ? [
+                {
+                  name: 'dlna-cast',
+                  position: 'right',
+                  index: 20,
+                  html: '<i class="art-icon flex"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1 18v3h3a3 3 0 0 0-3-3Zm0-4v2a5 5 0 0 1 5 5h2a7 7 0 0 0-7-7Zm2-11a2 2 0 0 0-2 2v5h2V5h18v14h-9v2h9a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2H3Zm-2 7v2a9 9 0 0 1 9 9h2c0-6.08-4.92-11-11-11Z" fill="currentColor"/></svg></i>',
+                  tooltip: 'DLNA 投屏',
+                  click() {
+                    postMediaToNative();
+                    if (!postNativeAction('discover')) {
+                      artPlayerRef.current.notice.show =
+                        '投屏服务尚未就绪，请稍后重试';
+                    }
+                  },
+                },
+              ]
+            : []),
         ],
       });
 
@@ -1957,6 +2118,10 @@ function PlayPageClient() {
 
       // 监听播放状态变化，控制 Wake Lock
       artPlayerRef.current.on('play', () => {
+        if (nativeCastStateRef.current?.active) {
+          artPlayerRef.current.pause();
+          return;
+        }
         requestWakeLock();
       });
 
