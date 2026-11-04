@@ -115,6 +115,32 @@ CREATE TABLE IF NOT EXISTS admin_config (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+
+-- ============================================================
+-- 共同观影室（watch-room）表结构
+-- 房间快照 / 事件流 / 每房间自增序号
+-- ============================================================
+CREATE TABLE IF NOT EXISTS watch_rooms (
+  id TEXT PRIMARY KEY,
+  data TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watch_room_events (
+  room_id TEXT NOT NULL,
+  seq INTEGER NOT NULL,
+  data TEXT NOT NULL,
+  PRIMARY KEY (room_id, seq)
+);
+
+CREATE TABLE IF NOT EXISTS watch_room_seqs (
+  room_id TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_rooms_updated ON watch_rooms (updated_at);
+CREATE INDEX IF NOT EXISTS idx_watch_room_events_order ON watch_room_events (room_id, seq);
+
 -- 输出成功信息
 SELECT '✅ D1 数据库表结构创建完成' as status;
 
@@ -130,3 +156,6 @@ SELECT '  • today_updated - 今日新更记录表' as table_info;
 SELECT '  • admin_config - 管理员配置表' as table_info;
 SELECT '  • source_configs - 源配置表' as table_info;
 SELECT '  • custom_categories - 自定义分类表' as table_info;
+SELECT '  • watch_rooms - 观影室房间表' as table_info;
+SELECT '  • watch_room_events - 观影室事件表' as table_info;
+SELECT '  • watch_room_seqs - 观影室序号表' as table_info;
