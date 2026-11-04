@@ -132,11 +132,14 @@ export function isRoomId(value: unknown): value is string {
 /** 清洗用户可控文本：去掉控制字符、压缩空白、限长 */
 export function cleanText(value: unknown, maxLength: number): string {
   if (typeof value !== 'string') return '';
-  // eslint-disable-next-line no-control-regex
-  return value
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .trim()
-    .slice(0, maxLength);
+  // 避免 no-control-regex：通过字符码过滤控制字符
+  const sanitized = Array.from(value)
+    .filter((char) => {
+      const code = char.charCodeAt(0);
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('');
+  return sanitized.trim().slice(0, maxLength);
 }
 
 export function currentPlayPath(): string {

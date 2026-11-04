@@ -9,31 +9,35 @@ import { TodayUpdatedItem, TodayUpdatedRecord } from '@/lib/types';
 
 export const runtime = 'edge';
 
+type UnknownRecord = Record<string, unknown>;
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return !!value && typeof value === 'object';
+}
+
 // 校验“今日新更”记录结构，返回规范化后的记录；非法则返回 null
-function validateRecord(body: any): TodayUpdatedRecord | null {
-  if (!body || typeof body !== 'object') return null;
+function validateRecord(body: unknown): TodayUpdatedRecord | null {
+  if (!isRecord(body)) return null;
 
   const date = typeof body.date === 'string' ? body.date : '';
   // 日期格式校验：YYYY-MM-DD
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
   const rawItems = Array.isArray(body.items) ? body.items : [];
-  const items: TodayUpdatedItem[] = rawItems
-    .filter((it: any) => it && typeof it === 'object')
-    .map((it: any) => ({
-      source: String(it.source ?? ''),
-      id: String(it.id ?? ''),
-      title: String(it.title ?? ''),
-      poster: String(it.poster ?? ''),
-      episodes: Number(it.episodes) || 0,
-      watchedEpisodes: Number(it.watchedEpisodes) || 0,
-      unwatchedEpisodes: Number(it.unwatchedEpisodes) || 0,
-      source_name: String(it.source_name ?? ''),
-      year: String(it.year ?? ''),
-      save_time: Number(it.save_time) || 0,
-      oldEpisodes: Number(it.oldEpisodes) || 0,
-      newEpisodes: Number(it.newEpisodes) || 0,
-    }));
+  const items: TodayUpdatedItem[] = rawItems.filter(isRecord).map((it) => ({
+    source: String(it.source ?? ''),
+    id: String(it.id ?? ''),
+    title: String(it.title ?? ''),
+    poster: String(it.poster ?? ''),
+    episodes: Number(it.episodes) || 0,
+    watchedEpisodes: Number(it.watchedEpisodes) || 0,
+    unwatchedEpisodes: Number(it.unwatchedEpisodes) || 0,
+    source_name: String(it.source_name ?? ''),
+    year: String(it.year ?? ''),
+    save_time: Number(it.save_time) || 0,
+    oldEpisodes: Number(it.oldEpisodes) || 0,
+    newEpisodes: Number(it.newEpisodes) || 0,
+  }));
 
   return { date, items };
 }
