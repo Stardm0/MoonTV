@@ -627,6 +627,7 @@ export default function WatchRoomPanel({
 
     if (!res.ok || !res.room) {
       setErrorText(res.error || '同步失败');
+      showHint('同步失败，请稍后重试');
       return;
     }
 
@@ -641,7 +642,8 @@ export default function WatchRoomPanel({
       );
       setEvents((prev) => [...prev, ...nextEvents].slice(-100));
     }
-  }, [artPlayerRef, currentEpisodeIndex, applyRoomState]);
+    showHint('同步成功');
+  }, [artPlayerRef, currentEpisodeIndex, applyRoomState, showHint]);
 
   const myCurrentSyncMode = room ? resolveMemberSyncMode(room) : 'auto';
   const effectiveSyncMode = optimisticSyncMode ?? myCurrentSyncMode;
@@ -797,10 +799,11 @@ export default function WatchRoomPanel({
                     </span>
                   </div>
                 </div>
-                {effectiveSyncMode === 'manual' && (
+                {!isHost && effectiveSyncMode === 'manual' && (
                   <button
                     type='button'
                     onClick={() => {
+                      setSettingsOpen(false);
                       void syncProgressOnce();
                     }}
                     className='mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700'
