@@ -129,8 +129,9 @@ export async function GET(request: Request) {
       );
       const data: unknown = await resp.json();
       const dataRecord = asRecord(data);
-      const list = Array.isArray(dataRecord?.list)
-        ? dataRecord.list
+      const rawList = dataRecord?.list;
+      const list = Array.isArray(rawList)
+        ? rawList
             .map((item) => asRecord(item))
             .filter((item): item is UnknownRecord => !!item)
         : [];

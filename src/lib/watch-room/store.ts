@@ -108,9 +108,9 @@ function memoryMap(): Map<string, MemoryEntry> {
 
 function sweepExpired(map: Map<string, MemoryEntry>): void {
   const now = Date.now();
-  for (const [id, entry] of map) {
+  map.forEach((entry, id) => {
     if (now - entry.updatedAt > ROOM_TTL_SECONDS * 1000) map.delete(id);
-  }
+  });
 }
 
 export class MemoryRoomStore implements RoomStore {
