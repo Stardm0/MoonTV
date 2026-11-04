@@ -43,12 +43,22 @@ interface EpisodeSelectorProps {
   /** 预计算的测速结果，避免重复测速 */
   precomputedVideoInfo?: Map<string, VideoInfo>;
   /** 优选播放源相关 */
-  preferBestSource?: (sources: SearchResult[], isCancelled?: () => boolean) => Promise<SearchResult>;
+  preferBestSource?: (
+    sources: SearchResult[],
+    isCancelled?: () => boolean
+  ) => Promise<SearchResult>;
   setLoading: (loading: boolean) => void;
   /** 设置视频是否正在加载中的状态 */
   setIsVideoLoading: (loading: boolean) => void;
   /** 设置视频加载阶段的状态 */
-  setVideoLoadingStage: (stage: 'initing' | 'sourceChanging' | 'optimizing') => void;
+  setVideoLoadingStage: (
+    stage: 'initing' | 'sourceChanging' | 'optimizing'
+  ) => void;
+  /**
+   * 共同观影室内容。传入后在「换源」右侧显示「一起看」分段；
+   * 不传时组件行为与上游完全一致（其他调用方不受影响）。
+   */
+  watchRoomSlot?: React.ReactNode;
 }
 
 /**
@@ -70,8 +80,9 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
   precomputedVideoInfo,
   preferBestSource,
   setLoading,
-  setIsVideoLoading,
-  setVideoLoadingStage
+  setIsVideoLoading: _setIsVideoLoading,
+  setVideoLoadingStage: _setVideoLoadingStage,
+  watchRoomSlot,
 }) => {
   const router = useRouter();
   const pageCount = Math.ceil(totalEpisodes / episodesPerPage);
@@ -97,11 +108,24 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
     videoInfoMapRef.current = videoInfoMap;
   }, [videoInfoMap]);
 
-  // 主要的 tab 状态：'episodes' 或 'sources'
+  // 主要的 tab 状态：'episodes' / 'sources' / 'watchroom'
   // 当只有一集时默认展示 "换源"，并隐藏 "选集" 标签
-  const [activeTab, setActiveTab] = useState<'episodes' | 'sources'>(
-    totalEpisodes > 1 ? 'episodes' : 'sources'
-  );
+  const [activeTab, setActiveTab] = useState<
+    'episodes' | 'sources' | 'watchroom'
+  >(totalEpisodes > 1 ? 'episodes' : 'sources');
+
+  // 邀请链接（URL 带 ?room=）打开时自动落到「一起看」Tab。
+  // 用 effect 而非 useState 初始化，避免 SSR / hydration 时两端计算不一致；
+  // 用 ref 保证只判一次——slot 是 React element，每次 render 引用都会变，
+  // 否则会把用户手动切走的 Tab 反复拉回来。
+  const autoSwitchedRef = useRef(false);
+  useEffect(() => {
+    if (!watchRoomSlot || autoSwitchedRef.current) return;
+    autoSwitchedRef.current = true;
+    if (typeof window === 'undefined') return;
+    if (!new URLSearchParams(window.location.search).has('room')) return;
+    setActiveTab('watchroom');
+  }, [watchRoomSlot]);
 
   // 当前分页索引（0 开始）
   const initialPage = Math.floor((value - 1) / episodesPerPage);
@@ -347,62 +371,85 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         )}
         <div
           onClick={handleSourceTabClick}
-          className={`${tabClass(activeTab === 'sources')} flex items-center justify-center
+          className={`${tabClass(
+            activeTab === 'sources'
+          )} flex items-center justify-center
           `.trim()}
         >
           <span>换源</span>
-          {preferBestSource && availableSources && availableSources.length > 0 && (
-            <div
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isOptimizing) return; // 防止重复点击
-                if (!availableSources || availableSources.length === 0) return;
-                // 重置取消标志
-                cancelOptimizationRef.current = false;
-                setIsOptimizing(true);
-                preferBestSource(availableSources, () => cancelOptimizationRef.current)
-                  .then((bestSource) => {
-                    // 如果已取消，则忽略结果
-                    if (cancelOptimizationRef.current) return;
-                    // 确保bestSource有效
-                    if (bestSource && (bestSource.source !== currentSource || bestSource.id !== currentId)) {
-                      // 切换到最佳播放源
-                      handleSourceClick(bestSource);
-                    }
-                  })
-                  .catch((_err: Error) => {
-                    // 静默处理错误，因为已经有UI提示
-                  })
-                  .finally(() => {
-                    if (!cancelOptimizationRef.current) {
-                      setIsOptimizing(false);
-                      if (setLoading) setLoading(false);
-                    }
-                    // 重置取消标志
-                    cancelOptimizationRef.current = false;
-                  });
-              }}
-              className={`ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out ${
-                isOptimizing
-                  ? 'opacity-50 cursor-not-allowed'
-                  : 'hover:bg-blue-600 hover:scale-110 cursor-pointer'
-              }`}
-              title={isOptimizing ? '优选进行中...' : '优选播放源'}
-            >
-              <svg
-                className="w-3.5 h-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+          {preferBestSource &&
+            availableSources &&
+            availableSources.length > 0 && (
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isOptimizing) return; // 防止重复点击
+                  if (!availableSources || availableSources.length === 0)
+                    return;
+                  // 重置取消标志
+                  cancelOptimizationRef.current = false;
+                  setIsOptimizing(true);
+                  preferBestSource(
+                    availableSources,
+                    () => cancelOptimizationRef.current
+                  )
+                    .then((bestSource) => {
+                      // 如果已取消，则忽略结果
+                      if (cancelOptimizationRef.current) return;
+                      // 确保bestSource有效
+                      if (
+                        bestSource &&
+                        (bestSource.source !== currentSource ||
+                          bestSource.id !== currentId)
+                      ) {
+                        // 切换到最佳播放源
+                        handleSourceClick(bestSource);
+                      }
+                    })
+                    .catch((_err: Error) => {
+                      // 静默处理错误，因为已经有UI提示
+                    })
+                    .finally(() => {
+                      if (!cancelOptimizationRef.current) {
+                        setIsOptimizing(false);
+                        if (setLoading) setLoading(false);
+                      }
+                      // 重置取消标志
+                      cancelOptimizationRef.current = false;
+                    });
+                }}
+                className={`ml-2 bg-blue-500 text-white text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shadow-md transition-all duration-300 ease-out ${
+                  isOptimizing
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'hover:bg-blue-600 hover:scale-110 cursor-pointer'
+                }`}
+                title={isOptimizing ? '优选进行中...' : '优选播放源'}
               >
-                <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-              </svg>
-            </div>
-          )}
+                <svg
+                  className='w-3.5 h-3.5'
+                  viewBox='0 0 24 24'
+                  fill='none'
+                  stroke='currentColor'
+                  strokeWidth='2'
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
+                >
+                  <path d='M13 2L3 14h9l-1 8 10-12h-9l1-8z' />
+                </svg>
+              </div>
+            )}
         </div>
+        {watchRoomSlot && (
+          <div
+            onClick={() => setActiveTab('watchroom')}
+            className={`${tabClass(
+              activeTab === 'watchroom'
+            )} flex items-center justify-center gap-1 whitespace-nowrap`}
+            title='共同观影室'
+          >
+            <span>一起看</span>
+          </div>
+        )}
       </div>
 
       {/* 选集 Tab 内容 */}
@@ -410,7 +457,10 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
         <>
           {/* 分类标签 */}
           <div className='mb-2 flex flex-shrink-0 items-center gap-2 border-b border-black/5 pb-1 dark:border-white/10'>
-            <div className='flex-1 overflow-x-auto scrollbar-hide' ref={categoryContainerRef}>
+            <div
+              className='flex-1 overflow-x-auto scrollbar-hide'
+              ref={categoryContainerRef}
+            >
               <div className='flex gap-2 min-w-max'>
                 {categories.map((label, idx) => {
                   const isActive = idx === displayPage;
@@ -723,6 +773,19 @@ const EpisodeSelector: React.FC<EpisodeSelectorProps> = ({
                 </div>
               </div>
             )}
+        </div>
+      )}
+
+      {/* 共同观影室 Tab 内容：由播放页注入，组件本身不感知房间逻辑。
+          这里用 CSS 显隐而非条件挂载：即使停在「选集 / 换源」Tab，观影室
+          也必须保持挂载，否则带 ?room= 的邀请链接打开后不会自动入房、不会同步。 */}
+      {watchRoomSlot && (
+        <div
+          className={`min-h-0 flex-1 flex-col overflow-hidden ${
+            activeTab === 'watchroom' ? 'flex' : 'hidden'
+          }`}
+        >
+          {watchRoomSlot}
         </div>
       )}
     </div>

@@ -3739,6 +3739,8 @@ export function usePlayEngine() {
     skipConfig,
     // 播放器
     artRef,
+    // ArtPlayer 实例：共同观影室需要监听播放/暂停/跳转并静默应用远端指令
+    artPlayerRef,
     playerHost,
     preview,
     isVideoLoading,

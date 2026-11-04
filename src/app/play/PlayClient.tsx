@@ -12,6 +12,7 @@ import CacheManager from '@/components/CacheManager';
 import DanmakuSelector from '@/components/DanmakuSelector';
 import EpisodeSelector from '@/components/EpisodeSelector';
 import PageLayout from '@/components/PageLayout';
+import WatchRoomPanel from '@/components/WatchRoomPanel';
 
 import { PlayerOverlayHeader } from './components/PlayerOverlayHeader';
 import {
@@ -58,6 +59,7 @@ export default function PlayClient() {
     skipConfig,
     // 播放器
     artRef,
+    artPlayerRef,
     playerHost,
     preview,
     isVideoLoading,
@@ -99,6 +101,20 @@ export default function PlayClient() {
       document.body.style.overflow = previousOverflow;
     };
   }, [isPlayerModalOpen]);
+
+  // 全端只保留一个 WatchRoomPanel 实例，一律作为右侧栏「一起看」Tab 的内容。
+  // 不做视口分支，避免桌面 / 移动两份 DOM 同时挂载导致双轮询、互相覆盖成员 id。
+  const watchRoomPanel = (
+    <WatchRoomPanel
+      artPlayerRef={artPlayerRef}
+      videoTitle={videoTitle}
+      currentSource={currentSource}
+      currentId={currentId}
+      currentEpisodeIndex={currentEpisodeIndex}
+      videoUrl={videoUrl}
+      compact
+    />
+  );
 
   if (loading) {
     return (
@@ -239,8 +255,11 @@ export default function PlayClient() {
               </div>
             </div>
 
-            {/* 选集和换源 */}
-            <div className='h-[300px] border-t border-black/5 md:col-span-1 md:overflow-hidden md:border-l md:border-t-0 lg:h-full dark:border-white/10'>
+            {/* 选集 / 换源 / 一起看（全端都在 Tab 中）。
+                移动端从 300px 提到 360px：Tab 头 + 标题 + 聊天 + 输入 + 成员 + 按钮
+                需要约 300px，300px 会把聊天区压到只剩两三行。
+                md 以上仍由 lg:h-full 跟随播放器高度。 */}
+            <div className='h-[360px] border-t border-black/5 md:col-span-1 md:overflow-hidden md:border-l md:border-t-0 lg:h-full dark:border-white/10'>
               <EpisodeSelector
                 totalEpisodes={totalEpisodes}
                 episodes_titles={detail?.episodes_titles || []}
@@ -258,6 +277,7 @@ export default function PlayClient() {
                 setLoading={setLoading}
                 setIsVideoLoading={setIsVideoLoading}
                 setVideoLoadingStage={setVideoLoadingStage}
+                watchRoomSlot={watchRoomPanel}
               />
             </div>
           </div>
