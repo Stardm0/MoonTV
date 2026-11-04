@@ -134,6 +134,20 @@ function formatClock(timestamp: number): string {
   return `${hh}:${mm}`;
 }
 
+function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00';
+  const total = Math.floor(seconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) {
+    return [hours, minutes, secs]
+      .map((v) => String(v).padStart(2, '0'))
+      .join(':');
+  }
+  return [minutes, secs].map((v) => String(v).padStart(2, '0')).join(':');
+}
+
 export default function WatchRoomPanel({
   artPlayerRef,
   videoTitle,
@@ -156,6 +170,10 @@ export default function WatchRoomPanel({
   const [hint, setHint] = useState('');
   const [storeKind, setStoreKind] = useState('');
   const [episodeMismatch, setEpisodeMismatch] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [optimisticSyncMode, setOptimisticSyncMode] = useState<
+    'auto' | 'manual' | null
+  >(null);
 
   const memberIdRef = useRef('');
   /**
@@ -184,15 +202,28 @@ export default function WatchRoomPanel({
     setTimeout(() => setHint(''), 3000);
   }, []);
 
+  const resolveMemberSyncMode = useCallback(
+    (nextRoom: WatchRoom | null) => {
+      const memberId = memberIdRef.current || myId;
+      if (!nextRoom || !memberId) return 'auto';
+      const member = nextRoom.members.find((item) => item.id === memberId);
+      return member?.syncMode ?? nextRoom.defaultSyncMode ?? 'auto';
+    },
+    [myId]
+  );
+
   /** 接收服务端快照后，把房主的播放状态静默应用到本地播放器 */
   const applyRoomState = useCallback(
-    (nextRoom: WatchRoom, host: boolean) => {
+    (nextRoom: WatchRoom, host: boolean, forceApply = false) => {
       if (host) return; // 房主是权威，绝不被自己的心跳回拉
+      const syncMode = resolveMemberSyncMode(nextRoom);
+      if (syncMode === 'manual' && !forceApply) return;
+
       const art = artPlayerRef.current;
       if (!art || typeof art.currentTime !== 'number') return;
       if (Date.now() < applyingUntilRef.current) return;
 
-      const force = !alignedRef.current;
+      const force = forceApply || !alignedRef.current;
       const video = art.video as HTMLVideoElement | undefined;
       // 缓冲中先别 seek，避免拖到未加载位置反复卡顿
       if (!force && video && video.readyState < 2) return;
@@ -233,7 +264,7 @@ export default function WatchRoomPanel({
         lastCorrectRef.current = Date.now();
       }
     },
-    [artPlayerRef, showHint]
+    [artPlayerRef, resolveMemberSyncMode, showHint]
   );
 
   /** 统一处理 create / join 的响应（URL 自动入房由轮询自身完成） */
@@ -550,6 +581,72 @@ export default function WatchRoomPanel({
     if (url) window.location.href = url;
   }, [room]);
 
+  const setSyncMode = useCallback(async (nextMode: 'auto' | 'manual') => {
+    if (!roomIdRef.current || !memberIdRef.current) return;
+    const requestId = ++latestSyncModeRequestRef.current;
+    setOptimisticSyncMode(nextMode);
+    const res = await roomRequest({
+      action: 'setSyncMode',
+      roomId: roomIdRef.current,
+      memberId: memberIdRef.current,
+      syncMode: nextMode,
+    });
+    if (requestId !== latestSyncModeRequestRef.current) {
+      return;
+    }
+    if (!res.ok || !res.room) {
+      setOptimisticSyncMode(null);
+      setErrorText(res.error || '切换同步模式失败');
+      return;
+    }
+    setOptimisticSyncMode(null);
+    setRoom(res.room);
+    if (!isHostRef.current) {
+      alignedRef.current = false;
+    }
+  }, []);
+
+  const syncProgressOnce = useCallback(async () => {
+    if (!roomIdRef.current || !memberIdRef.current) return;
+    const res = await roomRequest({
+      action: 'sync',
+      roomId: roomIdRef.current,
+      memberId: memberIdRef.current,
+      since: sinceRef.current,
+      name: displayName(),
+      playPath: isHostRef.current ? currentPlayPath() : undefined,
+      episode: isHostRef.current ? currentEpisodeIndex + 1 : undefined,
+      local:
+        isHostRef.current && artPlayerRef.current
+          ? {
+              time: artPlayerRef.current.currentTime || 0,
+              playing: !artPlayerRef.current.paused,
+            }
+          : undefined,
+    });
+
+    if (!res.ok || !res.room) {
+      setErrorText(res.error || '同步失败');
+      return;
+    }
+
+    setRoom(res.room);
+    alignedRef.current = false;
+    applyRoomState(res.room, res.isHost === true, true);
+    const nextEvents = res.events ?? [];
+    if (nextEvents.length) {
+      sinceRef.current = Math.max(
+        sinceRef.current,
+        ...nextEvents.map((e) => e.seq)
+      );
+      setEvents((prev) => [...prev, ...nextEvents].slice(-100));
+    }
+  }, [artPlayerRef, currentEpisodeIndex, applyRoomState]);
+
+  const myCurrentSyncMode = room ? resolveMemberSyncMode(room) : 'auto';
+  const effectiveSyncMode = optimisticSyncMode ?? myCurrentSyncMode;
+  const latestSyncModeRequestRef = useRef(0);
+
   const statusText =
     connected === 'online'
       ? '已连接'
@@ -649,6 +746,126 @@ export default function WatchRoomPanel({
               ? '复制邀请链接发给伙伴，链接自带片源与集数；房主控制播放，其他人自动跟随。'
               : '创建后复制邀请链接发给伙伴。邀请链接会带上当前的片源与集数，保证大家看的是同一集；房间内由房主控制播放，其他人自动跟随进度。'}
           </p>
+        </div>
+      )}
+
+      {settingsOpen && room && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm'>
+          <div className='w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl dark:bg-[#111827]'>
+            <div className='mb-4 flex items-center justify-between'>
+              <h3 className='text-base font-semibold'>房间设置</h3>
+              <button
+                type='button'
+                onClick={() => setSettingsOpen(false)}
+                className='rounded-lg px-2 py-1 text-sm text-gray-500 transition hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/10'
+              >
+                关闭
+              </button>
+            </div>
+
+            <div className='space-y-4'>
+              <div>
+                <p className='mb-2 text-xs font-medium text-gray-500 dark:text-gray-400'>
+                  同步模式
+                </p>
+                <div className='flex gap-2 rounded-xl bg-black/[0.03] p-1 dark:bg-white/[0.04]'>
+                  {(['auto', 'manual'] as const).map((mode) => {
+                    const selected = isHost
+                      ? (optimisticSyncMode ?? room.defaultSyncMode) === mode
+                      : effectiveSyncMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        type='button'
+                        onClick={() => void setSyncMode(mode)}
+                        className={`flex-1 rounded-lg px-3 py-2 text-sm transition ${
+                          selected
+                            ? 'bg-blue-600 text-white'
+                            : 'text-gray-600 hover:bg-black/5 dark:text-gray-300 dark:hover:bg-white/10'
+                        }`}
+                      >
+                        {mode === 'auto' ? '自动同步' : '手动同步'}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className='mt-3 rounded-lg bg-black/[0.03] px-3 py-2 text-sm dark:bg-white/[0.04]'>
+                  <div className='flex items-center justify-between gap-2 text-gray-600 dark:text-gray-200'>
+                    <span>当前同步时间</span>
+                    <span className='font-medium tabular-nums text-blue-600 dark:text-blue-400'>
+                      {formatDuration(room.state?.time ?? 0)}
+                    </span>
+                  </div>
+                </div>
+                {effectiveSyncMode === 'manual' && (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      void syncProgressOnce();
+                    }}
+                    className='mt-3 w-full rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700'
+                  >
+                    同步一次
+                  </button>
+                )}
+                <p className='mt-2 text-[11px] leading-relaxed text-gray-400'>
+                  {isHost
+                    ? '房主设置默认同步模式，其他成员可自行覆盖自己的同步模式。'
+                    : '你当前可单独设置自己的同步模式，不会影响房主默认值。'}
+                </p>
+              </div>
+
+              <div>
+                <p className='mb-2 text-xs font-medium text-gray-500 dark:text-gray-400'>
+                  在线成员
+                </p>
+                <div className='space-y-1.5'>
+                  {room.members.map((member) => (
+                    <div
+                      key={member.id}
+                      className='flex items-center gap-2 rounded-lg bg-black/[0.03] px-2.5 py-1.5 text-sm dark:bg-white/[0.04]'
+                    >
+                      <span className='h-1.5 w-1.5 shrink-0 rounded-full bg-green-500' />
+                      <span className='min-w-0 flex-1 truncate'>
+                        {member.name}
+                      </span>
+                      {member.id === room.hostId && (
+                        <span className='rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-400'>
+                          房主
+                        </span>
+                      )}
+                      <span className='text-[10px] text-gray-500 dark:text-gray-400'>
+                        {member.syncMode === 'manual' ? '手动' : '自动'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className='grid grid-cols-2 gap-2'>
+                <button
+                  type='button'
+                  onClick={() => {
+                    void copyInvite();
+                    setSettingsOpen(false);
+                  }}
+                  className='rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-green-700'
+                >
+                  复制链接
+                </button>
+                <button
+                  type='button'
+                  onClick={() => {
+                    void leaveRoom();
+                    setSettingsOpen(false);
+                  }}
+                  className='rounded-lg px-3 py-2 text-sm text-gray-600 ring-1 ring-black/10 transition hover:bg-black/5 dark:text-gray-300 dark:ring-white/15 dark:hover:bg-white/10'
+                >
+                  离开房间
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -778,58 +995,15 @@ export default function WatchRoomPanel({
           </div>
 
           <div className={compact ? 'shrink-0' : 'min-w-0'}>
-            <p className='mb-1 text-xs font-medium text-gray-500 dark:text-gray-400'>
-              在线成员
-            </p>
-            <div
-              className={
-                compact
-                  ? 'mb-2 flex gap-1.5 overflow-x-auto pb-0.5'
-                  : 'mb-4 space-y-1.5'
-              }
-            >
-              {room.members.map((member) => (
-                <div
-                  key={member.id}
-                  className={`flex items-center gap-2 rounded-lg bg-black/[0.03] dark:bg-white/[0.04] ${
-                    compact
-                      ? 'max-w-[150px] shrink-0 px-2 py-1 text-xs'
-                      : 'px-2.5 py-1.5 text-sm'
-                  }`}
-                >
-                  <span className='h-1.5 w-1.5 shrink-0 rounded-full bg-green-500' />
-                  <span className='min-w-0 flex-1 truncate'>{member.name}</span>
-                  {member.id === room.hostId && (
-                    <span className='shrink-0 rounded bg-blue-500/15 px-1.5 py-0.5 text-[10px] text-blue-600 dark:text-blue-400'>
-                      房主
-                    </span>
-                  )}
-                  {member.id === myId && (
-                    <span className='shrink-0 text-[10px] text-gray-400'>
-                      我
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
             <div className={compact ? 'flex gap-2' : 'space-y-2'}>
               <button
                 type='button'
-                onClick={() => void copyInvite()}
-                className={`rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-green-700 ${
+                onClick={() => setSettingsOpen(true)}
+                className={`rounded-lg bg-slate-700 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 ${
                   compact ? 'flex-1' : 'w-full'
                 }`}
               >
-                复制邀请链接
-              </button>
-              <button
-                type='button'
-                onClick={() => void leaveRoom()}
-                className={`rounded-lg px-3 py-2 text-sm text-gray-600 ring-1 ring-black/10 transition hover:bg-black/5 dark:text-gray-300 dark:ring-white/15 dark:hover:bg-white/10 ${
-                  compact ? 'flex-1' : 'w-full'
-                }`}
-              >
-                离开房间
+                设置
               </button>
             </div>
             {storeKind === 'memory' && (

@@ -16,9 +16,25 @@ import {
 
 const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
+function normalizeSyncMode(value: unknown): 'auto' | 'manual' {
+  return value === 'manual' ? 'manual' : 'auto';
+}
+
 function randomString(length: number, alphabet = ID_ALPHABET): string {
   const bytes = new Uint8Array(length);
-  crypto.getRandomValues(bytes);
+  const cryptoApi =
+    globalThis.crypto && typeof globalThis.crypto.getRandomValues === 'function'
+      ? globalThis.crypto
+      : null;
+
+  if (cryptoApi) {
+    cryptoApi.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < length; i++) {
+      bytes[i] = Math.floor(Math.random() * 256);
+    }
+  }
+
   let out = '';
   for (let i = 0; i < length; i++) {
     out += alphabet[bytes[i] % alphabet.length];
@@ -127,8 +143,11 @@ export async function handleRoomAction(
       title: cleanText(input.title, 100) || '一起看片',
       playPath,
       episode: Number.isFinite(input.episode) ? Number(input.episode) : 1,
+      defaultSyncMode: 'auto',
       state: { playing: false, time: 0, updatedAt: now },
-      members: [{ id: memberId, name, joinedAt: now, lastSeen: now }],
+      members: [
+        { id: memberId, name, joinedAt: now, lastSeen: now, syncMode: 'auto' },
+      ],
       seq: 0,
       createdAt: now,
       lastActiveAt: now,
@@ -163,7 +182,13 @@ export async function handleRoomAction(
 
     const name = resolveName(identity.name, input.name);
     const memberId = makeMemberId();
-    room.members.push({ id: memberId, name, joinedAt: now, lastSeen: now });
+    room.members.push({
+      id: memberId,
+      name,
+      joinedAt: now,
+      lastSeen: now,
+      syncMode: room.defaultSyncMode || 'auto',
+    });
     room.lastActiveAt = now;
 
     await emit(store, room, {
@@ -202,11 +227,20 @@ export async function handleRoomAction(
     if (!member) {
       const name = resolveName(identity.name, input.name);
       memberId = makeMemberId();
-      member = { id: memberId, name, joinedAt: now, lastSeen: now };
+      member = {
+        id: memberId,
+        name,
+        joinedAt: now,
+        lastSeen: now,
+        syncMode: room.defaultSyncMode || 'auto',
+      };
       room.members.push(member);
       rejoined = true;
     }
     member.lastSeen = now;
+    member.syncMode = normalizeSyncMode(
+      member.syncMode ?? room.defaultSyncMode ?? 'auto'
+    );
     room.lastActiveAt = now;
 
     // 超时成员清理（当前调用者刚上报过，不会被误判）
@@ -226,6 +260,10 @@ export async function handleRoomAction(
     transferHostIfNeeded(room, pending);
 
     const isHost = room.hostId === memberId;
+    room.defaultSyncMode = normalizeSyncMode(room.defaultSyncMode ?? 'auto');
+    member.syncMode = normalizeSyncMode(
+      member.syncMode ?? room.defaultSyncMode
+    );
 
     if (isHost) {
       // 房心跳：以房主播放器为准，成员不做权威上报
@@ -272,6 +310,51 @@ export async function handleRoomAction(
       events: (await store.listEvents(roomId, since)).slice(0, EVENT_LIMIT),
       memberId,
       isHost,
+      serverTime: now,
+      storeKind,
+    };
+  }
+
+  // -------------------------------------------------------------- setSyncMode
+  if (action === 'setSyncMode') {
+    const member = findMember(room, cleanText(input.memberId, 64));
+    if (!member) return fail('请先加入房间');
+
+    const nextMode = normalizeSyncMode(input.syncMode);
+    room.lastActiveAt = now;
+
+    if (room.hostId === member.id) {
+      room.defaultSyncMode = nextMode;
+      room.members = room.members.map((item) =>
+        item.id === member.id ? { ...item, syncMode: nextMode } : item
+      );
+      await emit(store, room, {
+        type: 'control',
+        actorId: member.id,
+        actorName: member.name,
+        text: `房主将默认同步模式切换为${
+          nextMode === 'manual' ? '手动同步' : '自动同步'
+        }`,
+      });
+    } else {
+      member.syncMode = nextMode;
+      await emit(store, room, {
+        type: 'control',
+        actorId: member.id,
+        actorName: member.name,
+        text: `${member.name} 将自己的同步模式切换为${
+          nextMode === 'manual' ? '手动同步' : '自动同步'
+        }`,
+      });
+    }
+
+    await store.saveRoom(room);
+
+    return {
+      ok: true,
+      room,
+      events: [],
+      isHost: room.hostId === member.id,
       serverTime: now,
       storeKind,
     };

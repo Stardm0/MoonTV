@@ -30,6 +30,7 @@ export interface RoomMember {
   name: string;
   joinedAt: number;
   lastSeen: number;
+  syncMode: RoomSyncMode;
 }
 
 /** 由房主持续上报的权威播放状态 */
@@ -54,6 +55,8 @@ export interface WatchRoom {
   playPath: string;
   /** 1 基集数 */
   episode: number;
+  /** 房主设置的默认同步模式；成员可自行覆盖自己的同步模式 */
+  defaultSyncMode: RoomSyncMode;
   state: RoomPlayState;
   members: RoomMember[];
   /** 最近一次事件序号，仅作参考；客户端以收到的事件 seq 为准 */
@@ -74,6 +77,7 @@ export interface RoomEvent {
 }
 
 export type ControlKind = 'play' | 'pause' | 'seek' | 'episode';
+export type RoomSyncMode = 'auto' | 'manual';
 
 export type RoomRequest =
   | {
@@ -96,6 +100,12 @@ export type RoomRequest =
       episode?: number;
       /** 房主上报本地播放状态作为心跳 */
       local?: { time: number; playing: boolean };
+    }
+  | {
+      action: 'setSyncMode';
+      roomId: string;
+      memberId: string;
+      syncMode: RoomSyncMode;
     }
   | {
       action: 'control';
