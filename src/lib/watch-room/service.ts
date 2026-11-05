@@ -11,6 +11,8 @@ import {
   MAX_NAME_LENGTH,
   MEMBER_PREVIEW_LIMIT,
   MEMBER_TIMEOUT_MS,
+  normalizeCapacity,
+  resolveCreateCapacity,
   ROOM_TTL_SECONDS,
   RoomEvent,
   RoomMember,
@@ -70,6 +72,40 @@ async function liveCountsFor(
       return Math.max(0, Number(presence.count) || 0);
     })
   );
+}
+
+/**
+ * 校验房间是否还能再进人。
+ *
+ * 人数以 presence 层的实时活跃数为准（与列表展示口径一致），而不是核心里
+ * 异步回写的 memberCount 快照。selfId 是调用者自己持有的成员 id：若他本来
+ * 就算在线，重连时不应把自己当成新占用一个名额，否则满员房间里的在线成员
+ * 刷新一下页面就会被自己挤出去。
+ *
+ * 返回 null 表示可进入，否则返回可直接下发的错误响应。
+ */
+async function capacityBlock(
+  store: RoomStore,
+  room: WatchRoom,
+  now: number,
+  selfId?: string
+): Promise<RoomResponse | null> {
+  const cap = normalizeCapacity(room.maxMembers);
+  if (!cap) return null;
+
+  const presence = await store.getPresence(room.id, MEMBER_TIMEOUT_MS, 0);
+  let occupied = Math.max(0, Number(presence.count) || 0);
+  if (selfId) {
+    const self = await store.getMember(room.id, selfId);
+    const lastSeen = Number(self?.lastSeen) || 0;
+    if (lastSeen > 0 && now - lastSeen <= MEMBER_TIMEOUT_MS) {
+      occupied = Math.max(0, occupied - 1);
+    }
+  }
+  if (occupied >= cap) {
+    return fail(`观影室人数已满（上限 ${cap} 人）`);
+  }
+  return null;
 }
 
 function allowCountRefresh(roomId: string, now: number): boolean {
@@ -287,6 +323,8 @@ export async function handleRoomAction(
       state: { playing: false, time: 0, updatedAt: now },
       members: [],
       memberCount: 0,
+      // 老客户端不传 maxMembers 时由服务端兜底，保证新房间默认就有上限
+      maxMembers: resolveCreateCapacity(input.maxMembers),
       seq: 0,
       rev: 1,
       createdAt: now,
@@ -376,6 +414,7 @@ export async function handleRoomAction(
         },
         members: [],
         memberCount: counts[index],
+        maxMembers: normalizeCapacity(room.maxMembers),
         seq: 0,
         rev: room.rev,
         createdAt: room.createdAt,
@@ -454,6 +493,8 @@ export async function handleRoomAction(
       identity.name,
       action === 'enterOwned' ? input.name : room.hostName
     );
+    // 房主回到自己的房间不受人数上限限制：满员时也应能重新接管，
+    // 否则房主会被自己设置的容量挡在门外。
     let member = await store.getMember(room.id, room.hostId);
     let memberId: string;
     const drafts: EventDraft[] = [];
@@ -510,6 +551,9 @@ export async function handleRoomAction(
     if (room.enabled === false) {
       return fail('观影室已关闭，重新开启后才可继续使用');
     }
+    // 新建成员前先按实时在线人数卡上限，满了直接拒绝，不写入任何 presence
+    const blocked = await capacityBlock(store, room, now);
+    if (blocked) return blocked;
 
     const name = resolveName(identity.name, input.name);
     const memberId = makeMemberId();
@@ -589,8 +633,19 @@ export async function handleRoomAction(
       if (memberId === room.hostId && !member) memberId = '';
     }
 
-    // 自愈：房间重启 / 存储换实例后，旧的 memberId 可能已失效
+    // 自愈：房间重启 / 存储换实例后，旧的 memberId 可能已失效。
+    // 邀请链接自动入房走的也是这条路径，所以必须在重新分配成员 id 之前
+    // 卡一次容量，否则被拒绝的用户下一轮心跳又会悄悄挤进房间。
+    // 前面「持久房间创建者重新接管房主身份」的分支不受此限制，房主永远
+    // 能回到自己的房间。
     if (!member) {
+      const blocked = await capacityBlock(
+        store,
+        room,
+        now,
+        memberId || undefined
+      );
+      if (blocked) return blocked;
       memberId = makeMemberId();
       member = {
         id: memberId,

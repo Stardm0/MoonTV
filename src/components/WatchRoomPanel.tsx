@@ -14,12 +14,16 @@ import { roomRequest } from '@/lib/watch-room/client';
 import {
   ControlKind,
   currentPlayPath,
+  DEFAULT_ROOM_CAPACITY,
   MAX_MESSAGE_LENGTH,
+  MAX_ROOM_CAPACITY,
   MEMBER_PREVIEW_LIMIT,
+  normalizeCapacity,
   POLL_HIDDEN_INTERVAL_MS,
   POLL_IDLE_INTERVAL_MS,
   POLL_INTERVAL_MS,
   POLL_JITTER,
+  resolveCreateCapacity,
   RoomEvent,
   RoomResponse,
   WatchRoom,
@@ -176,6 +180,8 @@ export default function WatchRoomPanel({
   const [input, setInput] = useState('');
   const [joinCode, setJoinCode] = useState('');
   const [roomNameInput, setRoomNameInput] = useState('');
+  // 创建房间时的人数上限，留空 = 采用默认上限（20 人）
+  const [capacityInput, setCapacityInput] = useState('');
   const [errorText, setErrorText] = useState('');
   const [hint, setHint] = useState('');
   const [storeKind, setStoreKind] = useState('');
@@ -377,6 +383,7 @@ export default function WatchRoomPanel({
       persistent: true,
       // 默认不公开：由房主在设置里主动公开
       isPublic: false,
+      maxMembers: resolveCreateCapacity(capacityInput),
     });
     setBusy(false);
     if (!res.ok || !res.room || !res.memberId) {
@@ -384,8 +391,16 @@ export default function WatchRoomPanel({
       return;
     }
     setRoomNameInput('');
+    setCapacityInput('');
     activate(res);
-  }, [busy, roomNameInput, videoTitle, currentEpisodeIndex, activate]);
+  }, [
+    busy,
+    roomNameInput,
+    capacityInput,
+    videoTitle,
+    currentEpisodeIndex,
+    activate,
+  ]);
 
   const joinRoom = useCallback(
     async (code: string) => {
@@ -508,8 +523,14 @@ export default function WatchRoomPanel({
 
       if (!res.ok) {
         setConnected('error');
-        setErrorText(res.error || '连接异常，正在重试');
-        if (/不存在|已解散|房间号无效/.test(res.error || '')) resetLocal();
+        const message = res.error || '连接异常，正在重试';
+        setErrorText(message);
+        if (/不存在|已解散|房间号无效|人数已满/.test(message)) {
+          // 房间满了不要继续反复心跳重试；退出本地房间状态，
+          // 并把满员提示留在面板上（resetLocal 会清空错误文案）。
+          resetLocal();
+          if (/人数已满/.test(message)) setErrorText(message);
+        }
         return;
       }
 
@@ -869,7 +890,11 @@ export default function WatchRoomPanel({
           {room && (
             <span className='truncate text-xs text-gray-500 dark:text-gray-400'>
               房间 {room.id} · {isHost ? '房主' : '成员'} · {statusText} ·{' '}
-              {memberCount || room.memberCount || room.members.length} 人
+              {memberCount || room.memberCount || room.members.length}
+              {normalizeCapacity(room.maxMembers)
+                ? ` / ${normalizeCapacity(room.maxMembers)}`
+                : ''}{' '}
+              人
             </span>
           )}
         </div>
@@ -911,6 +936,31 @@ export default function WatchRoomPanel({
               }}
               aria-label='房间名称'
               placeholder='共同观影室'
+              className='w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-blue-500 dark:border-white/15 dark:placeholder:text-gray-500'
+            />
+          </div>
+          <div className='mb-3'>
+            <label className='mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400'>
+              人数上限（默认 {DEFAULT_ROOM_CAPACITY} 人）
+            </label>
+            <input
+              value={capacityInput}
+              onChange={(e) =>
+                setCapacityInput(
+                  e.target.value.replace(/[^\d]/g, '').slice(0, 3)
+                )
+              }
+              onBlur={() => {
+                const cap = normalizeCapacity(capacityInput);
+                setCapacityInput(cap ? String(cap) : '');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !busy) void createRoom();
+              }}
+              inputMode='numeric'
+              aria-label='人数上限'
+              title={`默认 ${DEFAULT_ROOM_CAPACITY} 人，最多 ${MAX_ROOM_CAPACITY} 人`}
+              placeholder={`默认 ${DEFAULT_ROOM_CAPACITY} 人`}
               className='w-full rounded-lg border border-black/10 bg-transparent px-3 py-2 text-sm outline-none placeholder:text-gray-400 focus:border-blue-500 dark:border-white/15 dark:placeholder:text-gray-500'
             />
           </div>
