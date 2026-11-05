@@ -3,6 +3,42 @@ import { RoomRequest, RoomResponse } from './types';
 const REQUEST_TIMEOUT_MS = 6_000;
 
 /**
+ * 成员 id 按标签页缓存在 sessionStorage。
+ *
+ * 抽到共享模块是为了让「观影室页面点播放此房间」和「播放页面板」读写同一把
+ * key：前者通过 enterOwned 拿到服务端确认的 memberId 后必须先落盘，否则跳转
+ * 到播放页时 URL 入房会带着空 / 旧 id，触发不必要的房主重接管。
+ */
+const memberKey = (roomId: string) => `moontv:watchroom:member:${roomId}`;
+
+export function cachedMemberId(roomId: string): string {
+  if (typeof window === 'undefined') return '';
+  try {
+    return window.sessionStorage.getItem(memberKey(roomId)) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function cacheMemberId(roomId: string, memberId: string): void {
+  if (typeof window === 'undefined' || !memberId) return;
+  try {
+    window.sessionStorage.setItem(memberKey(roomId), memberId);
+  } catch {
+    /* 隐私模式下忽略 */
+  }
+}
+
+export function clearCachedMemberId(roomId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.removeItem(memberKey(roomId));
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * 观影室唯一请求入口。统一走 POST + no-store，避免被 PWA Service Worker
  * 或 CDN 缓存成旧状态。
  */

@@ -18,7 +18,11 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 import Swal from 'sweetalert2';
 
-import { roomRequest } from '@/lib/watch-room/client';
+import {
+  cacheMemberId,
+  clearCachedMemberId,
+  roomRequest,
+} from '@/lib/watch-room/client';
 import {
   DEFAULT_ROOM_CAPACITY,
   MAX_ROOM_CAPACITY,
@@ -217,6 +221,7 @@ export default function WatchRoomPage() {
       setError(res.error || '删除观影室失败');
       return;
     }
+    clearCachedMemberId(roomId);
     setRooms((current) => current.filter((room) => room.id !== roomId));
     setPublicRooms((current) => current.filter((room) => room.id !== roomId));
   };
@@ -234,6 +239,9 @@ export default function WatchRoomPage() {
       setError(res.error || '进入观影室失败');
       return;
     }
+    // enterOwned 可能重新分配了房主 memberId。先写进 sessionStorage，播放页
+    // 的 URL 入房才能带着同一个 id 继续心跳，避免首轮 sync 又做一次重接管。
+    if (res.memberId) cacheMemberId(room.id, res.memberId);
     const url = new URL(res.room?.playPath || '/play', window.location.origin);
     url.searchParams.set('room', room.id);
     window.location.assign(url.toString());
