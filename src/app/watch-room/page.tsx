@@ -238,10 +238,13 @@ export default function WatchRoomPage() {
   return (
     <PageLayout>
       <main className='mx-auto w-full max-w-5xl px-4 pb-24 pt-6 md:px-6 md:pt-10'>
-        <header className='mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 dark:border-gray-700'>
-          <div className='flex items-center gap-3'>
-            <Clapperboard className='h-6 w-6 text-green-600 dark:text-green-400' />
-            <div>
+        {/* 窄屏：标题独占一行，控件区两行铺满（输入整行 / 刷新+创建并排），
+            避免 flex-wrap 把三个控件逐个挤到下一行形成参差的三行。
+            sm 及以上恢复原来的单行横排布局。 */}
+        <header className='mb-6 flex flex-col gap-3 border-b border-gray-200 pb-4 dark:border-gray-700 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between'>
+          <div className='flex min-w-0 items-center gap-3'>
+            <Clapperboard className='h-6 w-6 shrink-0 text-green-600 dark:text-green-400' />
+            <div className='min-w-0'>
               <h1 className='text-xl font-semibold text-gray-900 dark:text-white'>
                 观影室
               </h1>
@@ -250,7 +253,7 @@ export default function WatchRoomPage() {
               </p>
             </div>
           </div>
-          <div className='flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'>
+          <div className='flex w-full min-w-0 flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end'>
             <input
               value={roomNameInput}
               onChange={(e) => setRoomNameInput(e.target.value.slice(0, 20))}
@@ -260,34 +263,37 @@ export default function WatchRoomPage() {
               }}
               aria-label='房间名称'
               placeholder='共同观影室'
-              className='h-10 w-full min-w-[180px] flex-1 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 sm:max-w-[280px]'
+              className='h-10 w-full min-w-0 rounded-md border border-gray-300 bg-white px-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none dark:border-gray-700 dark:bg-gray-900 dark:text-white dark:placeholder:text-gray-500 sm:w-auto sm:min-w-[180px] sm:max-w-[280px] sm:flex-1'
             />
-            <button
-              type='button'
-              onClick={() => void refreshAll()}
-              disabled={loading || publicLoading}
-              title='刷新列表'
-              className='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
-            >
-              <RefreshCw
-                className={`h-4 w-4 ${
-                  loading || publicLoading ? 'animate-spin' : ''
-                }`}
-              />
-            </button>
-            <button
-              type='button'
-              onClick={() => void createRoom()}
-              disabled={busy || rooms.length > 0}
-              className='inline-flex h-10 shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-green-600 px-4 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50'
-            >
-              {busy ? (
-                <LoaderCircle className='h-4 w-4 animate-spin' />
-              ) : (
-                <Plus className='h-4 w-4' />
-              )}
-              创建观影室
-            </button>
+            <div className='flex min-w-0 gap-2 sm:shrink-0'>
+              <button
+                type='button'
+                onClick={() => void refreshAll()}
+                disabled={loading || publicLoading}
+                title='刷新列表'
+                aria-label='刷新列表'
+                className='inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800'
+              >
+                <RefreshCw
+                  className={`h-4 w-4 ${
+                    loading || publicLoading ? 'animate-spin' : ''
+                  }`}
+                />
+              </button>
+              <button
+                type='button'
+                onClick={() => void createRoom()}
+                disabled={busy || rooms.length > 0}
+                className='inline-flex h-10 min-w-0 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-md bg-green-600 px-4 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-none'
+              >
+                {busy ? (
+                  <LoaderCircle className='h-4 w-4 shrink-0 animate-spin' />
+                ) : (
+                  <Plus className='h-4 w-4 shrink-0' />
+                )}
+                创建观影室
+              </button>
+            </div>
           </div>
         </header>
 
