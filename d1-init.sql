@@ -1,5 +1,8 @@
 -- D1 数据库初始化脚本
 -- 为 MoonTV 应用创建所有必要的表结构
+--
+-- 【本版本差异】观影室段落已合并「大房间性能优化」表结构：
+--   新增 watch_room_members（一行一个成员），其余表结构与原版完全一致。
 
 -- 创建用户表
 CREATE TABLE IF NOT EXISTS users (
@@ -118,7 +121,11 @@ CREATE TABLE IF NOT EXISTS admin_config (
 
 -- ============================================================
 -- 共同观影室（watch-room）表结构
--- 房间快照 / 事件流 / 每房间自增序号
+-- 房间核心快照 / 事件流 / 每房间自增序号 / 成员在线状态
+--
+-- 大房间优化：成员不再塞在 watch_rooms.data 的 members 数组里，
+-- 改为 watch_room_members 一行一个成员。单次心跳只 UPDATE 一行，
+-- 房间核心只由房主心跳 / 配置变更写入，避免 N 人并发重写整份 JSON。
 -- ============================================================
 CREATE TABLE IF NOT EXISTS watch_rooms (
   id TEXT PRIMARY KEY,
@@ -138,8 +145,31 @@ CREATE TABLE IF NOT EXISTS watch_room_seqs (
   seq INTEGER NOT NULL
 );
 
+-- 成员在线状态表：presence 层按成员粒度读写
+CREATE TABLE IF NOT EXISTS watch_room_members (
+  room_id       TEXT    NOT NULL,
+  member_id     TEXT    NOT NULL,
+  name          TEXT    NOT NULL DEFAULT '观众',
+  joined_at     INTEGER NOT NULL,
+  sync_mode     TEXT    NOT NULL DEFAULT 'auto',
+  last_seen     INTEGER NOT NULL,
+  last_chat_at  INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (room_id, member_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_watch_rooms_updated ON watch_rooms (updated_at);
+
+-- 事件流按 (room_id, seq) 增量拉取；这个索引已覆盖所需查询，
+-- 不要再建同列的第二个索引（旧迁移脚本曾多建一个 idx_watch_room_events_seq）。
 CREATE INDEX IF NOT EXISTS idx_watch_room_events_order ON watch_room_events (room_id, seq);
+
+-- 超时清扫 / 活跃人数统计走 (room_id, last_seen)
+CREATE INDEX IF NOT EXISTS idx_watch_room_members_seen
+  ON watch_room_members (room_id, last_seen);
+
+-- 成员预览 / 房主移交按加入时间排序
+CREATE INDEX IF NOT EXISTS idx_watch_room_members_joined
+  ON watch_room_members (room_id, joined_at);
 
 -- 输出成功信息
 SELECT '✅ D1 数据库表结构创建完成' as status;
@@ -159,3 +189,4 @@ SELECT '  • custom_categories - 自定义分类表' as table_info;
 SELECT '  • watch_rooms - 观影室房间表' as table_info;
 SELECT '  • watch_room_events - 观影室事件表' as table_info;
 SELECT '  • watch_room_seqs - 观影室序号表' as table_info;
+SELECT '  • watch_room_members - 观影室成员在线状态表' as table_info;
