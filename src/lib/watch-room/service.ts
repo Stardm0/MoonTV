@@ -22,7 +22,7 @@ import {
 
 const ID_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
-/** 公开列表的全表扫描结果缓存 4 秒，避免大厅页面反复 SCAN / 全表 SELECT */
+/** 房间列表的全表扫描结果缓存 4 秒，避免大厅页面反复 SCAN / 全表 SELECT */
 const ROOMS_CACHE_MS = 4_000;
 let roomsCache: { at: number; rooms: WatchRoom[] } | null = null;
 
@@ -38,9 +38,38 @@ async function cachedListRooms(store: RoomStore): Promise<WatchRoom[]> {
   const now = Date.now();
   if (roomsCache && now - roomsCache.at < ROOMS_CACHE_MS)
     return roomsCache.rooms;
+  return freshListRooms(store, now);
+}
+
+/** 刷新列表：绕开 4 秒缓存直接读存储，并顺手把缓存更新为最新快照 */
+async function freshListRooms(
+  store: RoomStore,
+  now: number
+): Promise<WatchRoom[]> {
   const rooms = await store.listRooms();
   roomsCache = { at: now, rooms };
   return rooms;
+}
+
+/**
+ * 按 presence 层实时统计每个房间「已进入且保持心跳连接」的人数。
+ *
+ * 房间核心里的 memberCount 是房主心跳异步回写的快照，加上列表缓存后，
+ * 观众离开 / 加入时大厅页面可能长期显示旧值。这里改用成员在线标记
+ * （超过 MEMBER_TIMEOUT_MS 未 sync 即视为断开）逐个房间精确计数。
+ * limit=0 只取人数、不拉成员明细，避免刷新列表放大存储读取。
+ */
+async function liveCountsFor(
+  store: RoomStore,
+  rooms: WatchRoom[]
+): Promise<number[]> {
+  if (!rooms.length) return [];
+  return Promise.all(
+    rooms.map(async (room) => {
+      const presence = await store.getPresence(room.id, MEMBER_TIMEOUT_MS, 0);
+      return Math.max(0, Number(presence.count) || 0);
+    })
+  );
 }
 
 function allowCountRefresh(roomId: string, now: number): boolean {
@@ -238,13 +267,8 @@ export async function handleRoomAction(
     const roomName = customNameValue || videoTitle;
     // 只有登录创建的持久房间才可以公开（临时房间无法在列表中持久展示）
     const publicAtCreate = input.persistent === true && input.isPublic === true;
-    const hostMember: RoomMember = {
-      id: memberId,
-      name,
-      joinedAt: now,
-      lastSeen: now,
-      syncMode: 'auto',
-    };
+    // 创建房间只落核心状态，不预置在线成员：房主 / 成员真正打开播放页并完成
+    // 第一次 sync 心跳后才计入在线人数，避免「房间刚建好、没人连接」却显示 1 人。
     const room: WatchRoom = {
       id,
       hostId: memberId,
@@ -262,7 +286,7 @@ export async function handleRoomAction(
       defaultSyncMode: 'auto',
       state: { playing: false, time: 0, updatedAt: now },
       members: [],
-      memberCount: 1,
+      memberCount: 0,
       seq: 0,
       rev: 1,
       createdAt: now,
@@ -270,13 +294,12 @@ export async function handleRoomAction(
     };
 
     await store.saveRoom(room);
-    await store.putMember(id, hostMember, ttlOf(room));
     await emitDrafts(store, room, [
       makeDraft('system', memberId, name, `${name} 创建了房间，等待伙伴加入`),
     ]);
     invalidateRoomsCache();
 
-    const presence = await presenceFor(store, room, [memberId]);
+    const presence = await presenceFor(store, room);
     const { events, latest } = await readEvents(store, id, 0);
     return {
       ok: true,
@@ -303,46 +326,62 @@ export async function handleRoomAction(
 
   if (action === 'myRooms') {
     if (!identity.owner) return fail('请登录后查看自己的观影室');
-    const rooms = (await cachedListRooms(store)).filter(
-      (room) => room.owner === identity.owner
-    );
-    return { ok: true, rooms, ...common };
+    const source =
+      input.fresh === true
+        ? await freshListRooms(store, now)
+        : await cachedListRooms(store);
+    const rooms = source.filter((room) => room.owner === identity.owner);
+    const counts = await liveCountsFor(store, rooms);
+    return {
+      ok: true,
+      rooms: rooms.map((room, index) => ({
+        ...room,
+        memberCount: counts[index],
+      })),
+      ...common,
+    };
   }
 
   // 公开大厅：只返回展示所需字段，不暴露 owner、事件序号、成员明细。
-  // 人数用核心里由房主心跳维护的 memberCount，避免为列表里每个房间再查一次 presence。
+  // 在线人数按 presence 实时统计（已进入房间且心跳未超时的连接数），
+  // 不再依赖核心里由房主心跳异步回写的快照，保证刷新后拿到真实人数。
   if (action === 'publicRooms') {
-    const rooms = (await cachedListRooms(store))
+    const source =
+      input.fresh === true
+        ? await freshListRooms(store, now)
+        : await cachedListRooms(store);
+    const listed = source
       .filter((room) => room.isPublic === true && room.enabled !== false)
-      .sort((a, b) => (b.publicizedAt || 0) - (a.publicizedAt || 0))
-      .map(
-        (room): WatchRoom => ({
-          id: room.id,
-          hostId: '',
-          hostName: room.hostName,
-          persistent: true,
-          enabled: true,
-          isPublic: true,
-          publicizedAt: room.publicizedAt,
-          title: room.title,
-          customName: room.customName,
-          videoTitle: room.videoTitle,
-          playPath: room.playPath,
-          episode: room.episode,
-          defaultSyncMode: room.defaultSyncMode,
-          state: {
-            playing: false,
-            time: 0,
-            updatedAt: room.state?.updatedAt || now,
-          },
-          members: [],
-          memberCount: Number(room.memberCount) || 0,
-          seq: 0,
-          rev: room.rev,
-          createdAt: room.createdAt,
-          lastActiveAt: room.lastActiveAt,
-        })
-      );
+      .sort((a, b) => (b.publicizedAt || 0) - (a.publicizedAt || 0));
+    const counts = await liveCountsFor(store, listed);
+    const rooms = listed.map(
+      (room, index): WatchRoom => ({
+        id: room.id,
+        hostId: '',
+        hostName: room.hostName,
+        persistent: true,
+        enabled: true,
+        isPublic: true,
+        publicizedAt: room.publicizedAt,
+        title: room.title,
+        customName: room.customName,
+        videoTitle: room.videoTitle,
+        playPath: room.playPath,
+        episode: room.episode,
+        defaultSyncMode: room.defaultSyncMode,
+        state: {
+          playing: false,
+          time: 0,
+          updatedAt: room.state?.updatedAt || now,
+        },
+        members: [],
+        memberCount: counts[index],
+        seq: 0,
+        rev: room.rev,
+        createdAt: room.createdAt,
+        lastActiveAt: room.lastActiveAt,
+      })
+    );
     return { ok: true, rooms, ...common };
   }
 

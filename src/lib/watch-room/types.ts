@@ -147,9 +147,14 @@ export type RoomRequest =
       /** 创建时直接公开到观影室页面 */
       isPublic?: boolean;
     }
-  | { action: 'myRooms' }
+  /**
+   * 我的房间列表。
+   * fresh=true 时跳过服务端列表缓存，并按实时在线状态重新统计人数，
+   * 供「观影室」页面的刷新按钮使用。
+   */
+  | { action: 'myRooms'; fresh?: boolean }
   /** 公开列表：所有已公开且未关闭的房间，任何人可加入 */
-  | { action: 'publicRooms' }
+  | { action: 'publicRooms'; fresh?: boolean }
   | { action: 'setPublic'; roomId: string; public: boolean }
   | { action: 'close'; roomId: string }
   | { action: 'delete'; roomId: string }

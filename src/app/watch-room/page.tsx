@@ -50,7 +50,9 @@ function describeRoom(room: WatchRoom): string {
       ? '尚未开始播放'
       : room.videoTitle || room.title || '共同观影室';
   const episode = room.episode > 1 ? ` · 第 ${room.episode} 集` : '';
-  const count = room.memberCount ?? room.members.length;
+  // 只认服务端按 presence 实时统计的人数；members 是裁剪过的预览名单，
+  // 不能用它的长度冒充在线人数。
+  const count = Math.max(0, Number(room.memberCount) || 0);
   return `${video}${episode} · ${count} 人在线`;
 }
 
@@ -64,9 +66,11 @@ export default function WatchRoomPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
+  // fresh=true：跳过服务端列表缓存，并按 presence 重新统计每个房间的
+  // 真实在线人数，保证点刷新后拿到的是「已进入且仍保持连接」的人数。
   const loadPublicRooms = useCallback(async () => {
     setPublicLoading(true);
-    const res = await roomRequest({ action: 'publicRooms' });
+    const res = await roomRequest({ action: 'publicRooms', fresh: true });
     setPublicLoading(false);
     if (!res.ok) return;
     setPublicRooms(res.rooms || []);
@@ -74,7 +78,7 @@ export default function WatchRoomPage() {
 
   const loadRooms = useCallback(async () => {
     setLoading(true);
-    const res = await roomRequest({ action: 'myRooms' });
+    const res = await roomRequest({ action: 'myRooms', fresh: true });
     setLoading(false);
     if (!res.ok) {
       setError(res.error || '读取观影室失败');
