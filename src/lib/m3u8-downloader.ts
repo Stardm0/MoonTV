@@ -12,6 +12,7 @@ import {
 } from './ad-filter';
 import { inferHeightFromBitrate } from './hls-quality';
 import { StreamingTransmuxer, transmuxTSToMP4 } from './mp4-transmuxer';
+import type { DirectoryHandleLike } from './stream-saver-fallback';
 import { fetchMediaUrl } from './url-guard';
 import {
   type SegmentByteRange,
@@ -738,7 +739,8 @@ export async function downloadM3U8Video(
   streamMode: StreamSaverMode = 'disabled', // 边下边存模式
   maxRetries = 3, // 最大重试次数
   completeStreamRef?: { current: (() => Promise<void>) | null }, // 完成流函数引用（用于边下边存模式立即保存）
-  persistTaskId?: string // 任务ID：传入时启用断点续传持久化
+  persistTaskId?: string, // 任务ID：传入时启用断点续传持久化
+  directoryHandle?: DirectoryHandleLike // 已选中的保存文件夹：批量任务共用，无需再次弹窗
 ): Promise<void> {
   const { startSegment, endSegment } = task.rangeDownload;
   const totalSegments = endSegment - startSegment + 1;
@@ -781,15 +783,30 @@ export async function downloadM3U8Video(
         console.log('✅ 使用 Service Worker 流式下载');
       } else if (streamMode === 'file-system') {
         // 使用 File System Access API
-        const { createFileSystemWriteStream } = await import(
-          './stream-saver-fallback'
-        );
-        stream = await createFileSystemWriteStream(filename, estimatedSize);
-        if (stream) {
-          // eslint-disable-next-line no-console
-          console.log('✅ 使用文件系统直写');
+        const { createFileSystemWriteStream, createDirectoryFileWriteStream } =
+          await import('./stream-saver-fallback');
+
+        if (directoryHandle) {
+          // 批量下载：写入用户一次性选定的目录，后续任务无需再次要求手势
+          stream = await createDirectoryFileWriteStream(
+            directoryHandle,
+            filename
+          );
+          if (stream) {
+            // eslint-disable-next-line no-console
+            console.log('✅ 使用文件系统直写（批量保存目录）');
+          }
         } else {
-          throw new Error('用户取消了文件选择');
+          // 单任务：兼容旧的「另存为」交互
+          stream = await createFileSystemWriteStream(filename, estimatedSize);
+          if (stream) {
+            // eslint-disable-next-line no-console
+            console.log('✅ 使用文件系统直写');
+          }
+        }
+
+        if (!stream) {
+          throw new Error('未选择保存位置或保存被取消');
         }
       }
 
@@ -804,6 +821,11 @@ export async function downloadM3U8Video(
         }
       }
     } catch (error) {
+      if (streamMode === 'file-system') {
+        // 用户明确选择了「文件系统直写」，不能静默降级为内存下载，
+        // 否则批量任务会出现“显示直写、实际普通下载”的模式不一致。
+        throw error;
+      }
       // eslint-disable-next-line no-console
       console.error('创建流式写入器失败，降级为普通下载:', error);
       writer = null;
