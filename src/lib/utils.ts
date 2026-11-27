@@ -144,19 +144,28 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
             hls.destroy();
             video.remove();
 
-            // 按“有效高度”判定清晰度：采集站大量 1920x800 的裁边片，
-            // 若只看宽度会被误标成 1080p，实际只有 720p 级别。
+            // 优先按高度判定：采集站大量 1920x800 的裁边片，只看宽度会被
+            // 误标成 1080p，实际只有 720p 级别；高度已知时不做宽度兜底，
+            // 否则 1280x360 这类矮画幅会被抬成 720p。
             const quality =
-              height >= 2160
+              height > 0
+                ? height >= 2160
+                  ? '4K'
+                  : height >= 1440
+                  ? '2K'
+                  : height >= 1080
+                  ? '1080p'
+                  : height >= 720
+                  ? '720p'
+                  : height >= 480
+                  ? '480p'
+                  : 'SD'
+                : width >= 3840
                 ? '4K'
-                : height >= 1440
+                : width >= 2560
                 ? '2K'
-                : height >= 1080
+                : width >= 1920
                 ? '1080p'
-                : height >= 720
-                ? '720p'
-                : height >= 480
-                ? '480p'
                 : width >= 1280
                 ? '720p'
                 : width >= 854
