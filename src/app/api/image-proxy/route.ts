@@ -22,6 +22,8 @@ export async function GET(request: Request) {
     const imageResponse = await fetchMediaUrl(imageUrl, {
       signal: request.signal,
       headers: {
+        // 让源站优先返回 WebP/AVIF，海报体积通常能小 30% 以上
+        Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
         Referer: 'https://movie.douban.com/',
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',

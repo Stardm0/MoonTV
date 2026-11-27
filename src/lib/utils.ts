@@ -139,23 +139,38 @@ export async function getVideoResolutionFromM3u8(m3u8Url: string): Promise<{
         ) {
           clearTimeout(timeout);
           const width = video.videoWidth;
-          if (width && width > 0) {
+          const height = video.videoHeight;
+          if ((width && width > 0) || (height && height > 0)) {
             hls.destroy();
             video.remove();
 
-            // 根据视频宽度判断视频质量等级，使用经典分辨率的宽度作为分割点
+            // 优先按高度判定：采集站大量 1920x800 的裁边片，只看宽度会被
+            // 误标成 1080p，实际只有 720p 级别；高度已知时不做宽度兜底，
+            // 否则 1280x360 这类矮画幅会被抬成 720p。
             const quality =
-              width >= 3840
-                ? '4K' // 4K: 3840x2160
+              height > 0
+                ? height >= 2160
+                  ? '4K'
+                  : height >= 1440
+                  ? '2K'
+                  : height >= 1080
+                  ? '1080p'
+                  : height >= 720
+                  ? '720p'
+                  : height >= 480
+                  ? '480p'
+                  : 'SD'
+                : width >= 3840
+                ? '4K'
                 : width >= 2560
-                ? '2K' // 2K: 2560x1440
+                ? '2K'
                 : width >= 1920
-                ? '1080p' // 1080p: 1920x1080
+                ? '1080p'
                 : width >= 1280
-                ? '720p' // 720p: 1280x720
+                ? '720p'
                 : width >= 854
                 ? '480p'
-                : 'SD'; // 480p: 854x480
+                : 'SD';
 
             resolve({
               quality,
