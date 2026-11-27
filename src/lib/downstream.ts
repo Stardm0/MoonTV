@@ -22,6 +22,9 @@ interface ApiSearchResponse {
   pagecount?: number;
 }
 
+/** 单个采集站搜索请求的硬超时（毫秒），避免个别慢源拖垮整次搜索 */
+const SEARCH_API_TIMEOUT_MS = 5000;
+
 // 匹配 m3u8 链接的正则
 const M3U8_PATTERN = /(https?:\/\/[^"'\s]+?\.m3u8)/g;
 
@@ -217,10 +220,12 @@ async function* searchApiQuery(
   const apiUrl =
     apiSite.api + API_CONFIG.search.path + encodeURIComponent(query);
 
+  const effectiveTimeout = timeout ?? SEARCH_API_TIMEOUT_MS;
+
   const response = await fetchWithTimeout(
     apiUrl,
     { headers: API_CONFIG.search.headers, signal },
-    timeout
+    effectiveTimeout
   );
   if (!response.ok) {
     // 不再静默当作“无结果”，让失败源显示真实原因
@@ -267,7 +272,7 @@ async function* searchApiQuery(
           const pageRes = await fetchWithTimeout(
             pageUrl,
             { headers: API_CONFIG.search.headers, signal },
-            timeout
+            effectiveTimeout
           );
           if (!pageRes.ok) return null;
 
@@ -312,7 +317,7 @@ async function* searchApiQuery(
           const pageRes = await fetchWithTimeout(
             pageUrl,
             { headers: API_CONFIG.search.headers, signal },
-            timeout
+            effectiveTimeout
           );
           if (!pageRes.ok) continue;
 
